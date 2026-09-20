@@ -151,7 +151,7 @@ $("prefsBtn").addEventListener("click", () => {
 /* ================= 版本 ================= */
 
 /* 網頁內容的版號，跟 sw.js 的 CACHE 一起加 */
-const WEB_BUILD = 17;
+const WEB_BUILD = 18;
 
 function appBuild() {
   const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
@@ -751,7 +751,7 @@ if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     let reg;
     try {
-      reg = await navigator.serviceWorker.register("./sw.js");
+      reg = await navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" });
     } catch {
       return; // 沒註冊成功就當一般網頁用
     }
