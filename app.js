@@ -10,11 +10,11 @@ const KEY_STORE = "carid.apikey";
 /* ================= 外觀：配色與明暗 ================= */
 
 const PRESETS = [
-  { hex: null, name: "預設（磚紅）", chip: "#C8391B" },
-  { hex: "#E0701B", name: "賽道橙", chip: "#E0701B" },
-  { hex: "#C99A16", name: "琥珀金", chip: "#C99A16" },
+  { hex: null, name: "預設（賽道橘）", chip: "#FF6A1F" },
+  { hex: "#E0B341", name: "琥珀黃", chip: "#E0B341" },
+  { hex: "#4C9AFF", name: "鈦藍", chip: "#4C9AFF" },
+  { hex: "#E5484D", name: "磚紅", chip: "#E5484D" },
   { hex: "#1F8A70", name: "森林綠", chip: "#1F8A70" },
-  { hex: "#2E6FD0", name: "鈦藍", chip: "#2E6FD0" },
   { hex: "#8A55D6", name: "夜紫", chip: "#8A55D6" },
 ];
 
@@ -25,7 +25,7 @@ const customSwatch = $("customSwatch");
 const accentPicker = $("accentPicker");
 
 let accentHex = null;
-let themeMode = "system";
+let themeMode = "dark";   // 介面是照深色設計的，預設就給暗的
 
 function store(key, val) {
   try {
@@ -69,9 +69,9 @@ function applyAccent() {
   }
   let rgb = hexToRgb(accentHex);
   if (!rgb) return;
-  if (isDarkNow() && lum(rgb) < 0.32) rgb = mixWhite(rgb, 0.24);
+  if (isDarkNow() && lum(rgb) < 0.18) rgb = mixWhite(rgb, 0.24);
   s.setProperty("--accent", hexOf(rgb));
-  s.setProperty("--accent-ink", lum(rgb) > 0.5 ? "#15181D" : "#FFFFFF");
+  s.setProperty("--accent-ink", lum(rgb) > 0.19 ? "#0E0F12" : "#FFFFFF");
   s.setProperty("--accent-wash", `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${isDarkNow() ? 0.16 : 0.09})`);
 }
 
@@ -116,7 +116,7 @@ for (const r of document.querySelectorAll('input[name="theme"]')) {
   r.addEventListener("change", () => {
     if (!r.checked) return;
     themeMode = r.value;
-    store("carid.theme", themeMode === "system" ? null : themeMode);
+    store("carid.theme", themeMode);
     applyTheme();
   });
 }
@@ -134,9 +134,9 @@ $("prefsBtn").addEventListener("click", () => {
 
 (function restoreLook() {
   const savedTheme = load("carid.theme");
-  if (savedTheme === "light" || savedTheme === "dark") {
+  if (savedTheme === "light" || savedTheme === "dark" || savedTheme === "system") {
     themeMode = savedTheme;
-    const el = $(savedTheme === "dark" ? "themeDark" : "themeLight");
+    const el = $("theme" + savedTheme[0].toUpperCase() + savedTheme.slice(1));
     if (el) el.checked = true;
   }
   const savedAccent = load("carid.accent");
@@ -151,7 +151,7 @@ $("prefsBtn").addEventListener("click", () => {
 /* ================= 版本 ================= */
 
 /* 網頁內容的版號，跟 sw.js 的 CACHE 一起加 */
-const WEB_BUILD = 16;
+const WEB_BUILD = 17;
 
 function appBuild() {
   const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
@@ -378,17 +378,31 @@ function renderThinking(label) {
   setTag("辨識中", true);
   resultNotes.innerHTML = "";
   resultBody.innerHTML =
-    '<div class="thinking"><div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>' +
+    '<div class="thinking"><p class="think-title">辨識中</p>' +
+    '<div class="bar" aria-hidden="true"><i></i></div>' +
     `<p id="thinkLabel">${esc(label)}</p></div>`;
 }
 
-function renderError(msg, detail, keyProblem) {
-  setTag("無法辨識", false);
-  resultBody.innerHTML = '<p class="headline">沒辦法完成</p>';
-  resultNotes.innerHTML =
-    `<p class="note warn">${esc(msg)}</p>` +
-    (detail ? `<p class="caveat">${esc(detail)}</p>` : "") +
-    (keyProblem ? '<p><button type="button" id="keyFix" class="small">重新輸入金鑰</button></p>' : "");
+function renderError(msg, detail, keyProblem, status, title) {
+  setTag("沒辨出來", false);
+  const alert =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<circle cx="12" cy="12" r="9"/><path d="M12 7.4v5.4"/><path d="M12 16.1v.3"/></svg>';
+
+  resultBody.innerHTML =
+    '<div class="fail">' +
+    `<div class="fail-icon">${alert}</div>` +
+    `<p class="fail-title">${esc(title || "這次沒辨出來")}</p>` +
+    `<p class="fail-body">${esc(msg)}</p>` +
+    (detail
+      ? '<div class="raw"><div class="raw-head">' +
+        (status ? `<span class="raw-code">HTTP ${esc(status)}</span>` : "") +
+        '<span class="raw-cap">Google 原本的回覆</span></div>' +
+        `<p>${esc(detail)}</p></div>`
+      : "") +
+    (keyProblem ? '<p class="fail-actions"><button type="button" id="keyFix" class="small">重新輸入金鑰</button></p>' : "") +
+    '</div>';
+  resultNotes.innerHTML = "";
 
   if (keyProblem) {
     // 金鑰出問題時才讓設定裡的金鑰那一列重新出現
@@ -414,15 +428,26 @@ async function diagnose() {
 function messageFor(err) {
   const status = err?.status;
   if (err?.name === "AbortError") return null;
-  if (status === 401 || status === 403) return "金鑰不對或沒有權限。到設定裡換一組 Gemini API 金鑰再試一次。";
-  if (status === 429) return "Gemini 的免費額度用完了，等一下或明天再辨識一次。下面那行是 Google 的說明。";
-  if (status === 400) return "這次請求 Gemini 不收。換一張 JPG 或 PNG 照片再試一次。";
+  if (status === 401 || status === 403) return "金鑰不對或沒有權限。到設定裡換一把金鑰再試一次。";
+  if (status === 429) return "不是網路的問題，照片也沒事。明天額度會重來，或是去 Google 把方案升上去就能繼續辨。";
+  if (status === 400) return "這次的請求 Google 不收。換一張 JPG 或 PNG 照片再試一次。";
   if (status === 413) return "照片太大了，換一張小一點的再試一次。";
-  if (status >= 500) return "Gemini 服務暫時有狀況，等一下再辨識一次。";
+  if (status >= 500) return "Google 那邊暫時有狀況，等一下再辨識一次。";
   if (err instanceof TypeError || /fetch|network|Failed to fetch/i.test(err?.message || "")) {
-    return "連不到 Gemini API。檢查網路是否正常。";
+    return "連不到 Google。先看看手機的網路正不正常。";
   }
-  return "辨識失敗了，再試一次看看。";
+  return "再試一次看看，通常第二次就好了。";
+}
+
+/* 錯誤畫面上的那一行大標 */
+function titleFor(err) {
+  const status = err?.status;
+  if (status === 401 || status === 403) return "金鑰用不了";
+  if (status === 429) return "今天的免費額度用完了";
+  if (status === 413) return "照片太大了";
+  if (status >= 500) return "Google 那邊出了點狀況";
+  if (!status) return "連不到 Google";
+  return "這次沒辨出來";
 }
 
 function row(label, value, cls) {
@@ -463,7 +488,7 @@ function renderResult(d) {
   const hasMarket = !!(d?.price_new || d?.price_used || d?.count_tw || d?.count_global || d?.limited);
 
   const rows =
-    row("車型", d?.model ? `<span class="big">${esc(d.model)}</span>` : '<span class="big">無法確定車型</span>') +
+    row("車型", d?.model ? esc(d.model) : '<span class="muted">無法確定</span>') +
     row("品牌", makeCell) +
     row("世代", v("generation")) +
     row("年份", v("years")) +
@@ -477,16 +502,29 @@ function renderResult(d) {
     row("驅動", v("drivetrain")) +
     row("燃料", v("fuel")) +
     row("油電混合", v("hybrid")) +
-    row("引擎特性", d?.engine_note ? `<span class="muted">${esc(d.engine_note)}</span>` : "") +
+    row("引擎特性", d?.engine_note ? `<span class="muted para">${esc(d.engine_note)}</span>` : "") +
     row("新車參考價", v("price_new"), "gap") +
     row("中古行情", v("price_used")) +
     row("台灣數量", v("count_tw")) +
     row("全球數量", v("count_global")) +
     row("是否限量", v("limited")) +
     row("其他可能", altCell, "gap") +
-    row("備註", d?.note ? `<span class="muted">${esc(d.note)}</span>` : "", "gap");
+    row("備註", d?.note ? `<span class="muted para">${esc(d.note)}</span>` : "", "gap");
 
-  resultBody.innerHTML = `<table class="spec"><tbody>${rows}</tbody></table>`;
+  const confWord = conf >= 70 ? "高" : conf >= 40 ? "普通" : "偏低";
+  const confClass = conf >= 70 ? " good" : conf >= 40 ? "" : " weak";
+  const heroMake = d?.make || d?.make_zh || "";
+  const heroSub = [d?.years, d?.body_style].filter(Boolean).map(esc).join("　");
+  const hero =
+    '<div class="hero">' +
+    (heroMake ? `<div class="hero-make">${esc(heroMake)}</div>` : "") +
+    `<h2 class="hero-model">${esc(d?.model || "無法確定車型")}</h2>` +
+    '<div class="hero-meta">' +
+    `<span class="chip${confClass}">把握度　${confWord}</span>` +
+    (heroSub ? `<span class="hero-sub">${heroSub}</span>` : "") +
+    '</div></div>';
+
+  resultBody.innerHTML = hero + `<table class="spec"><tbody>${rows}</tbody></table>`;
 
   let notes = "";
   if (hasEngine) notes += '<p class="caveat">動力規格為該車型年份的常見配置，實際依等級與販售市場而異。</p>';
@@ -640,10 +678,8 @@ async function run() {
       resultNotes.innerHTML = '<p class="caveat">按「再辨識一次」可以重來。</p>';
     } else {
       const keyProblem = err?.status === 401 || err?.status === 403;
-      const detail = err?.status
-        ? "HTTP " + err.status + (err.detail ? "　" + err.detail : "")
-        : (err?.message || "");
-      renderError(msg, detail, keyProblem);
+      const detail = err?.status ? (err.detail || err.message || "") : (err?.message || "");
+      renderError(msg, detail, keyProblem, err?.status, titleFor(err));
       // 網路類的錯誤再跑一次診斷，把結果補在下面
       if (!err?.status) {
         diagnose().then((line) => {

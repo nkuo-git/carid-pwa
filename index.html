@@ -7,11 +7,10 @@
 <meta name="description" content="拍一張汽車照片，辨識出品牌、車型、動力規格與行情。">
 
 <link rel="manifest" href="./manifest.webmanifest">
-<meta name="theme-color" content="#EDEEF1" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0D1013" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#0E0F12">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="辨車">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="icon" href="./icons/icon-192.png" sizes="192x192">
@@ -24,41 +23,46 @@
 
 <div class="app">
   <header class="appbar">
-    <img class="mark" src="./icons/icon-192.png" alt="" width="30" height="30">
-    <h1 class="brand-name">大便龍的辨車軟體</h1>
+    <img class="mark" src="./icons/icon-192.png" alt="" width="34" height="34">
+    <div class="brand">
+      <h1 class="brand-name">大便龍的辨車軟體</h1>
+      <p class="brand-sub">Car Identifier</p>
+    </div>
     <button type="button" class="icon-btn" id="prefsBtn" aria-expanded="false" aria-controls="prefsSheet" aria-label="設定">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="3"/>
-        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="3.2"/>
+        <path d="M4.6 14.4h-.5a2 2 0 1 1 0-4h.5a7.5 7.5 0 0 1 .9-2.2l-.4-.4a2 2 0 1 1 2.8-2.8l.4.4a7.5 7.5 0 0 1 2.2-.9v-.5a2 2 0 1 1 4 0v.5a7.5 7.5 0 0 1 2.2.9l.4-.4a2 2 0 1 1 2.8 2.8l-.4.4a7.5 7.5 0 0 1 .9 2.2h.5a2 2 0 1 1 0 4h-.5a7.5 7.5 0 0 1-.9 2.2l.4.4a2 2 0 1 1-2.8 2.8l-.4-.4a7.5 7.5 0 0 1-2.2.9v.5a2 2 0 1 1-4 0v-.5a7.5 7.5 0 0 1-2.2-.9l-.4.4a2 2 0 1 1-2.8-2.8l.4-.4a7.5 7.5 0 0 1-.9-2.2z"/>
       </svg>
     </button>
   </header>
 
   <div class="updatebar" id="updateBar" hidden>
-    <span>有新版本可以用了</span>
-    <button type="button" id="updateBtn" class="small">立即更新</button>
+    <span class="dot" aria-hidden="true"></span>
+    <span class="txt">有新版本，要更新嗎</span>
+    <button type="button" id="updateBtn" class="small">更新</button>
   </div>
 
   <div class="updatebar" id="appUpdateBar" hidden>
-    <span>App 有新版本</span>
+    <span class="dot" aria-hidden="true"></span>
+    <span class="txt">App 有新版本</span>
     <a class="small btnlike" id="appUpdateLink" href="#" rel="noopener">下載安裝</a>
   </div>
 
   <div class="sheet" id="prefsSheet" hidden>
     <div class="sheet-row">
-      <span class="sheet-label">配色</span>
+      <span class="sheet-label">主色</span>
       <div class="swatches" id="swatches" role="group" aria-label="主色">
         <button type="button" class="swatch custom" id="customSwatch" title="自己挑一個顏色" aria-label="自訂顏色">
-          <input type="color" id="accentPicker" value="#C8391B" aria-label="自訂主色">
+          <input type="color" id="accentPicker" value="#FF6A1F" aria-label="自訂主色">
         </button>
       </div>
     </div>
     <div class="sheet-row">
       <span class="sheet-label">明暗</span>
       <div class="seg" role="group" aria-label="明暗模式">
-        <label><input type="radio" name="theme" value="system" id="themeSystem" checked><span>跟系統</span></label>
-        <label><input type="radio" name="theme" value="light" id="themeLight"><span>淺色</span></label>
-        <label><input type="radio" name="theme" value="dark" id="themeDark"><span>深色</span></label>
+        <label><input type="radio" name="theme" value="system" id="themeSystem"><span>跟系統</span></label>
+        <label><input type="radio" name="theme" value="light" id="themeLight"><span>亮</span></label>
+        <label><input type="radio" name="theme" value="dark" id="themeDark" checked><span>暗</span></label>
       </div>
     </div>
     <div class="sheet-row">
@@ -67,7 +71,7 @@
         <label><input type="radio" name="tier" id="tierFast" value="fast" checked><span>標準</span></label>
         <label><input type="radio" name="tier" id="tierDeep" value="deep"><span>深入</span></label>
       </div>
-      <p class="hint-sm">深入模式會多想一下，比較慢，冷門車款認得準一些。</p>
+      <p class="hint-sm">深入會多想一下，比較慢，冷門車款認得準一些。</p>
     </div>
     <div class="sheet-row" id="keyRow">
       <span class="sheet-label">金鑰</span>
@@ -84,33 +88,31 @@
 
   <!-- 設定金鑰 -->
   <main class="screen" id="screenKey" hidden>
-    <h2 class="screen-title">先設定 Gemini 金鑰</h2>
-    <p class="lede">辨識是直接呼叫 Google Gemini API，用的是你自己的金鑰。金鑰只會存在這支手機的瀏覽器裡，不會送到任何其他地方。</p>
+    <h2 class="screen-title">先貼一把金鑰進來</h2>
+    <p class="lede">辨車是跟 Google 要的，要用你自己的金鑰。去 AI Studio 按一下就能拿到，免費的額度就夠玩。貼進來之後這一格就會收起來，不會一直卡在畫面上。</p>
     <form id="keyForm" autocomplete="off">
       <label class="field">
-        <span>Gemini API 金鑰</span>
+        <span>金鑰</span>
         <input type="password" id="keyInput" placeholder="AQ.… 或 AIza…" autocomplete="off" spellcheck="false" required>
       </label>
-      <button type="submit" class="primary block">存起來</button>
+      <p class="privacy">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2"/><path d="M8 10.5V7.8a4 4 0 0 1 8 0v2.7"/></svg>
+        只留在這支手機裡，不會傳去別的地方
+      </p>
+      <button type="submit" class="primary block">存起來，開始用</button>
     </form>
-    <p class="tip">到 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a> 用你的 Google 帳號建立金鑰，免費的。用的是 gemini-3.8-flash，有免費額度，個人偶爾拍幾張不會花到錢。</p>
+    <p class="tip">到 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a> 用你的 Google 帳號建一把，免費額度每天有限，用完隔天會重來。</p>
   </main>
 
   <!-- 拍照 -->
   <main class="screen" id="screenCapture" hidden>
     <div class="drop" id="drop" role="button" tabindex="0" aria-label="選擇或拖曳汽車照片">
       <div id="dropInner">
-        <svg viewBox="0 0 220 96" fill="none" aria-hidden="true">
-          <path d="M12 68h196" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-          <path d="M20 68V52c0-4 2-7 6-8l26-7 16-14c3-3 7-4 11-4h44c5 0 9 2 12 6l14 17 28 6c5 1 9 5 9 10v10" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-          <path d="M74 25l-13 12h44V25H74zm49 0v12h32l-10-12h-22z" fill="currentColor" opacity=".35"/>
-          <circle cx="62" cy="68" r="13" fill="var(--surface-2)" stroke="currentColor" stroke-width="2.5"/>
-          <circle cx="165" cy="68" r="13" fill="var(--surface-2)" stroke="currentColor" stroke-width="2.5"/>
-          <circle cx="62" cy="68" r="4.5" fill="currentColor"/>
-          <circle cx="165" cy="68" r="4.5" fill="currentColor"/>
-        </svg>
-        <p class="hint"><b>拍一張車的照片</b>，或從相簿挑一張</p>
-        <p class="sub">也可以把照片拖進來或直接貼上</p>
+        <span class="badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h2.8l1.4-2h7.6L17.2 8H20a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.6"/></svg>
+        </span>
+        <p class="hint">放一張車的照片</p>
+        <p class="sub">畫面會跟著照片的比例變</p>
       </div>
     </div>
 
@@ -130,7 +132,6 @@
   <main class="screen" id="screenResult" hidden>
     <div class="result-head">
       <img class="thumb" id="thumb" alt="剛才辨識的照片">
-      <p class="result-title">辨識結果</p>
       <span class="tag live" id="stateTag">辨識中</span>
     </div>
     <div class="card" id="resultCard">
