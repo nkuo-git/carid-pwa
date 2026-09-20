@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- 取自圖片裡車身的橘色，adaptive icon 的底色 -->
+  <color name="icon_bg">#DE601A</color>
+</resources>
