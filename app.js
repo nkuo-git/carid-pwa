@@ -218,7 +218,6 @@ const stopBtn = $("stop");
 const redoBtn = $("redo");
 const againBtn = $("again");
 const fileMeta = $("filemeta");
-const exampleBox = $("example");
 const screenKey = $("screenKey");
 const screenCapture = $("screenCapture");
 const screenResult = $("screenResult");
@@ -296,7 +295,6 @@ function showPhoto(blob, name) {
 
   fileMeta.hidden = false;
   fileMeta.textContent = (name || "photo") + " · " + kb(blob.size);
-  if (exampleBox) exampleBox.hidden = true;
   updateBar();
 }
 

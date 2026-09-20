@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+  <!-- 狀態列跟網頁的標題列同色，上面那條才不會多出一塊別的顏色 -->
   <style name="AppTheme" parent="android:Theme.Material.Light.NoActionBar">
-    <item name="android:colorPrimary">#2F6FEB</item>
-    <item name="android:colorPrimaryDark">#1F4FB0</item>
-    <item name="android:colorAccent">#2F6FEB</item>
-    <item name="android:windowBackground">#F5F6F8</item>
+    <item name="android:windowBackground">#FFFFFF</item>
+    <item name="android:statusBarColor">#FFFFFF</item>
+    <item name="android:windowLightStatusBar">true</item>
+    <item name="android:navigationBarColor">#FFFFFF</item>
   </style>
 </resources>

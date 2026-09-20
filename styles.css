@@ -406,7 +406,6 @@ table.spec tr.gap th, table.spec tr.gap td { padding-top: 16px; }
   align-items: baseline;
   gap: 10px;
 }
-.example { opacity: .92; }
 
 footer {
   padding: 18px 2px 4px;

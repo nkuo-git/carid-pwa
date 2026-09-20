@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- 深色模式：跟網頁深色的標題列同色 -->
+  <style name="AppTheme" parent="android:Theme.Material.NoActionBar">
+    <item name="android:windowBackground">#16191F</item>
+    <item name="android:statusBarColor">#16191F</item>
+    <item name="android:windowLightStatusBar">false</item>
+    <item name="android:navigationBarColor">#16191F</item>
+  </style>
+</resources>
