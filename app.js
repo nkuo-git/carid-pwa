@@ -282,6 +282,14 @@ function showPhoto(blob, name) {
     img.alt = "已選擇的汽車照片";
     drop.appendChild(img);
   }
+  // 預覽框的長寬跟著照片走，橫的就是橫的，直的就是直的，不要硬裁成 3:4
+  img.onload = () => {
+    const w = img.naturalWidth, h = img.naturalHeight;
+    if (!w || !h) return;
+    // 太極端的全景或長截圖還是夾住，不然版面會被拉爆
+    const ratio = Math.min(2.2, Math.max(0.5, w / h));
+    drop.style.aspectRatio = String(ratio);
+  };
   img.src = previewUrl;
   thumb.src = previewUrl;
   dropInner.hidden = true;
