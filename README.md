@@ -11,13 +11,6 @@
 
 PWA 必須從 **HTTPS** 網址開啟才能安裝，所以要先放到一個網站上。
 
-### GitHub Pages（目前用的就是這個）
-
-這份程式碼放在 <https://github.com/nkuo-git/carid-pwa>，在 repo 的 Settings → Pages 把
-Source 設成 `Deploy from a branch`、branch 選 `main`、資料夾選 `/ (root)`，
-網址就是 <https://nkuo-git.github.io/carid-pwa/>。
-之後把新的 commit 推上 `main`，等一兩分鐘就會自動更新，不用做別的事。
-
 ### Firebase Hosting（專案裡已經附好設定）
 
 ```bash
@@ -97,8 +90,12 @@ carid-pwa/
 
 ### 改版之後
 
-改完重新 deploy 就好，但 Service Worker 會先拿舊的快取。把 `sw.js` 開頭的 `CACHE = "carid-v2"` 改成 `carid-v3`，
-使用者下次開啟就會換到新版。
+改完推上 `main`，GitHub Pages 過一兩分鐘就是新版；順手把 `sw.js` 開頭的 `CACHE = "carid-v5"` 加一號，
+新的 Service Worker 才會重新抓一份乾淨的檔案。
+
+App 那邊不用重裝也不用手動清快取：每次開啟、每次從背景切回來，都會去問有沒有新版（最多一分鐘一次）。
+抓到新版時，如果使用者手上沒有照片也沒在辨識，就直接換過去並重新載入；
+正在用的話會跳一條「有新版本可以用了」的橫幅，按了才換，不會把做到一半的事情洗掉。
 
 ---
 
@@ -123,16 +120,3 @@ Service Worker 註冊成功、回來的 JSON 能正確畫成表格、403 之類�
 
 這個 PWA 可以用 [Bubblewrap](https://github.com/GoogleChromeLabs/bubblewrap) 或 PWABuilder 包成 TWA 的 APK，
 畫面和邏輯完全沿用，不需要重寫成 Flutter。需要的話再說。
-
----
-
-## 七、Android APK
-
-`android/` 是一層很薄的原生殼：整個畫面就是一個 WebView，載入上面那個 GitHub Pages 網址，
-所以沒有瀏覽器網址列，有自己的圖示，網頁改版時 App 不用重編。
-WebView 預設不會理會網頁上的「選檔案」，所以 `MainActivity.java` 自己把相簿和相機的 Intent 接了起來。
-
-APK 由 GitHub Actions 編（`.github/workflows/android.yml`），推上 `main` 或在 Actions 頁面手動觸發都會跑，
-編好的檔案會發成一個 Release，用手機開 repo 的 Releases 頁面就能直接下載安裝。
-
-目前用 debug 金鑰簽章，可以側載安裝，但**不能上架 Google Play**；要上架再換成正式金鑰。

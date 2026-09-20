@@ -614,8 +614,65 @@ redoBtn.addEventListener("click", run);
 paintKeyState();
 showScreen(apiKey ? "capture" : "key");
 
+/* ---------- 自動更新 ----------
+   新版的 Service Worker 裝好之後會在旁邊待命。閒著沒事（沒選照片、沒在辨識）
+   就直接換過去並重新載入；正在用就先跳一條橫幅，讓使用者自己決定什麼時候更新。 */
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch(() => { /* 沒註冊成功就當一般網頁用 */ });
+  window.addEventListener("load", async () => {
+    let reg;
+    try {
+      reg = await navigator.serviceWorker.register("./sw.js");
+    } catch {
+      return; // 沒註冊成功就當一般網頁用
+    }
+
+    const bar = $("updateBar");
+    const btn = $("updateBtn");
+    // 第一次安裝時 SW 接管這一頁也會觸發 controllerchange，那次不算換版，不要重載
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloading = false;
+    let applied = false;
+
+    const apply = () => {
+      if (!reg.waiting) return;
+      applied = true;
+      if (btn) { btn.disabled = true; btn.textContent = "更新中…"; }
+      reg.waiting.postMessage({ type: "SKIP_WAITING" });
+    };
+
+    const offer = () => {
+      // 第一次安裝沒有舊版可換，不用打擾使用者
+      if (!reg.waiting || !navigator.serviceWorker.controller) return;
+      if (!busy && !currentBlob) apply();
+      else if (bar) bar.hidden = false;
+    };
+
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (reloading || !(applied || hadController)) return;
+      reloading = true;
+      location.reload();
+    });
+
+    if (btn) btn.addEventListener("click", apply);
+
+    offer();
+    reg.addEventListener("updatefound", () => {
+      const fresh = reg.installing;
+      if (!fresh) return;
+      fresh.addEventListener("statechange", () => {
+        if (fresh.state === "installed") offer();
+      });
+    });
+
+    // 開起來時、每次從背景切回來時都去問一次有沒有新版，最多一分鐘一次
+    let checkedAt = 0;
+    const check = () => {
+      const now = Date.now();
+      if (now - checkedAt < 60000) return;
+      checkedAt = now;
+      reg.update().catch(() => { /* 離線就算了 */ });
+    };
+    check();
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) check(); });
   });
 }

@@ -416,3 +416,18 @@ footer {
 }
 footer p { margin: 0 0 6px; }
 footer b { color: var(--ink-soft); font-weight: 500; }
+
+/* 有新版本時從標題列下面滑出來的那一條 */
+.updatebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--accent-wash);
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 14px;
+}
+.updatebar[hidden] { display: none; }
+.updatebar button { flex: none; }

@@ -1,7 +1,7 @@
 // 大便龍的辨車軟體 — Service Worker
 // 只快取 App 本身（殼），辨識一定要連網，API 的請求永遠不進快取。
 
-const CACHE = "carid-v4";
+const CACHE = "carid-v5";
 
 const SHELL = [
   "./",
@@ -18,10 +18,17 @@ const SHELL = [
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE)
-      // 單一檔案失敗不讓整個安裝失敗
-      .then((cache) => Promise.allSettled(SHELL.map((url) => cache.add(url))))
-      .then(() => self.skipWaiting())
+      // 單一檔案失敗不讓整個安裝失敗；cache: "reload" 是為了繞過瀏覽器自己的 HTTP 快取，
+      // 不然抓回來的可能還是舊檔，換版就沒意義了
+      .then((cache) => Promise.allSettled(
+        SHELL.map((url) => cache.add(new Request(url, { cache: "reload" })))
+      ))
+    // 這裡不 skipWaiting：新版先在旁邊待命，等畫面上的「更新」被按了才接手
   );
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
@@ -44,7 +51,7 @@ self.addEventListener("fetch", (event) => {
   // 導覽請求：先連網，失敗才用快取的殼（離線時至少開得起來）
   if (req.mode === "navigate") {
     event.respondWith(
-      fetch(req)
+      fetch(req, { cache: "no-store" })
         .then((res) => {
           const copy = res.clone();
           caches.open(CACHE).then((c) => c.put("./index.html", copy));
