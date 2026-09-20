@@ -672,5 +672,8 @@ if ("serviceWorker" in navigator) {
     };
     check();
     document.addEventListener("visibilitychange", () => { if (!document.hidden) check(); });
+    window.addEventListener("focus", check);
+    // App 一直開著沒關也要會更新，所以固定每五分鐘問一次
+    setInterval(() => { if (!document.hidden) check(); }, 5 * 60 * 1000);
   });
 }
