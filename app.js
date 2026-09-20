@@ -149,7 +149,7 @@ $("prefsBtn").addEventListener("click", () => {
 /* ================= 版本 ================= */
 
 /* 網頁內容的版號，跟 sw.js 的 CACHE 一起加 */
-const WEB_BUILD = 13;
+const WEB_BUILD = 14;
 
 function appBuild() {
   const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
@@ -413,7 +413,7 @@ function messageFor(err) {
   const status = err?.status;
   if (err?.name === "AbortError") return null;
   if (status === 401 || status === 403) return "金鑰不對或沒有權限。到設定裡換一組 Gemini API 金鑰再試一次。";
-  if (status === 429) return "超過免費額度的速率限制了，等一下再辨識一次。";
+  if (status === 429) return "被 Gemini 擋下來了：免費額度有每分鐘與每天的上限。等一兩分鐘再辨識一次；如果一直這樣，看下面那行 Google 的說明。";
   if (status === 400) return "這次請求 Gemini 不收。換一張 JPG 或 PNG 照片再試一次。";
   if (status === 413) return "照片太大了，換一張小一點的再試一次。";
   if (status >= 500) return "Gemini 服務暫時有狀況，等一下再辨識一次。";
@@ -600,6 +600,7 @@ async function run() {
       try { detail = (await res.json())?.error?.message || ""; } catch { /* 沒有 JSON 就算了 */ }
       const err = new Error(detail || res.statusText);
       err.status = res.status;
+      err.detail = detail;           // Google 的原文，錯誤畫面要顯示出來才查得到原因
       throw err;
     }
 
@@ -619,7 +620,10 @@ async function run() {
       resultNotes.innerHTML = '<p class="caveat">按「再辨識一次」可以重來。</p>';
     } else {
       const keyProblem = err?.status === 401 || err?.status === 403;
-      renderError(msg, err?.status ? "HTTP " + err.status : (err?.message || ""), keyProblem);
+      const detail = err?.status
+        ? "HTTP " + err.status + (err.detail ? "　" + err.detail : "")
+        : (err?.message || "");
+      renderError(msg, detail, keyProblem);
       // 網路類的錯誤再跑一次診斷，把結果補在下面
       if (!err?.status) {
         diagnose().then((line) => {
