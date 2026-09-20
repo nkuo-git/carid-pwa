@@ -11,6 +11,13 @@
 
 PWA 必須從 **HTTPS** 網址開啟才能安裝，所以要先放到一個網站上。
 
+### GitHub Pages（目前用的就是這個）
+
+這份程式碼放在 <https://github.com/nkuo-git/carid-pwa>，在 repo 的 Settings → Pages 把
+Source 設成 `Deploy from a branch`、branch 選 `main`、資料夾選 `/ (root)`，
+網址就是 <https://nkuo-git.github.io/carid-pwa/>。
+之後把新的 commit 推上 `main`，等一兩分鐘就會自動更新，不用做別的事。
+
 ### Firebase Hosting（專案裡已經附好設定）
 
 ```bash
