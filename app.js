@@ -146,18 +146,39 @@ $("prefsBtn").addEventListener("click", () => {
   markSwatches();
 })();
 
+/* ================= 版本 ================= */
+
+/* 網頁內容的版號，跟 sw.js 的 CACHE 一起加 */
+const WEB_BUILD = 13;
+
+function appBuild() {
+  const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
+  return m ? Number(m[1]) : null;
+}
+
+function paintVersion() {
+  const el = $("versionState");
+  if (!el) return;
+  const app = appBuild();
+  el.textContent = (app ? "App " + app + "\u3000" : "") + "內容 " + WEB_BUILD;
+}
+
 /* ================= 金鑰 ================= */
 
 let apiKey = load(KEY_STORE) || "";
 
 function paintKeyState() {
   const el = $("keyState");
+  const row = $("keyRow");
   if (apiKey) {
     el.textContent = "已設定 …" + apiKey.slice(-4);
     el.classList.add("set");
+    // 設好之後就用不到了，整列收起來；金鑰有問題時會自己冒出來
+    if (row) row.hidden = true;
   } else {
     el.textContent = "尚未設定";
     el.classList.remove("set");
+    if (row) row.hidden = false;
   }
 }
 
@@ -183,26 +204,6 @@ $("keyClear").addEventListener("click", () => {
   store(KEY_STORE, null);
   paintKeyState();
   showScreen("key");
-});
-
-/* ================= 安裝提示 ================= */
-
-let installPrompt = null;
-window.addEventListener("beforeinstallprompt", (e) => {
-  e.preventDefault();
-  installPrompt = e;
-  $("installBtn").hidden = false;
-});
-$("installBtn").addEventListener("click", async () => {
-  if (!installPrompt) return;
-  installPrompt.prompt();
-  await installPrompt.userChoice;
-  installPrompt = null;
-  $("installBtn").hidden = true;
-});
-window.addEventListener("appinstalled", () => {
-  installPrompt = null;
-  $("installBtn").hidden = true;
 });
 
 /* ================= 辨識 ================= */
@@ -379,12 +380,33 @@ function renderThinking(label) {
     `<p id="thinkLabel">${esc(label)}</p></div>`;
 }
 
-function renderError(msg, detail) {
+function renderError(msg, detail, keyProblem) {
   setTag("無法辨識", false);
   resultBody.innerHTML = '<p class="headline">沒辦法完成</p>';
   resultNotes.innerHTML =
     `<p class="note warn">${esc(msg)}</p>` +
-    (detail ? `<p class="caveat">${esc(detail)}</p>` : "");
+    (detail ? `<p class="caveat">${esc(detail)}</p>` : "") +
+    (keyProblem ? '<p><button type="button" id="keyFix" class="small">重新輸入金鑰</button></p>' : "");
+
+  if (keyProblem) {
+    // 金鑰出問題時才讓設定裡的金鑰那一列重新出現
+    const row = $("keyRow");
+    if (row) row.hidden = false;
+    $("keyFix")?.addEventListener("click", () => showScreen("key"));
+  }
+}
+
+/* 連不到的時候多做兩個小測試，直接把結論寫在畫面上，
+   不然「Failed to fetch」看不出是手機沒網路還是被瀏覽器擋下來 */
+async function diagnose() {
+  const bits = [navigator.onLine ? "系統：有網路" : "系統：沒網路"];
+  try {
+    const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models", { method: "GET" });
+    bits.push("連得到 Google（HTTP " + res.status + "）→ 問題出在送照片那一次的請求");
+  } catch (e) {
+    bits.push("連不到 Google：" + (e?.message || "不明原因"));
+  }
+  return bits.join("　·　");
 }
 
 function messageFor(err) {
@@ -596,7 +618,17 @@ async function run() {
       resultBody.innerHTML = '<p class="headline">已停止</p>';
       resultNotes.innerHTML = '<p class="caveat">按「再辨識一次」可以重來。</p>';
     } else {
-      renderError(msg, err?.status ? "HTTP " + err.status : (err?.message || ""));
+      const keyProblem = err?.status === 401 || err?.status === 403;
+      renderError(msg, err?.status ? "HTTP " + err.status : (err?.message || ""), keyProblem);
+      // 網路類的錯誤再跑一次診斷，把結果補在下面
+      if (!err?.status) {
+        diagnose().then((line) => {
+          const box = document.createElement("p");
+          box.className = "caveat";
+          box.textContent = line;
+          resultNotes.appendChild(box);
+        });
+      }
     }
   } finally {
     setBusy(false);
@@ -610,6 +642,7 @@ redoBtn.addEventListener("click", run);
 /* ================= 啟動 ================= */
 
 paintKeyState();
+paintVersion();
 showScreen(apiKey ? "capture" : "key");
 
 /* ---------- 外殼（APK）有沒有新版 ----------
@@ -680,8 +713,8 @@ if ("serviceWorker" in navigator) {
     const offer = () => {
       // 第一次安裝沒有舊版可換，不用打擾使用者
       if (!reg.waiting || !navigator.serviceWorker.controller) return;
-      if (!busy && !currentBlob) apply();
-      else if (bar) bar.hidden = false;
+      // 不自動換版，只通知；換不換由使用者自己按
+      if (bar) bar.hidden = false;
     };
 
     navigator.serviceWorker.addEventListener("controllerchange", () => {
@@ -709,6 +742,24 @@ if ("serviceWorker" in navigator) {
       checkedAt = now;
       reg.update().catch(() => { /* 離線就算了 */ });
     };
+    const manual = $("checkUpdateBtn");
+    if (manual) {
+      manual.addEventListener("click", async () => {
+        manual.disabled = true;
+        manual.textContent = "檢查中…";
+        checkedAt = 0;
+        store(APK_SEEN, "0");
+        try { await reg.update(); } catch { /* 離線就算了 */ }
+        await checkAppUpdate();
+        // 換版的通知要一點時間才冒出來，等一下再看結論
+        setTimeout(() => {
+          const pending = (bar && !bar.hidden) || !$("appUpdateBar").hidden;
+          manual.textContent = pending ? "有新版" : "已經是最新";
+          setTimeout(() => { manual.textContent = "檢查更新"; manual.disabled = false; }, 2500);
+        }, 1200);
+      });
+    }
+
     check();
     checkAppUpdate();
     document.addEventListener("visibilitychange", () => { if (!document.hidden) check(); });

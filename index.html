@@ -26,11 +26,6 @@
   <header class="appbar">
     <img class="mark" src="./icons/icon-192.png" alt="" width="30" height="30">
     <h1 class="brand-name">大便龍的辨車軟體</h1>
-    <button type="button" class="icon-btn" id="installBtn" hidden aria-label="安裝到主畫面">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>
-      </svg>
-    </button>
     <button type="button" class="icon-btn" id="prefsBtn" aria-expanded="false" aria-controls="prefsSheet" aria-label="設定">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <circle cx="12" cy="12" r="3"/>
@@ -74,11 +69,16 @@
       </div>
       <p class="hint-sm">深入模式會多想一下，比較慢，冷門車款認得準一些。</p>
     </div>
-    <div class="sheet-row">
+    <div class="sheet-row" id="keyRow">
       <span class="sheet-label">金鑰</span>
       <span class="keystate" id="keyState">尚未設定</span>
       <button type="button" id="keyEdit" class="small">更換</button>
       <button type="button" id="keyClear" class="small">清除</button>
+    </div>
+    <div class="sheet-row">
+      <span class="sheet-label">版本</span>
+      <span class="keystate" id="versionState">—</span>
+      <button type="button" id="checkUpdateBtn" class="small">檢查更新</button>
     </div>
   </div>
 

@@ -1,7 +1,7 @@
 // 大便龍的辨車軟體 — Service Worker
 // 只快取 App 本身（殼），辨識一定要連網，API 的請求永遠不進快取。
 
-const CACHE = "carid-v11";
+const CACHE = "carid-v13";
 
 const SHELL = [
   "./",
