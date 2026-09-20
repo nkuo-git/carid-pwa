@@ -612,6 +612,45 @@ redoBtn.addEventListener("click", run);
 paintKeyState();
 showScreen(apiKey ? "capture" : "key");
 
+/* ---------- 外殼（APK）有沒有新版 ----------
+   跑在 App 裡時 User-Agent 會帶 CaridApp/<版號>，拿它跟 GitHub 上最新的
+   Release（tag 是 apk-<版號>）比一比，有新的就跳一條橫幅讓使用者下載。
+   在一般瀏覽器裡不會有那段 UA，整段直接跳過。 */
+const APK_API = "https://api.github.com/repos/nkuo-git/carid-pwa/releases/latest";
+const APK_SEEN = "carid.apkcheck";
+
+async function checkAppUpdate() {
+  const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
+  if (!m) return;                      // 不是在 App 裡，不用查
+  const mine = Number(m[1]);
+
+  // 一小時查一次就夠了，GitHub 的匿名 API 有次數限制
+  const last = Number(load(APK_SEEN) || 0);
+  if (Date.now() - last < 60 * 60 * 1000) return;
+
+  let latest;
+  try {
+    const res = await fetch(APK_API, { headers: { Accept: "application/vnd.github+json" } });
+    if (!res.ok) return;
+    latest = await res.json();
+  } catch {
+    return;                            // 沒網路就算了
+  }
+  store(APK_SEEN, String(Date.now()));
+
+  const tag = /^apk-(\d+)$/.exec(latest?.tag_name || "");
+  if (!tag || Number(tag[1]) <= mine) return;
+
+  const apk = (latest.assets || []).find((a) => /\.apk$/i.test(a.name || ""));
+  if (!apk?.browser_download_url) return;
+
+  const bar = $("appUpdateBar");
+  const link = $("appUpdateLink");
+  if (!bar || !link) return;
+  link.href = apk.browser_download_url;
+  bar.hidden = false;
+}
+
 /* ---------- 自動更新 ----------
    新版的 Service Worker 裝好之後會在旁邊待命。閒著沒事（沒選照片、沒在辨識）
    就直接換過去並重新載入；正在用就先跳一條橫幅，讓使用者自己決定什麼時候更新。 */
@@ -671,6 +710,7 @@ if ("serviceWorker" in navigator) {
       reg.update().catch(() => { /* 離線就算了 */ });
     };
     check();
+    checkAppUpdate();
     document.addEventListener("visibilitychange", () => { if (!document.hidden) check(); });
     window.addEventListener("focus", check);
     // App 一直開著沒關也要會更新，所以固定每五分鐘問一次

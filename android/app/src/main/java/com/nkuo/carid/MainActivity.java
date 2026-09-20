@@ -50,6 +50,9 @@ public class MainActivity extends Activity {
     s.setUseWideViewPort(true);
     s.setLoadWithOverviewMode(true);
     s.setMediaPlaybackRequiresUserGesture(false);
+    // 把外殼版號寫進 User-Agent，網頁才知道自己是跑在 App 裡、是哪一版，
+    // 可以自己去比對 GitHub 上有沒有更新的 APK
+    s.setUserAgentString(s.getUserAgentString() + " CaridApp/" + versionCode());
 
     web.setWebViewClient(new WebViewClient() {
       @Override
@@ -100,6 +103,15 @@ public class MainActivity extends Activity {
     });
 
     web.loadUrl(START_URL);
+  }
+
+  /** 這個 APK 的版號，對應 GitHub Release 的 apk-N。 */
+  private int versionCode() {
+    try {
+      return getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
+    } catch (PackageManager.NameNotFoundException e) {
+      return 0;
+    }
   }
 
   /** 相機的 Intent；沒有相機 App 或建不出暫存檔就回 null，只留相簿。 */

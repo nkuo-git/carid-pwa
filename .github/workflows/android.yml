@@ -22,8 +22,36 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      # 第一次跑的時候用 Secret 裡的密碼產一把固定的簽章金鑰，並存回 repo。
+      # 之後每次都用同一把簽，新版 APK 才能直接蓋過舊版安裝，不用先移除。
+      - name: 準備簽章金鑰
+        env:
+          CARID_KEY_PASS: ${{ secrets.CARID_KEY_PASS }}
+        run: |
+          if [ -z "$CARID_KEY_PASS" ]; then
+            echo "::warning::還沒設定 CARID_KEY_PASS，這次會用臨時的 debug 簽章，裝之前要先移除舊版"
+            exit 0
+          fi
+          if [ -f android/keystore/carid.jks ]; then
+            echo "已經有固定的簽章金鑰了"
+            exit 0
+          fi
+          mkdir -p android/keystore
+          keytool -genkeypair -v \
+            -keystore android/keystore/carid.jks \
+            -storepass "$CARID_KEY_PASS" -keypass "$CARID_KEY_PASS" \
+            -alias carid -keyalg RSA -keysize 2048 -validity 10950 \
+            -dname "CN=carid, OU=personal, O=carid, L=Taipei, S=Taipei, C=TW"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add android/keystore/carid.jks
+          git commit -m "建立固定的簽章金鑰，之後的 APK 都用這一把簽"
+          git push origin HEAD:main
+
       - name: 編譯
         working-directory: android
+        env:
+          CARID_KEY_PASS: ${{ secrets.CARID_KEY_PASS }}
         run: ./gradlew --no-daemon assembleRelease
 
       - name: 改個看得懂的檔名

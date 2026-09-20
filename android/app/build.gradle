@@ -6,19 +6,39 @@ android {
   namespace 'com.nkuo.carid'
   compileSdk 34
 
+  // 版號跟著 GitHub Actions 的編號走，跟 Release 的 apk-N 對得起來，
+  // App 裡面才有辦法比對「線上是不是有比我新的版本」
+  def build = (System.getenv("GITHUB_RUN_NUMBER") ?: "1") as int
+
+  // 固定的簽章金鑰。檔案在 repo 裡，密碼從環境變數（GitHub Secret）來，
+  // 沒有這兩樣就退回 debug 簽章，至少還編得出可以側載的 APK。
+  def ksFile = rootProject.file("keystore/carid.jks")
+  def ksPass = System.getenv("CARID_KEY_PASS")
+  def signable = ksFile.exists() && ksPass
+
   defaultConfig {
     applicationId "com.nkuo.carid"
     minSdk 24
     targetSdk 34
-    versionCode 1
-    versionName "1.0"
+    versionCode build
+    versionName "1.0." + build
+  }
+
+  signingConfigs {
+    release {
+      if (signable) {
+        storeFile ksFile
+        storePassword ksPass
+        keyAlias "carid"
+        keyPassword ksPass
+      }
+    }
   }
 
   buildTypes {
     release {
       minifyEnabled false
-      // 用 debug 金鑰簽，方便直接側載安裝；要上架 Google Play 再換成正式金鑰
-      signingConfig signingConfigs.debug
+      signingConfig signable ? signingConfigs.release : signingConfigs.debug
     }
   }
 
