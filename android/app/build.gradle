@@ -1,0 +1,33 @@
+plugins {
+  id 'com.android.application'
+}
+
+android {
+  namespace 'com.nkuo.carid'
+  compileSdk 34
+
+  defaultConfig {
+    applicationId "com.nkuo.carid"
+    minSdk 24
+    targetSdk 34
+    versionCode 1
+    versionName "1.0"
+  }
+
+  buildTypes {
+    release {
+      minifyEnabled false
+      // 用 debug 金鑰簽，方便直接側載安裝；要上架 Google Play 再換成正式金鑰
+      signingConfig signingConfigs.debug
+    }
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+}
+
+dependencies {
+  implementation 'androidx.core:core:1.13.1'
+}
