@@ -1,7 +1,11 @@
 // 大便龍的辨車軟體 — PWA 版
 // 直接在瀏覽器裡呼叫 Google Gemini API，金鑰存在使用者自己的瀏覽器。
 
-const MODEL = "gemini-3.8-flash";                                        // 有免費額度的最新 flash
+const MODELS = {
+  main: "gemini-3.8-flash",        // 認得準，但免費額度每天只有 20 次
+  lite: "gemini-3.5-flash-lite",   // 便宜、免費額度寬，冷門車款差一點
+};
+const MODEL_STORE = "carid.model";                                        // 有免費額度的最新 flash
 const ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/interactions";
 const KEY_STORE = "carid.apikey";
 
@@ -146,10 +150,28 @@ $("prefsBtn").addEventListener("click", () => {
   markSwatches();
 })();
 
+/* ================= 模型 ================= */
+
+let modelKey = load(MODEL_STORE) === "lite" ? "lite" : "main";
+
+function paintModel() {
+  const el = $(modelKey === "lite" ? "modelLite" : "modelMain");
+  if (el) el.checked = true;
+}
+
+for (const id of ["modelMain", "modelLite"]) {
+  const el = $(id);
+  if (el) el.addEventListener("change", () => {
+    if (!el.checked) return;
+    modelKey = el.value === "lite" ? "lite" : "main";
+    store(MODEL_STORE, modelKey);
+  });
+}
+
 /* ================= 版本 ================= */
 
 /* 網頁內容的版號，跟 sw.js 的 CACHE 一起加 */
-const WEB_BUILD = 14;
+const WEB_BUILD = 15;
 
 function appBuild() {
   const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
@@ -413,7 +435,11 @@ function messageFor(err) {
   const status = err?.status;
   if (err?.name === "AbortError") return null;
   if (status === 401 || status === 403) return "金鑰不對或沒有權限。到設定裡換一組 Gemini API 金鑰再試一次。";
-  if (status === 429) return "被 Gemini 擋下來了：免費額度有每分鐘與每天的上限。等一兩分鐘再辨識一次；如果一直這樣，看下面那行 Google 的說明。";
+  if (status === 429) {
+    return modelKey === "main"
+      ? "「準確」模型的免費額度用完了（每天 20 次）。到設定把模型改成「省額度」通常就能繼續，或等額度重置。"
+      : "被 Gemini 限流了，等一下再辨識一次。詳細的額度說明看下面那行。";
+  }
   if (status === 400) return "這次請求 Gemini 不收。換一張 JPG 或 PNG 照片再試一次。";
   if (status === 413) return "照片太大了，換一張小一點的再試一次。";
   if (status >= 500) return "Gemini 服務暫時有狀況，等一下再辨識一次。";
@@ -578,15 +604,18 @@ async function run() {
     if (label) label.textContent = "正在判讀…";
 
     const body = {
-      model: MODEL,
+      model: MODELS[modelKey],
       input: [
         { type: "text", text: PROMPT },
         { type: "image", data, mime_type: "image/jpeg" },
       ],
     };
     // 標準模式少想一點、快一點；深入模式讓模型多想
-    // gemini-3.8-flash 只接受 low / medium / high，給 "minimal" 會回 400
-    body.generation_config = { thinking_level: effort === "deep" ? "high" : "low" };
+    // gemini-3.8-flash 只接受 low / medium / high，給 "minimal" 會回 400。
+    // 省額度的 lite 模型不確定吃不吃這個欄位，乾脆不帶，讓它用預設值。
+    if (modelKey === "main") {
+      body.generation_config = { thinking_level: effort === "deep" ? "high" : "low" };
+    }
 
     const res = await fetch(ENDPOINT, {
       method: "POST",
@@ -647,6 +676,7 @@ redoBtn.addEventListener("click", run);
 
 paintKeyState();
 paintVersion();
+paintModel();
 showScreen(apiKey ? "capture" : "key");
 
 /* ---------- 外殼（APK）有沒有新版 ----------
