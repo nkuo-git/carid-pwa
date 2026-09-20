@@ -61,7 +61,7 @@ npx http-server -p 8080 .
 清除瀏覽器資料或換手機就要重新輸入一次。
 
 **關於 Google AI Pro 訂閱**：Gemini App 的訂閱和 Gemini API 是兩套計費，訂閱不會自動給你 API 額度。
-實測 `gemini-3.8-flash` 的免費額度是**每天 20 次**；用完時可以到設定把模型改成「省額度」（`gemini-3.5-flash-lite`），或到 AI Studio 升級成付費方案。自己每個模型的實際額度可以在 <https://aistudio.google.com/rate-limit> 看到。
+免費額度是逐個模型算的，實測 `gemini-3.8-flash` 只有每天 20 次，所以才做成兩個模型接力。自己每個模型的實際額度可以在 <https://aistudio.google.com/rate-limit> 看到，要更多就在那裡升級成付費方案。
 
 ## 四、檔案結構
 
@@ -80,8 +80,7 @@ carid-pwa/
 
 照片在手機上先縮到最長邊 1600px、轉成 JPEG，再以 base64 直接 POST 到
 `https://generativelanguage.googleapis.com/v1beta/interactions`（`x-goog-api-key` 帶金鑰），
-模型預設是 `gemini-3.8-flash`（設定裡可以改成 `gemini-3.5-flash-lite`，免費額度比較寬）。「標準」帶 `generation_config.thinking_level: "low"`，
-「深入」帶 `"high"`。這個模型只接受 low / medium / high，填 `minimal` 會被退回 400。
+模型依序試 `gemini-flash-lite-latest` → `gemini-flash-latest`，前一個失敗（例如額度用完）就自動換下一個，兩個都失敗才顯示錯誤。使用者不用選。「深入」才帶 `generation_config.thinking_level: "high"`，「標準」不帶，讓每個模型用自己的預設值（有些模型不收這個欄位會回 400）。
 回應的文字在 `steps` 裡 `type: "model_output"` 那一段，取出來解析成 JSON 後畫成表格；解析失敗會提示再試一次。照片不會被存到任何地方。
 
 ### 要改辨識內容

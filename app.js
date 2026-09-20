@@ -1,11 +1,9 @@
-// 大便龍的辨車軟體 — PWA 版
+// 大便龍的辨車軟體 — Android App 裡跑的網頁
 // 直接在瀏覽器裡呼叫 Google Gemini API，金鑰存在使用者自己的瀏覽器。
 
-const MODELS = {
-  main: "gemini-3.8-flash",        // 認得準，但免費額度每天只有 20 次
-  lite: "gemini-3.5-flash-lite",   // 便宜、免費額度寬，冷門車款差一點
-};
-const MODEL_STORE = "carid.model";                                        // 有免費額度的最新 flash
+/* 依序試：先用便宜、額度寬的 lite，不行再換一般的 flash。
+   兩個都失敗才算失敗。使用者不用選，也不會知道用的是哪一個。 */
+const MODEL_CHAIN = ["gemini-flash-lite-latest", "gemini-flash-latest"];
 const ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/interactions";
 const KEY_STORE = "carid.apikey";
 
@@ -150,28 +148,10 @@ $("prefsBtn").addEventListener("click", () => {
   markSwatches();
 })();
 
-/* ================= 模型 ================= */
-
-let modelKey = load(MODEL_STORE) === "lite" ? "lite" : "main";
-
-function paintModel() {
-  const el = $(modelKey === "lite" ? "modelLite" : "modelMain");
-  if (el) el.checked = true;
-}
-
-for (const id of ["modelMain", "modelLite"]) {
-  const el = $(id);
-  if (el) el.addEventListener("change", () => {
-    if (!el.checked) return;
-    modelKey = el.value === "lite" ? "lite" : "main";
-    store(MODEL_STORE, modelKey);
-  });
-}
-
 /* ================= 版本 ================= */
 
 /* 網頁內容的版號，跟 sw.js 的 CACHE 一起加 */
-const WEB_BUILD = 15;
+const WEB_BUILD = 16;
 
 function appBuild() {
   const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
@@ -435,11 +415,7 @@ function messageFor(err) {
   const status = err?.status;
   if (err?.name === "AbortError") return null;
   if (status === 401 || status === 403) return "金鑰不對或沒有權限。到設定裡換一組 Gemini API 金鑰再試一次。";
-  if (status === 429) {
-    return modelKey === "main"
-      ? "「準確」模型的免費額度用完了（每天 20 次）。到設定把模型改成「省額度」通常就能繼續，或等額度重置。"
-      : "被 Gemini 限流了，等一下再辨識一次。詳細的額度說明看下面那行。";
-  }
+  if (status === 429) return "Gemini 的免費額度用完了，等一下或明天再辨識一次。下面那行是 Google 的說明。";
   if (status === 400) return "這次請求 Gemini 不收。換一張 JPG 或 PNG 照片再試一次。";
   if (status === 413) return "照片太大了，換一張小一點的再試一次。";
   if (status >= 500) return "Gemini 服務暫時有狀況，等一下再辨識一次。";
@@ -586,6 +562,51 @@ function setBusy(on) {
 
 stopBtn.addEventListener("click", () => controller?.abort());
 
+/* 對單一模型送一次請求，失敗就丟出帶 status 的錯誤 */
+async function askModel(model, data, effort) {
+  const body = {
+    model,
+    input: [
+      { type: "text", text: PROMPT },
+      { type: "image", data, mime_type: "image/jpeg" },
+    ],
+  };
+  // 深入模式才特別要求多想；標準模式用模型自己的預設值，
+  // 免得某些模型不收 thinking_level 直接回 400
+  if (effort === "deep") body.generation_config = { thinking_level: "high" };
+
+  const res = await fetch(ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+    body: JSON.stringify(body),
+    signal: controller.signal,
+  });
+
+  if (!res.ok) {
+    let detail = "";
+    try { detail = (await res.json())?.error?.message || ""; } catch { /* 沒有 JSON 就算了 */ }
+    const err = new Error(detail || res.statusText);
+    err.status = res.status;
+    err.detail = detail;           // Google 的原文，錯誤畫面要顯示出來才查得到原因
+    throw err;
+  }
+  return res.json();
+}
+
+/* 依序試 MODEL_CHAIN 裡的模型，全部失敗才把最後一個錯誤丟出去 */
+async function askModels(data, effort) {
+  let last;
+  for (const model of MODEL_CHAIN) {
+    try {
+      return await askModel(model, data, effort);
+    } catch (err) {
+      if (err?.name === "AbortError") throw err;   // 使用者自己按停止
+      last = err;
+    }
+  }
+  throw last;
+}
+
 async function run() {
   if (busy || !currentBlob) return;
 
@@ -603,37 +624,7 @@ async function run() {
     const label = $("thinkLabel");
     if (label) label.textContent = "正在判讀…";
 
-    const body = {
-      model: MODELS[modelKey],
-      input: [
-        { type: "text", text: PROMPT },
-        { type: "image", data, mime_type: "image/jpeg" },
-      ],
-    };
-    // 標準模式少想一點、快一點；深入模式讓模型多想
-    // gemini-3.8-flash 只接受 low / medium / high，給 "minimal" 會回 400。
-    // 省額度的 lite 模型不確定吃不吃這個欄位，乾脆不帶，讓它用預設值。
-    if (modelKey === "main") {
-      body.generation_config = { thinking_level: effort === "deep" ? "high" : "low" };
-    }
-
-    const res = await fetch(ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-
-    if (!res.ok) {
-      let detail = "";
-      try { detail = (await res.json())?.error?.message || ""; } catch { /* 沒有 JSON 就算了 */ }
-      const err = new Error(detail || res.statusText);
-      err.status = res.status;
-      err.detail = detail;           // Google 的原文，錯誤畫面要顯示出來才查得到原因
-      throw err;
-    }
-
-    const payload = await res.json();
+    const payload = await askModels(data, effort);
     const text = outputTextOf(payload);
     const parsed = parseJson(text);
     if (!parsed) {
@@ -676,7 +667,6 @@ redoBtn.addEventListener("click", run);
 
 paintKeyState();
 paintVersion();
-paintModel();
 showScreen(apiKey ? "capture" : "key");
 
 /* ---------- 外殼（APK）有沒有新版 ----------
