@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>麥塊建築設計</title>
+<meta name="description" content="自己擺方塊，設計麥塊建築，算出要準備多少材料。">
+<meta name="theme-color" content="#14161A">
+<link rel="icon" href="./icons/icon-192.png" sizes="192x192">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="./mc.css?v=21">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ================= 作品列表 ================= -->
+  <section class="screen" id="scBuilds">
+    <div class="head">
+      <div class="grow" style="flex:1">
+        <h1>我的作品</h1>
+        <p class="kicker">MINECRAFT BUILDER</p>
+      </div>
+      <button type="button" class="newbtn" id="newBuild">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+        開新的
+      </button>
+    </div>
+    <div class="cards" id="cards"></div>
+    <p class="empty" id="buildsEmpty" hidden>還沒有作品。按右上角「開新的」開始蓋。</p>
+    <p class="note">作品存在這支手機裡。點一個就繼續蓋，長按可以改名或刪掉。</p>
+    <div class="spacer"></div>
+    <div class="btnrow">
+      <a class="btn" href="./index.html">回辨車</a>
+    </div>
+  </section>
+
+  <!-- ================= 編輯器（立體） ================= -->
+  <section class="screen" id="scEdit" hidden>
+    <header class="bar">
+      <button type="button" class="iconbtn" id="editBack" aria-label="回作品列表">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <div class="grow">
+        <div class="title" id="editName">我的小屋</div>
+        <div class="sub" id="editSize">0 BLOCKS</div>
+      </div>
+      <button type="button" class="iconbtn" id="undoBtn" aria-label="復原">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 8h7a4.5 4.5 0 0 1 0 9h-5"/><path d="M12 5L9 8l3 3"/></svg>
+      </button>
+      <button type="button" class="iconbtn" id="redoBtn" aria-label="重做">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 8H8a4.5 4.5 0 0 0 0 9h5"/><path d="M12 5l3 3-3 3"/></svg>
+      </button>
+      <button type="button" class="iconbtn" id="matsBtn" aria-label="材料清單">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6h11"/><path d="M9 12h11"/><path d="M9 18h11"/><path d="M4.5 6h.01"/><path d="M4.5 12h.01"/><path d="M4.5 18h.01"/></svg>
+      </button>
+    </header>
+
+    <div class="stage" id="stage">
+      <canvas id="view"></canvas>
+      <div class="chipcol">
+        <span class="chip on">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5"/><path d="M12 12v9"/></svg>
+          立體
+        </span>
+        <button type="button" class="chip" id="toPlane">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9.3 4v16"/><path d="M14.7 4v16"/><path d="M4 9.3h16"/><path d="M4 14.7h16"/></svg>
+          平面
+        </button>
+      </div>
+
+      <div class="rotator">
+        <button type="button" id="rotL" aria-label="往左轉">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5a8 8 0 1 1 1.6 6.3"/><path d="M3.4 4.6l.6 5 5-.7"/></svg>
+        </button>
+        <span class="deg" id="degText">SE 35°</span>
+        <button type="button" id="rotR" aria-label="往右轉">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 9.5a8 8 0 1 0-1.6 6.3"/><path d="M20.6 4.6l-.6 5-5-.7"/></svg>
+        </button>
+      </div>
+
+      <p class="hint">點一下放方塊　拖曳轉視角</p>
+
+      <div class="rail">
+        <button type="button" id="layUp" aria-label="上一層">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 14l6-6 6 6"/></svg>
+        </button>
+        <div class="track"><div class="fill" id="layFill"></div><div class="knob" id="layKnob"></div></div>
+        <div class="num" id="layNum">1</div>
+        <div class="cap">層</div>
+        <button type="button" id="layDown" aria-label="下一層">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 10l6 6 6-6"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="tools" id="tools"></div>
+    <div class="strip" id="strip"></div>
+  </section>
+
+  <!-- ================= 平面模式 ================= -->
+  <section class="screen" id="scPlane" hidden>
+    <header class="bar">
+      <button type="button" class="iconbtn" id="planeBack" aria-label="回立體畫面">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <div class="grow">
+        <div class="title" id="planeName">我的小屋</div>
+        <div class="sub" id="planeSub">LAYER 1</div>
+      </div>
+      <button type="button" class="iconbtn" id="undoBtn2" aria-label="復原">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 8h7a4.5 4.5 0 0 1 0 9h-5"/><path d="M12 5L9 8l3 3"/></svg>
+      </button>
+      <button type="button" class="iconbtn" id="redoBtn2" aria-label="重做">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 8H8a4.5 4.5 0 0 0 0 9h5"/><path d="M12 5l3 3-3 3"/></svg>
+      </button>
+    </header>
+
+    <div class="layerbar">
+      <span class="grow">這一層　第 <span id="planeLayer">1</span> 層</span>
+      <button type="button" id="planeDown" aria-label="下一層">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 10l6 6 6-6"/></svg>
+      </button>
+      <button type="button" id="planeUp" aria-label="上一層">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 14l6-6 6 6"/></svg>
+      </button>
+    </div>
+
+    <div class="plane" id="plane"></div>
+
+    <div class="legend">
+      <span><i id="legNow"></i>這一層</span>
+      <span><i style="background:#252A32;border:1px solid #2F353F"></i>下面那層有</span>
+      <span><i style="border:1px solid #252A32"></i>空的</span>
+    </div>
+    <p class="note">一格一格點，比在立體畫面上戳準得多。灰底的格子代表下面那層有東西，照著它疊就不會歪。</p>
+
+    <div class="spacer"></div>
+    <div class="tools" id="tools2"></div>
+    <div class="strip" id="strip2"></div>
+  </section>
+
+  <!-- ================= 材料清單 ================= -->
+  <section class="screen" id="scMats" hidden>
+    <header class="bar">
+      <button type="button" class="iconbtn" id="matsBack" aria-label="回編輯器">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <div class="grow">
+        <div class="title">材料清單</div>
+        <div class="sub" id="matsName">我的小屋</div>
+      </div>
+    </header>
+    <div class="sums" id="matsSums"></div>
+    <table class="mats"><tbody id="matsBody"></tbody></table>
+    <p class="note">一組是 64 個。照這張單子去挖，蓋到一半才發現紅磚不夠的機率會低很多。</p>
+    <div class="spacer"></div>
+    <div class="btnrow">
+      <button type="button" class="btn primary" id="copyMats">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
+        複製成文字
+      </button>
+      <button type="button" class="btn" id="matsBack2">回編輯器</button>
+    </div>
+  </section>
+
+</div>
+
+<!-- ================= 選方塊 ================= -->
+<div class="sheet" id="sheetPal" hidden>
+  <header class="bar" style="background:transparent;border:0;padding-top:16px">
+    <h2>選方塊</h2>
+    <button type="button" class="iconbtn" id="palClose" aria-label="關閉">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>
+    </button>
+  </header>
+  <div class="recent"><span class="lab">剛用過</span><span id="palRecent" style="display:flex;gap:8px"></span></div>
+  <div class="cats" id="palCats"></div>
+  <div class="tiles" id="palTiles"></div>
+  <p class="note">這裡只放常用的，之後要幾種都可以加。選好之後會自動回到編輯器。</p>
+  <div class="spacer"></div>
+  <div class="btnrow"><button type="button" class="btn primary" id="palDone">用這個</button></div>
+</div>
+
+<script type="module" src="./mc.js?v=21"></script>
+</body>
+</html>

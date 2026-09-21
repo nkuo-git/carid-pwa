@@ -1,0 +1,483 @@
+/* 麥塊建築設計 —— 深灰底配草綠，方塊自己畫的像素材質 */
+
+:root {
+  color-scheme: dark;
+  --ground: #14161A;
+  --surface: #1C1F25;
+  --surface-2: #252A32;
+  --line: #2F353F;
+  --ink: #EDEFF2;
+  --ink-soft: #98A0AC;
+  --ink-faint: #6C7480;
+  --accent: #6FCF57;
+  --accent-ink: #0C1210;
+  --danger: #E5695B;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  padding-top: env(safe-area-inset-top, 0px);
+  background: var(--ground);
+  color: var(--ink);
+  font-family: "Noto Sans TC", system-ui, -apple-system, "PingFang TC", sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+[hidden] { display: none !important; }
+a { color: var(--accent); }
+button { font-family: inherit; }
+
+.app {
+  min-height: 100%;
+  max-width: 460px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--ground);
+}
+
+.screen { display: flex; flex-direction: column; flex: 1; min-height: 100vh; }
+
+/* ---------- 標題列 ---------- */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 12px 10px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.bar .grow { flex: 1; min-width: 0; }
+.bar .title { font-size: 15px; font-weight: 700; line-height: 1.25; }
+.bar .sub {
+  font-family: Silkscreen, ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: .1em;
+  color: var(--ink-faint);
+  line-height: 1.5;
+}
+.iconbtn {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  text-decoration: none;
+}
+.iconbtn svg { width: 21px; height: 21px; }
+.iconbtn:disabled { opacity: .35; }
+.iconbtn.on { color: var(--accent); background: rgba(111, 207, 87, .12); }
+
+/* ---------- 編輯器 ---------- */
+
+.stage { position: relative; flex: 1; overflow: hidden; touch-action: none; }
+.stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+.chipcol {
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-size: 11px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.chip svg { width: 14px; height: 14px; }
+.chip.on { color: var(--ink); border-color: var(--accent); }
+
+.rotator {
+  position: absolute;
+  left: 14px;
+  bottom: 38px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--surface);
+}
+.rotator button {
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.rotator button svg { width: 20px; height: 20px; }
+.rotator .deg {
+  min-width: 52px;
+  text-align: center;
+  font-family: Silkscreen, ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.hint {
+  position: absolute;
+  left: 0;
+  right: 62px;
+  bottom: 10px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--ink-faint);
+  pointer-events: none;
+}
+
+.rail {
+  position: absolute;
+  right: 10px;
+  top: 14px;
+  bottom: 14px;
+  width: 46px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: var(--surface);
+}
+.rail button {
+  width: 38px;
+  height: 38px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.rail button svg { width: 20px; height: 20px; }
+.rail .track {
+  position: relative;
+  flex: 1;
+  width: 6px;
+  border-radius: 3px;
+  background: var(--surface-2);
+}
+.rail .fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 3px;
+  background: var(--accent);
+}
+.rail .knob {
+  position: absolute;
+  left: -8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+}
+.rail .num {
+  font-family: Silkscreen, ui-monospace, monospace;
+  font-size: 15px;
+  color: var(--ink);
+  line-height: 1;
+}
+.rail .cap { font-size: 10px; color: var(--ink-faint); }
+
+/* ---------- 工具與方塊條 ---------- */
+
+.tools { display: flex; gap: 8px; padding: 10px 12px 0; background: var(--surface); }
+.tools button {
+  flex: 1;
+  height: 46px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 11px;
+  cursor: pointer;
+}
+.tools button svg { width: 19px; height: 19px; }
+.tools button.on { border: 0; background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+
+.strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px calc(14px + env(safe-area-inset-bottom, 0px));
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.strip::-webkit-scrollbar { display: none; }
+.strip button, .strip .more {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.strip button.on { border: 2px solid var(--accent); background: var(--surface-2); }
+.strip .more { border-style: dashed; }
+.strip canvas, .tile canvas { display: block; image-rendering: pixelated; }
+
+/* ---------- 平面模式 ---------- */
+
+.layerbar { display: flex; align-items: center; gap: 10px; padding: 14px 16px 12px; }
+.layerbar .grow { flex: 1; font-size: 14px; color: var(--ink-soft); }
+.layerbar button {
+  width: 44px;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: transparent;
+  color: var(--ink);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.layerbar button svg { width: 20px; height: 20px; }
+
+.plane {
+  display: grid;
+  gap: 3px;
+  padding: 0 16px;
+}
+.plane button {
+  aspect-ratio: 1;
+  padding: 0;
+  border: 1px solid var(--surface-2);
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+  overflow: hidden;
+}
+.plane button.below { border-color: var(--line); background: var(--surface-2); }
+.plane button.has { border: 0; }
+.plane button canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+
+.legend { display: flex; align-items: center; gap: 14px; padding: 16px 16px 0; font-size: 11px; color: var(--ink-faint); }
+.legend span { display: flex; align-items: center; gap: 6px; }
+.legend i { width: 14px; height: 14px; border-radius: 4px; display: block; }
+
+/* ---------- 一般文字與按鈕 ---------- */
+
+.note { margin: 14px 16px 0; font-size: 12px; line-height: 1.7; color: var(--ink-faint); }
+.pad { padding: 0 16px; }
+.spacer { flex: 1; }
+
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 52px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 16px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.btn svg { width: 19px; height: 19px; }
+.btn.primary { border: 0; background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.btn.danger { color: var(--danger); }
+.btnrow { display: flex; flex-direction: column; gap: 10px; padding: 0 16px calc(22px + env(safe-area-inset-bottom, 0px)); }
+
+/* ---------- 作品列表 ---------- */
+
+.head { display: flex; align-items: flex-end; gap: 10px; padding: 24px 16px 18px; }
+.head h1 { margin: 0; font-size: 24px; font-weight: 700; }
+.head .kicker {
+  margin: 5px 0 0;
+  font-family: Silkscreen, ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: .14em;
+  color: var(--ink-faint);
+}
+.newbtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.newbtn svg { width: 18px; height: 18px; }
+
+.cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 0 16px; }
+.card {
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: var(--surface);
+  overflow: hidden;
+  padding: 0;
+  text-align: start;
+  cursor: pointer;
+  color: inherit;
+}
+.card .shot {
+  height: 116px;
+  display: grid;
+  place-items: center;
+  background: var(--ground);
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+}
+.card .shot canvas { display: block; image-rendering: pixelated; }
+.card .meta { padding: 11px 12px 13px; }
+.card .name { font-size: 14px; font-weight: 700; }
+.card .size {
+  margin-top: 4px;
+  font-family: Silkscreen, ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: .08em;
+  color: var(--ink-faint);
+}
+.card .when { margin-top: 6px; font-size: 11px; color: var(--ink-faint); }
+.empty { padding: 40px 16px; text-align: center; color: var(--ink-faint); font-size: 13px; }
+
+/* ---------- 選方塊 ---------- */
+
+.sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: var(--ground);
+  display: flex;
+  flex-direction: column;
+  max-width: 460px;
+  margin: 0 auto;
+  padding-top: env(safe-area-inset-top, 0px);
+  overflow-y: auto;
+}
+.sheet h2 { margin: 0 0 0 6px; flex: 1; font-size: 17px; font-weight: 700; }
+.cats { display: flex; gap: 8px; padding: 0 16px 16px; overflow-x: auto; scrollbar-width: none; }
+.cats::-webkit-scrollbar { display: none; }
+.cats button {
+  height: 34px;
+  padding: 0 14px;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 13px;
+  cursor: pointer;
+}
+.cats button.on { border: 0; background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding: 0 16px; }
+.tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 12px 4px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 11px;
+  cursor: pointer;
+}
+.tile.on { border: 2px solid var(--accent); background: var(--surface-2); }
+.recent { display: flex; align-items: center; gap: 8px; padding: 0 16px 18px; }
+.recent .lab { font-size: 12px; color: var(--ink-faint); }
+.recent button {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+/* ---------- 材料清單 ---------- */
+
+.sums { display: flex; gap: 10px; padding: 16px; }
+.sum { flex: 1; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.sum b { display: block; font-family: Silkscreen, ui-monospace, monospace; font-size: 22px; font-weight: 400; line-height: 1; }
+.sum span { display: block; margin-top: 7px; font-size: 12px; color: var(--ink-faint); }
+
+table.mats { width: 100%; border-collapse: collapse; }
+table.mats td { padding: 13px 0; border-bottom: 1px solid var(--line); }
+table.mats td.ic { width: 1%; padding-inline: 16px 12px; }
+table.mats td.ic canvas { display: block; image-rendering: pixelated; }
+table.mats td.n {
+  text-align: right;
+  font-family: Silkscreen, ui-monospace, monospace;
+  font-size: 15px;
+  padding-inline-end: 8px;
+}
+table.mats td.st { text-align: right; padding-inline-end: 16px; font-size: 12px; color: var(--ink-faint); white-space: nowrap; }
+
+/* ---------- 小提示 ---------- */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 96px;
+  transform: translateX(-50%);
+  z-index: 60;
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 13px;
+  pointer-events: none;
+}
