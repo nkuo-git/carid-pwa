@@ -69,5 +69,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "apk-${{ github.run_number }}" out/*.apk \
-            --title "大便龍的辨車軟體 APK #${{ github.run_number }}" \
+            --title "大便龍的萬能軟體 APK #${{ github.run_number }}" \
             --notes "用手機開這一頁，點下面的 .apk 就能安裝。第一次安裝要允許「安裝不明來源的應用程式」。"

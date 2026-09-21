@@ -1,4 +1,4 @@
-// 大便龍的辨車軟體 — Android App 裡跑的網頁
+// 大便龍的萬能軟體 — Android App 裡跑的網頁
 // 直接在瀏覽器裡呼叫 Google Gemini API，金鑰存在使用者自己的瀏覽器。
 
 /* 依序試：先用便宜、額度寬的 lite，不行再換一般的 flash。
@@ -151,7 +151,7 @@ $("prefsBtn").addEventListener("click", () => {
 /* ================= 版本 ================= */
 
 /* 網頁內容的版號，跟 sw.js 的 CACHE 一起加 */
-const WEB_BUILD = 19;
+const WEB_BUILD = 20;
 
 function appBuild() {
   const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
