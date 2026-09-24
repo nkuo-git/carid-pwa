@@ -46,7 +46,6 @@ const FEEDS = [
   { name: "Google 新聞（台灣）", lang: "zh", url: "https://news.google.com/rss/search?q=%E6%96%B0%E8%BB%8A+%E4%B8%8A%E5%B8%82+%E5%8F%B0%E7%81%A3+when:7d&hl=zh-TW&gl=TW&ceid=TW:zh-Hant" },
   { name: "Motor1", lang: "en", url: "https://www.motor1.com/rss/news/all/" },
   { name: "Carscoops", lang: "en", url: "https://www.carscoops.com/feed/" },
-  { name: "Autocar", lang: "en", url: "https://www.autocar.co.uk/rss" },
   { name: "Car and Driver", lang: "en", url: "https://www.caranddriver.com/rss/all.xml/" },
 ];
 
@@ -420,7 +419,8 @@ async function main() {
     console.log(`  題目：${src.title}（中文條目：${src.zhTitle || "無"}，照片：${src.img ? "有" : "無"}）`);
     article = await write(kind === "lux" ? promptLux(src) : promptHow(src), kind);
     article.sources = [{ name: "維基百科：" + src.title, url: src.enUrl }];
-    if (src.zhUrl) article.sources.push({ name: "維基百科：" + src.zhTitle, url: src.zhUrl });
+    // 中文條目的標題常是簡體，顯示時不帶標題
+    if (src.zhUrl) article.sources.push({ name: "中文維基百科", url: src.zhUrl });
     if (src.img) { article.img = src.img; article.imgCredit = src.imgCredit; }
   }
 
