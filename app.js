@@ -151,7 +151,7 @@ $("prefsBtn").addEventListener("click", () => {
 /* ================= 版本 ================= */
 
 /* 網頁內容的版號，跟 sw.js 的 CACHE 一起加 */
-const WEB_BUILD = 21;
+const WEB_BUILD = 22;
 
 function appBuild() {
   const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
@@ -369,7 +369,7 @@ async function toBase64Jpeg(blob) {
   src.close?.();
 
   const dataUrl = canvas.toDataURL("image/jpeg", 0.86);
-  return dataUrl.slice(dataUrl.indexOf(",") + 1);
+  return { data: dataUrl.slice(dataUrl.indexOf(",") + 1), canvas };
 }
 
 /* ---------- 畫面狀態 ---------- */
@@ -455,13 +455,15 @@ function row(label, value, cls) {
   return `<tr${cls ? ` class="${cls}"` : ""}><th>${esc(label)}</th><td>${value}</td></tr>`;
 }
 
-function renderResult(d) {
-  setTag("已辨識", true);
-  resultNotes.innerHTML = "";
+function renderResult(d, out) {
+  const bodyEl = out?.body || resultBody;
+  const notesEl = out?.notes || resultNotes;
+  if (!out) setTag("已辨識", true);
+  notesEl.innerHTML = "";
 
   if (d && d.is_vehicle === false) {
-    resultBody.innerHTML = '<p class="headline">照片裡沒有看到汽車</p>';
-    resultNotes.innerHTML = `<p class="note warn">${esc(d.note || "請換一張拍到整台車的照片，側面或四分之三角度最好認。")}</p>`;
+    bodyEl.innerHTML = '<p class="headline">照片裡沒有看到汽車</p>';
+    notesEl.innerHTML = `<p class="note warn">${esc(d.note || "請換一張拍到整台車的照片，側面或四分之三角度最好認。")}</p>`;
     return;
   }
 
@@ -522,17 +524,18 @@ function renderResult(d) {
     '<div class="hero-meta">' +
     `<span class="chip${confClass}">把握度　${confWord}</span>` +
     (heroSub ? `<span class="hero-sub">${heroSub}</span>` : "") +
+    (out?.when ? `<span class="hero-sub">${esc(out.when)}</span>` : "") +
     '</div></div>';
 
-  resultBody.innerHTML = hero + `<table class="spec"><tbody>${rows}</tbody></table>`;
+  bodyEl.innerHTML = hero + `<table class="spec"><tbody>${rows}</tbody></table>`;
 
   let notes = "";
   if (hasEngine) notes += '<p class="caveat">動力規格為該車型年份的常見配置，實際依等級與販售市場而異。</p>';
   if (hasMarket) notes += '<p class="caveat">價格與數量是模型依既有知識的粗估，沒有連接任何行情或掛牌資料庫，請以實際報價與官方統計為準。</p>';
   if (conf < 50) notes += '<p class="note warn">把握程度偏低。換一個角度（車頭或四分之三角度）、離近一點、避免逆光，通常會準很多。</p>';
-  resultNotes.innerHTML = notes;
+  notesEl.innerHTML = notes;
 
-  const fill = resultBody.querySelector(".fill");
+  const fill = bodyEl.querySelector(".fill");
   if (fill) requestAnimationFrame(() => { fill.style.width = conf + "%"; });
 }
 
@@ -656,7 +659,7 @@ async function run() {
   renderThinking("正在看這張照片…");
 
   try {
-    const data = await toBase64Jpeg(currentBlob);
+    const { data, canvas: shot } = await toBase64Jpeg(currentBlob);
     const effort = document.querySelector('input[name="tier"]:checked').value;
 
     const label = $("thinkLabel");
@@ -669,6 +672,7 @@ async function run() {
       renderError("回來的結果格式不對，再辨識一次通常就好了。");
     } else {
       renderResult(parsed);
+      if (parsed.is_vehicle !== false) saveHistory(parsed, shot).catch(() => { /* 存不進去不影響結果 */ });
     }
   } catch (err) {
     const msg = messageFor(err);
@@ -699,11 +703,353 @@ async function run() {
 goBtn.addEventListener("click", run);
 redoBtn.addEventListener("click", run);
 
+/* ================= 分頁 ================= */
+// 網址的 # 決定現在在哪一頁：#car、#history、#history/<id>、#news、#news/<id>
+
+const views = {
+  history: $("screenHistory"),
+  histitem: $("screenHistItem"),
+  news: $("screenNews"),
+  article: $("screenArticle"),
+};
+
+function route() {
+  const [tab, id] = decodeURIComponent(location.hash.replace(/^#/, "")).split("/");
+  let view = "car";
+  if (tab === "history") view = id ? "histitem" : "history";
+  else if (tab === "news") view = id ? "article" : "news";
+
+  document.body.dataset.view = view;
+  for (const k in views) views[k].hidden = k !== view;
+  const tabName = view === "histitem" ? "history" : view === "article" ? "news" : view;
+  document.querySelectorAll(".tabbar a[data-tab]").forEach((a) => {
+    if (a.dataset.tab === tabName) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  });
+  window.scrollTo(0, 0);
+
+  if (view === "history") paintHistory();
+  else if (view === "histitem") paintHistItem(id);
+  else if (view === "news") paintNews();
+  else if (view === "article") paintArticle(id);
+}
+window.addEventListener("hashchange", route);
+
+/* ---------- 共用的小工具 ---------- */
+
+const pad2 = (n) => String(n).padStart(2, "0");
+function dayKey(t) {
+  const d = new Date(t);
+  return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+}
+function dayLabel(t) {
+  const k = dayKey(t);
+  if (k === dayKey(Date.now())) return "今天";
+  if (k === dayKey(Date.now() - 864e5)) return "昨天";
+  const d = new Date(t);
+  const md = (d.getMonth() + 1) + "月" + d.getDate() + "日";
+  return d.getFullYear() === new Date().getFullYear() ? md : d.getFullYear() + "年" + md;
+}
+function clockText(t) {
+  const d = new Date(t);
+  const h = d.getHours();
+  const part = h < 5 ? "凌晨" : h < 12 ? "上午" : h < 13 ? "中午" : h < 18 ? "下午" : "晚上";
+  return part + " " + (h % 12 || 12) + ":" + pad2(d.getMinutes());
+}
+function confOf(d) {
+  const c = Math.max(0, Math.min(100, Math.round(Number(d?.confidence) || 0)));
+  return c >= 70 ? ["高", " good"] : c >= 40 ? ["普通", ""] : ["偏低", " weak"];
+}
+const CHEV = '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>';
+const PHOTO_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3 16.2l4.6-4.4 3.8 3.6 2.8-2.6 6.8 6"/><circle cx="8.8" cy="9.6" r="1.3"/></svg>';
+
+/* ================= 紀錄 ================= */
+// 存在這支手機的 IndexedDB：辨識結果、一張 1024px 的照片（再辨一次用）、一張小縮圖
+
+const HIST_MAX = 300;
+let dbPromise = null;
+
+function histDb() {
+  if (!dbPromise) {
+    dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open("carid", 1);
+      req.onupgradeneeded = () => req.result.createObjectStore("history", { keyPath: "id" });
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  return dbPromise;
+}
+async function histTx(mode, fn) {
+  const db = await histDb();
+  return new Promise((resolve, reject) => {
+    const t = db.transaction("history", mode);
+    const r = fn(t.objectStore("history"));
+    t.oncomplete = () => resolve(r?.result);
+    t.onerror = () => reject(t.error);
+    t.onabort = () => reject(t.error);
+  });
+}
+const histAll = () => histTx("readonly", (st) => st.getAll());
+const histGet = (id) => histTx("readonly", (st) => st.get(id));
+const histPut = (rec) => histTx("readwrite", (st) => st.put(rec));
+const histDelete = (id) => histTx("readwrite", (st) => st.delete(id));
+
+function canvasBlob(src, max, quality, square) {
+  let w = src.width, h = src.height, sx = 0, sy = 0, sw = w, sh = h;
+  if (square) {                       // 縮圖裁成正方形，列表比較整齊
+    const m = Math.min(w, h);
+    sx = (w - m) / 2; sy = (h - m) / 2; sw = sh = m; w = h = m;
+  }
+  const scale = Math.min(1, max / Math.max(w, h));
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(w * scale));
+  c.height = Math.max(1, Math.round(h * scale));
+  c.getContext("2d").drawImage(src, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  return new Promise((resolve) => c.toBlob(resolve, "image/jpeg", quality));
+}
+
+async function saveHistory(data, shot) {
+  const [photo, thumb] = await Promise.all([canvasBlob(shot, 1024, 0.8), canvasBlob(shot, 176, 0.78, true)]);
+  const t = Date.now();
+  await histPut({ id: t.toString(36), t, data, photo, thumb });
+  const all = await histAll();
+  if (all.length > HIST_MAX) {
+    all.sort((a, b) => a.t - b.t);
+    for (const old of all.slice(0, all.length - HIST_MAX)) await histDelete(old.id);
+  }
+}
+
+let histUrls = [];
+function blobUrl(b) {
+  if (!b) return "";
+  const u = URL.createObjectURL(b);
+  histUrls.push(u);
+  return u;
+}
+function freeUrls() {
+  histUrls.forEach((u) => URL.revokeObjectURL(u));
+  histUrls = [];
+}
+
+async function paintHistory() {
+  let all = [];
+  try { all = await histAll(); } catch { /* 瀏覽器不給用 IndexedDB 就當沒有 */ }
+  freeUrls();
+  all.sort((a, b) => b.t - a.t);
+
+  $("histEmpty").hidden = all.length > 0;
+  const stats = $("histStats");
+  stats.hidden = all.length === 0;
+  if (all.length) {
+    const makes = new Map();
+    for (const r of all) {
+      const m = r.data?.make || r.data?.make_zh;
+      if (m) makes.set(m.toLowerCase(), { name: m, n: (makes.get(m.toLowerCase())?.n || 0) + 1 });
+    }
+    const top = [...makes.values()].sort((a, b) => b.n - a.n)[0];
+    stats.innerHTML =
+      `<div class="stat"><b>${all.length}</b><span>辨過幾台</span></div>` +
+      `<div class="stat"><b>${makes.size}</b><span>幾個廠牌</span></div>` +
+      `<div class="stat"><b class="accent">${esc(top?.name || "—")}</b><span>最常遇到</span></div>`;
+  }
+
+  let html = "", last = "";
+  for (const r of all) {
+    const g = dayLabel(r.t);
+    if (g !== last) { html += `<div class="hgroup">${esc(g)}</div>`; last = g; }
+    const d = r.data || {};
+    const [word, cls] = confOf(d);
+    html +=
+      `<a class="hrow" href="#history/${encodeURIComponent(r.id)}">` +
+      `<img class="hthumb" src="${blobUrl(r.thumb)}" alt="">` +
+      '<span class="hinfo">' +
+      `<span class="hmake">${esc(d.make || d.make_zh || "")}</span>` +
+      `<span class="hmodel">${esc(d.model || "沒認出車型")}</span>` +
+      `<span class="hmeta"><span class="chip${cls}">把握度　${word}</span>${esc(clockText(r.t))}</span>` +
+      "</span>" + CHEV + "</a>";
+  }
+  $("histList").innerHTML = html;
+}
+
+let histCurrent = null;
+async function paintHistItem(id) {
+  freeUrls();
+  let r = null;
+  try { r = await histGet(id); } catch { /* 找不到就回列表 */ }
+  if (!r) { location.hash = "#history"; return; }
+  histCurrent = r;
+  $("histPhoto").src = blobUrl(r.photo || r.thumb);
+  renderResult(r.data, {
+    body: $("histBody"),
+    notes: $("histNotes"),
+    when: dayLabel(r.t) + " " + clockText(r.t) + " 辨的",
+  });
+}
+
+$("histDel").addEventListener("click", async () => {
+  if (!histCurrent || !confirm("刪掉這筆紀錄？刪了就找不回來。")) return;
+  await histDelete(histCurrent.id);
+  histCurrent = null;
+  location.hash = "#history";
+});
+
+$("histRedo").addEventListener("click", () => {
+  if (!histCurrent?.photo) return;
+  const photo = histCurrent.photo;
+  location.hash = "#car";
+  showScreen("capture");
+  showPhoto(photo, "紀錄裡的照片");
+  run();
+});
+
+/* ================= 車訊 ================= */
+// 內容是 GitHub 上的排程每週三、六、日產生的 news/index.json，這裡只負責讀和顯示
+
+const NEWS_URL = "./news/index.json";
+const NEWS_SEEN = "carid.newsSeen";
+const KINDS = {
+  lux: { tag: "週三豪車", short: "豪車", wd: 3 },
+  new: { tag: "週六新車快訊", short: "新車快訊", wd: 6 },
+  how: { tag: "週日汽車原理", short: "汽車原理", wd: 0 },
+};
+let newsData = null;
+
+async function loadNews() {
+  const res = await fetch(NEWS_URL, { cache: "no-store" });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  const j = await res.json();
+  newsData = Array.isArray(j?.items) ? j.items : [];
+  newsData.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  return newsData;
+}
+
+/* 台北時間的日期字串與星期 */
+function taipeiToday() {
+  const d = new Date(Date.now() + 8 * 3600e3);
+  return { key: d.toISOString().slice(0, 10), wd: d.getUTCDay(), ms: d.getTime() };
+}
+function shortDate(key) {
+  const [, m, d] = key.split("-").map(Number);
+  return m + "/" + d;
+}
+function longDate(key) {
+  const [y, m, d] = key.split("-").map(Number);
+  const wd = "日一二三四五六"[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+  return m + "月" + d + "日　週" + wd;
+}
+const ktag = (k) => `<span class="ktag ${esc(k)}">${esc(KINDS[k]?.tag || "車訊")}</span>`;
+
+async function checkNewsDot() {
+  try {
+    const items = newsData || await loadNews();
+    $("newsDot").hidden = !items.length || load(NEWS_SEEN) === items[0].id;
+  } catch { /* 沒網路就不亮 */ }
+}
+
+async function paintNews() {
+  const body = $("newsBody");
+  const today = taipeiToday();
+  let items = newsData || [];
+  if (!newsData) body.innerHTML = '<p class="empty">讀取中…</p>';
+  try { items = await loadNews(); } catch {
+    if (!newsData) { body.innerHTML = '<p class="empty">連不上網路，車訊讀不到。</p>'; }
+  }
+
+  // 本週（週一開始）的三、六、日
+  const monday = today.ms - ((today.wd + 6) % 7) * 864e5;
+  $("newsWeek").innerHTML = ["lux", "new", "how"].map((k) => {
+    const offset = { lux: 2, new: 5, how: 6 }[k];
+    const key = new Date(monday + offset * 864e5).toISOString().slice(0, 10);
+    const it = items.find((x) => x.date === key && x.kind === k);
+    const state = it ? "已出刊" : key > today.key ? "還沒到" : key === today.key ? "準備中" : "這次沒出刊";
+    const tagName = it ? "a" : "div";
+    const href = it ? ` href="#news/${encodeURIComponent(it.id)}"` : "";
+    return `<${tagName} class="wcell ${k}${it ? " done" : ""}"${href}>` +
+      `<span class="wd"><b>週${"日一二三四五六"[KINDS[k].wd]}</b><span class="kdate">${shortDate(key)}</span></span>` +
+      `<span class="wn">${KINDS[k].short}</span><span class="ws">${state}</span></${tagName}>`;
+  }).join("");
+
+  if (!items.length) {
+    if (newsData) body.innerHTML = '<p class="empty">第一篇還在路上。每週三、六、日早上六點多會出刊。</p>';
+    return;
+  }
+  store(NEWS_SEEN, items[0].id);
+  $("newsDot").hidden = true;
+
+  const [first, ...rest] = items;
+  const img = first.img
+    ? `<img class="fimg" src="${esc(first.img)}" alt="" loading="lazy" referrerpolicy="no-referrer">`
+    : `<span class="fimg none">${PHOTO_ICON}</span>`;
+  let html =
+    '<div class="nlabel">最新一篇</div>' +
+    `<a class="feature" href="#news/${encodeURIComponent(first.id)}">${img}` +
+    '<span class="fbody">' +
+    `<span class="kline">${ktag(first.kind)}<span class="kdate">${shortDate(first.date)}</span></span>` +
+    `<span class="ftitle">${esc(first.title)}</span>` +
+    (first.lede ? `<span class="flede">${esc(first.lede)}</span>` : "") +
+    "</span></a>";
+  if (rest.length) {
+    html += '<div class="nlabel">之前的</div>';
+    html += rest.map((it) =>
+      `<a class="nrow" href="#news/${encodeURIComponent(it.id)}"><span class="ninfo">` +
+      `<span class="kline">${ktag(it.kind)}<span class="kdate">${shortDate(it.date)}</span></span>` +
+      `<span class="nt">${esc(it.title)}</span></span>${CHEV}</a>`).join("");
+  }
+  body.innerHTML = html;
+}
+
+function safeUrl(u) {
+  return /^https:\/\//i.test(String(u || "")) ? String(u) : "";
+}
+
+async function paintArticle(id) {
+  const box = $("articleBody");
+  let items = newsData;
+  if (!items) {
+    box.innerHTML = '<p class="empty">讀取中…</p>';
+    try { items = await loadNews(); } catch { box.innerHTML = '<p class="empty">連不上網路，文章讀不到。</p>'; return; }
+  }
+  const a = items.find((x) => x.id === id);
+  if (!a) { location.hash = "#news"; return; }
+
+  let html = "";
+  if (safeUrl(a.img)) {
+    html += `<div class="aimg"><img src="${esc(a.img)}" alt="" referrerpolicy="no-referrer"></div>`;
+    if (a.imgCredit) html += `<p class="acredit">照片：${esc(a.imgCredit)}</p>`;
+  }
+  html += `<div class="ahead"><span class="kline">${ktag(a.kind)}<span class="hero-sub">${esc(longDate(a.date))}</span></span>`;
+  if (a.make) html += `<span class="amake">${esc(a.make)}</span>`;
+  html += `<h1 class="atitle${a.title.length > 14 ? " long" : ""}">${esc(a.title)}</h1></div>`;
+  if (a.lede) html += `<p class="alede">${esc(a.lede)}</p>`;
+
+  const specs = Array.isArray(a.specs) ? a.specs.filter((r) => Array.isArray(r) && r[0] && r[1]) : [];
+  if (specs.length) {
+    html += '<div class="alabel">重點規格</div><div class="card"><table class="spec"><tbody>' +
+      specs.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join("") +
+      "</tbody></table></div>";
+  }
+  for (const sec of Array.isArray(a.sections) ? a.sections : []) {
+    if (sec?.h) html += `<h2>${esc(sec.h)}</h2>`;
+    for (const para of Array.isArray(sec?.p) ? sec.p : [sec?.p]) {
+      if (para) html += `<p class="ap">${esc(para)}</p>`;
+    }
+  }
+  const srcs = (Array.isArray(a.sources) ? a.sources : []).filter((x) => safeUrl(x?.url));
+  if (srcs.length) {
+    html += '<p class="asrc">資料來源：' + srcs.map((x) =>
+      `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.name || x.url)}</a>`).join("　") + "</p>";
+  }
+  box.innerHTML = html;
+}
+
 /* ================= 啟動 ================= */
 
 paintKeyState();
 paintVersion();
 showScreen(apiKey ? "capture" : "key");
+route();
+checkNewsDot();
 
 /* ---------- 外殼（APK）有沒有新版 ----------
    跑在 App 裡時 User-Agent 會帶 CaridApp/<版號>，拿它跟 GitHub 上最新的

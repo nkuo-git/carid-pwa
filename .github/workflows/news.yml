@@ -1,0 +1,73 @@
+name: 車訊
+
+# 每週三（豪車）、六（新車快訊）、日（汽車原理）台北時間早上產生一篇，存成 news/index.json。
+# 06:10 那班常撞到 Gemini 忙線，07:30 再跑一次補；已經有了就什麼都不做。
+on:
+  schedule:
+    - cron: "10 22 * * 2,5,6"   # 台北 週三、六、日 06:10
+    - cron: "30 23 * * 2,5,6"   # 台北 週三、六、日 07:30（補跑）
+  workflow_dispatch:
+    inputs:
+      kind:
+        description: "種類：lux 豪車 / new 新車快訊 / how 汽車原理（空白＝照今天星期幾）"
+        required: false
+        default: ""
+      force:
+        description: "今天已經有了也重做一篇"
+        type: boolean
+        default: false
+      probe:
+        description: "只試抓來源，不產生文章"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pages: write
+
+concurrency:
+  group: news
+  cancel-in-progress: false
+
+jobs:
+  news:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: 產生車訊
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          IN_KIND: ${{ inputs.kind }}
+          IN_FORCE: ${{ inputs.force }}
+          IN_PROBE: ${{ inputs.probe }}
+        run: |
+          args=()
+          case "$IN_KIND" in lux|new|how) args+=(--kind "$IN_KIND");; "") ;; *) echo "::error::種類只能是 lux、new、how"; exit 1;; esac
+          [ "$IN_FORCE" = "true" ] && args+=(--force)
+          [ "$IN_PROBE" = "true" ] && args+=(--probe)
+          node scripts/news.mjs "${args[@]}"
+
+      - name: 存回 repo 並更新網站
+        if: ${{ inputs.probe != true }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -z "$(git status --porcelain news)" ]; then echo "沒有新文章"; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add news
+          git commit -q -m "車訊：$(TZ=Asia/Taipei date +%F)"
+          for i in 1 2 3; do
+            git pull -q --rebase origin main && git push -q origin HEAD:main && break
+            sleep 5
+          done
+          # 機器人推的 commit 不一定會觸發 Pages，主動請它重建一次
+          curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/pages/builds" >/dev/null \
+            || echo "::warning::請 Pages 重建沒成功，下次有人推東西時會一起更新"

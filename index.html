@@ -17,24 +17,17 @@
 
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap">
-<link rel="stylesheet" href="./styles.css?v=21">
+<link rel="stylesheet" href="./styles.css?v=22">
 </head>
-<body>
+<body data-view="car">
 
 <div class="app">
-  <header class="appbar">
+  <header class="appbar car-only">
     <img class="mark" src="./icons/icon-192.png" alt="" width="34" height="34">
     <div class="brand">
       <h1 class="brand-name">大便龍的萬能軟體</h1>
       <p class="brand-sub">Car Identifier</p>
     </div>
-    <a class="icon-btn go-mc" href="./mc.html" aria-label="麥塊建築設計">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M12 3 20.5 7.5v9L12 21 3.5 16.5v-9z"/>
-        <path d="M3.5 7.5 12 12l8.5-4.5"/>
-        <path d="M12 12v9"/>
-      </svg>
-    </a>
     <button type="button" class="icon-btn" id="prefsBtn" aria-expanded="false" aria-controls="prefsSheet" aria-label="設定">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <circle cx="12" cy="12" r="3.2"/>
@@ -55,7 +48,7 @@
     <a class="small btnlike" id="appUpdateLink" href="#" rel="noopener">下載安裝</a>
   </div>
 
-  <div class="sheet" id="prefsSheet" hidden>
+  <div class="sheet car-only" id="prefsSheet" hidden>
     <div class="sheet-row">
       <span class="sheet-label">主色</span>
       <div class="swatches" id="swatches" role="group" aria-label="主色">
@@ -94,7 +87,7 @@
   </div>
 
   <!-- 設定金鑰 -->
-  <main class="screen" id="screenKey" hidden>
+  <main class="screen car-only" id="screenKey" hidden>
     <h2 class="screen-title">先貼一把金鑰進來</h2>
     <p class="lede">辨車是跟 Google 要的，要用你自己的金鑰。去 AI Studio 按一下就能拿到，免費的額度就夠玩。貼進來之後這一格就會收起來，不會一直卡在畫面上。</p>
     <form id="keyForm" autocomplete="off">
@@ -112,14 +105,14 @@
   </main>
 
   <!-- 拍照 -->
-  <main class="screen" id="screenCapture" hidden>
+  <main class="screen car-only" id="screenCapture" hidden>
     <div class="drop" id="drop" role="button" tabindex="0" aria-label="選擇或拖曳汽車照片">
       <div id="dropInner">
         <span class="badge">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h2.8l1.4-2h7.6L17.2 8H20a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.6"/></svg>
         </span>
         <p class="hint">放一張車的照片</p>
-        <p class="sub">畫面會跟著照片的比例變</p>
+        <p class="sub">辨完會自動存進「紀錄」</p>
       </div>
     </div>
 
@@ -131,12 +124,12 @@
 
     <footer>
       <p>結果是當場判讀出來的，沒有另外接車輛資料庫。價格與數量是粗估，請以實際報價與官方統計為準。</p>
-      <p>照片只會送去判讀，不會存在任何地方，車牌號碼也不會被讀出來。用量計在你自己的金鑰上。</p>
+      <p>照片會送去判讀，另外存一份在這支手機的「紀錄」裡，不會傳去別的地方。車牌號碼不會被讀出來。用量計在你自己的金鑰上。</p>
     </footer>
   </main>
 
   <!-- 結果 -->
-  <main class="screen" id="screenResult" hidden>
+  <main class="screen car-only" id="screenResult" hidden>
     <div class="result-head">
       <img class="thumb" id="thumb" alt="剛才辨識的照片">
       <span class="tag live" id="stateTag">辨識中</span>
@@ -147,7 +140,58 @@
     <div id="resultNotes"></div>
   </main>
 
-  <div class="actionbar" id="actionbar">
+
+  <!-- 紀錄 -->
+  <section class="screen" id="screenHistory" hidden>
+    <header class="pagehead">
+      <h1>紀錄</h1>
+      <p>辨過的車都在這裡，只存在這支手機</p>
+    </header>
+    <div class="stats" id="histStats" hidden></div>
+    <div id="histList"></div>
+    <p class="empty" id="histEmpty" hidden>還沒有紀錄。去「辨車」拍一台，辨完會自動存進來。</p>
+  </section>
+
+  <!-- 紀錄：點進一筆 -->
+  <section class="screen detail" id="screenHistItem" hidden>
+    <header class="backhead">
+      <a class="icon-btn" href="#history" aria-label="回紀錄"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></a>
+      <span>紀錄</span>
+    </header>
+    <div class="detail-photo"><img id="histPhoto" alt="當時拍的照片"></div>
+    <div class="card"><div id="histBody"></div></div>
+    <div id="histNotes"></div>
+    <div class="btnrow">
+      <button type="button" id="histRedo">再辨一次</button>
+      <button type="button" id="histDel" class="danger">刪掉這筆</button>
+    </div>
+  </section>
+
+  <!-- 車訊 -->
+  <section class="screen" id="screenNews" hidden>
+    <header class="pagehead">
+      <h1>車訊</h1>
+      <p>每週三、六、日各一篇</p>
+    </header>
+    <div class="week" id="newsWeek"></div>
+    <div id="newsBody"></div>
+  </section>
+
+  <!-- 車訊文章 -->
+  <section class="screen detail" id="screenArticle" hidden>
+    <header class="backhead">
+      <a class="icon-btn" href="#news" aria-label="回車訊"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></a>
+      <span>車訊</span>
+    </header>
+    <article id="articleBody"></article>
+    <div class="btnrow">
+      <a class="btnlike big" href="#news">回車訊</a>
+      <a class="btnlike big primary" href="#car">路上看到就拍</a>
+    </div>
+  </section>
+
+  <div class="dock">
+  <div class="actionbar car-only" id="actionbar">
     <button type="button" id="cam" class="primary wide" hidden>拍照</button>
     <button type="button" id="pick" hidden>選照片</button>
     <button type="button" id="go" class="primary wide" hidden>開始辨識</button>
@@ -155,8 +199,16 @@
     <button type="button" id="redo" hidden>再辨識一次</button>
     <button type="button" id="again" class="primary wide" hidden>換一張</button>
   </div>
+
+  <nav class="tabbar" aria-label="功能">
+    <a href="#car" data-tab="car"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h2.8l1.4-2h7.6L17.2 8H20a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.6"/></svg>辨車</a>
+    <a href="#history" data-tab="history"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.8 12a8.2 8.2 0 1 0 2.4-5.8"/><path d="M3.8 4.6v3.8h3.8"/><path d="M12 7.8V12l2.9 1.9"/></svg>紀錄</a>
+    <a href="#news" data-tab="news"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3.8" width="16" height="16.4" rx="2.6"/><path d="M8 8.6h8"/><path d="M8 12.2h8"/><path d="M8 15.8h5"/></svg><span class="dot" id="newsDot" hidden></span></span>車訊</a>
+    <a href="./mc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 20.5 7.5v9L12 21 3.5 16.5v-9z"/><path d="M3.5 7.5 12 12l8.5-4.5"/><path d="M12 12v9"/></svg>麥塊</a>
+  </nav>
+  </div>
 </div>
 
-<script type="module" src="./app.js?v=21"></script>
+<script type="module" src="./app.js?v=22"></script>
 </body>
 </html>

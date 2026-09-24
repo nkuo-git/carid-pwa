@@ -1,11 +1,11 @@
 // 大便龍的萬能軟體 — Service Worker
 // 只快取 App 本身（殼），辨識一定要連網，API 的請求永遠不進快取。
 
-const CACHE = "carid-v21";
+const CACHE = "carid-v22";
 
 /* 跟 index.html 裡 styles.css / app.js 後面的 ?v= 一樣。
    換版就換網址，任何一層快取（瀏覽器、CDN、這裡）都不可能給到舊檔。 */
-const V = "21";
+const V = "22";
 
 const SHELL = [
   "./",
@@ -54,6 +54,22 @@ self.addEventListener("fetch", (event) => {
 
   // Gemini API：一律走網路，不碰快取
   if (url.hostname.endsWith("googleapis.com")) return;
+
+  // 車訊：一定先連網拿最新的，沒網路才用上次抓到的
+  if (url.origin === self.location.origin && url.pathname.includes("/news/")) {
+    event.respondWith(
+      fetch(req, { cache: "no-store" })
+        .then((res) => {
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(url.pathname, copy));
+          }
+          return res;
+        })
+        .catch(() => caches.match(url.pathname).then((r) => r || Response.error()))
+    );
+    return;
+  }
 
   // 導覽請求：先連網，失敗才用快取的殼（離線時至少開得起來）
   if (req.mode === "navigate") {
