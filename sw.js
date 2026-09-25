@@ -52,8 +52,10 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(req.url);
 
-  // Gemini API：一律走網路，不碰快取
+  // Gemini API（經過 Firebase）：一律走網路，不碰快取
   if (url.hostname.endsWith("googleapis.com")) return;
+  // App Check 用的 reCAPTCHA 也一律走網路，快取到舊版會驗證失敗
+  if (url.hostname === "www.google.com" || url.hostname.endsWith("recaptcha.net") || url.pathname.startsWith("/recaptcha/")) return;
 
   // 車訊：一定先連網拿最新的，沒網路才用上次抓到的
   if (url.origin === self.location.origin && url.pathname.includes("/news/")) {

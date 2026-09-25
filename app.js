@@ -1,11 +1,27 @@
 // 大便龍的萬能軟體 — Android App 裡跑的網頁
-// 直接在瀏覽器裡呼叫 Google Gemini API，金鑰存在使用者自己的瀏覽器。
+// 辨車透過 Firebase AI Logic 呼叫 Google Gemini。使用者不用自己申請金鑰：
+// Gemini 的金鑰留在 Firebase 那邊，App 靠 App Check（reCAPTCHA）證明自己是這個 App。
 
-/* 依序試：先用便宜、額度寬的 lite，不行再換一般的 flash。
-   兩個都失敗才算失敗。使用者不用選，也不會知道用的是哪一個。 */
-const MODEL_CHAIN = ["gemini-flash-lite-latest", "gemini-flash-latest"];
-const ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/interactions";
-const KEY_STORE = "carid.apikey";
+/* 依序試：先用便宜的 lite，不行再換一般的 flash。
+   兩個都失敗才算失敗。使用者不用選，也不會知道用的是哪一個。
+   Firebase 建議寫死穩定版的名字，不要用 -latest。 */
+const MODEL_CHAIN = ["gemini-3.5-flash-lite", "gemini-3.8-flash"];
+
+/* Firebase 專案的公開設定和 reCAPTCHA 的 key ID。這兩個本來就會出現在網頁原始碼裡，
+   不是金鑰；別人抄走也過不了 App Check，用不到 Gemini。 */
+const FIREBASE_CONFIG = {
+  apiKey: "FIREBASE_API_KEY",
+  authDomain: "PROJECT_ID.firebaseapp.com",
+  projectId: "PROJECT_ID",
+  storageBucket: "PROJECT_ID.firebasestorage.app",
+  messagingSenderId: "SENDER_ID",
+  appId: "APP_ID",
+};
+const RECAPTCHA_KEY = "RECAPTCHA_KEY_ID";
+const FIREBASE_SDK = "https://www.gstatic.com/firebasejs/12.19.0/";
+
+// 以前要使用者自己貼的 Gemini 金鑰，現在用不到了，順手從手機裡清掉
+const OLD_KEY_STORE = "carid.apikey";
 
 /* ================= 外觀：配色與明暗 ================= */
 
@@ -165,49 +181,42 @@ function paintVersion() {
   el.textContent = (app ? "App " + app + "\u3000" : "") + "內容 " + WEB_BUILD;
 }
 
-/* ================= 金鑰 ================= */
+/* ================= Firebase ================= */
 
-let apiKey = load(KEY_STORE) || "";
-
-function paintKeyState() {
-  const el = $("keyState");
-  const row = $("keyRow");
-  if (apiKey) {
-    el.textContent = "已設定 …" + apiKey.slice(-4);
-    el.classList.add("set");
-    // 設好之後就用不到了，整列收起來；金鑰有問題時會自己冒出來
-    if (row) row.hidden = true;
-  } else {
-    el.textContent = "尚未設定";
-    el.classList.remove("set");
-    if (row) row.hidden = false;
-  }
+// Firebase 的 SDK 用到 AbortSignal.any，比較舊的 Android WebView 沒有，補一個
+if (typeof AbortSignal !== "undefined" && !AbortSignal.any) {
+  AbortSignal.any = (signals) => {
+    const c = new AbortController();
+    for (const sig of signals) {
+      if (sig.aborted) { c.abort(sig.reason); break; }
+      sig.addEventListener("abort", () => c.abort(sig.reason), { once: true });
+    }
+    return c.signal;
+  };
 }
 
-$("keyForm").addEventListener("submit", (e) => {
-  e.preventDefault();
-  const v = $("keyInput").value.trim();
-  if (!v) return;
-  apiKey = v;
-  store(KEY_STORE, v);
-  $("keyInput").value = "";
-  paintKeyState();
-  showScreen("capture");
-});
-
-$("keyEdit").addEventListener("click", () => {
-  setPrefs(false);
-  showScreen("key");
-  if (document.body.dataset.view !== "car") location.hash = "#car";
-});
-
-$("keyClear").addEventListener("click", () => {
-  apiKey = "";
-  store(KEY_STORE, null);
-  paintKeyState();
-  showScreen("key");
-  if (document.body.dataset.view !== "car") location.hash = "#car";
-});
+/* 第一次要用時才去載 Firebase，載不到（例如沒網路）也不會拖垮整個 App，
+   下次按辨識會再試。App Check 一初始化就會在背景拿通行證。 */
+let aiReady = null;
+function firebaseAI() {
+  if (!aiReady) {
+    aiReady = (async () => {
+      const [{ initializeApp }, { initializeAppCheck, ReCaptchaEnterpriseProvider }, fai] = await Promise.all([
+        import(FIREBASE_SDK + "firebase-app.js"),
+        import(FIREBASE_SDK + "firebase-app-check.js"),
+        import(FIREBASE_SDK + "firebase-ai.js"),
+      ]);
+      const app = initializeApp(FIREBASE_CONFIG);
+      initializeAppCheck(app, {
+        provider: new ReCaptchaEnterpriseProvider(RECAPTCHA_KEY),
+        isTokenAutoRefreshEnabled: true,
+      });
+      return { ai: fai.getAI(app, { backend: new fai.GoogleAIBackend() }), getGenerativeModel: fai.getGenerativeModel };
+    })();
+    aiReady.catch(() => { aiReady = null; });
+  }
+  return aiReady;
+}
 
 /* ================= 辨識 ================= */
 
@@ -222,7 +231,6 @@ const stopBtn = $("stop");
 const redoBtn = $("redo");
 const againBtn = $("again");
 const fileMeta = $("filemeta");
-const screenKey = $("screenKey");
 const screenCapture = $("screenCapture");
 const screenResult = $("screenResult");
 const resultBody = $("resultBody");
@@ -253,7 +261,6 @@ const kb = (n) => (n < 1024 * 1024 ? Math.round(n / 1024) + " KB" : (n / 1024 / 
 
 function showScreen(name) {
   screen = name;
-  screenKey.hidden = name !== "key";
   screenCapture.hidden = name !== "capture";
   screenResult.hidden = name !== "result";
   updateBar();
@@ -262,14 +269,12 @@ function showScreen(name) {
 
 function updateBar() {
   const onResult = screen === "result";
-  const onKey = screen === "key";
-  camBtn.hidden = busy || onResult || onKey || !hasCamera;
-  pickBtn.hidden = busy || onResult || onKey;
-  goBtn.hidden = busy || onResult || onKey || !currentBlob;
+  camBtn.hidden = busy || onResult || !hasCamera;
+  pickBtn.hidden = busy || onResult;
+  goBtn.hidden = busy || onResult || !currentBlob;
   stopBtn.hidden = !busy;
   redoBtn.hidden = busy || !onResult;
   againBtn.hidden = busy || !onResult;
-  actionbar.classList.toggle("is-empty", onKey && !busy);
 }
 
 /* ---------- 選擇照片 ---------- */
@@ -384,7 +389,7 @@ function renderThinking(label) {
     `<p id="thinkLabel">${esc(label)}</p></div>`;
 }
 
-function renderError(msg, detail, keyProblem, status, title) {
+function renderError(msg, detail, status, title) {
   setTag("沒辨出來", false);
   const alert =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
@@ -401,16 +406,8 @@ function renderError(msg, detail, keyProblem, status, title) {
         '<span class="raw-cap">Google 原本的回覆</span></div>' +
         `<p>${esc(detail)}</p></div>`
       : "") +
-    (keyProblem ? '<p class="fail-actions"><button type="button" id="keyFix" class="small">重新輸入金鑰</button></p>' : "") +
     '</div>';
   resultNotes.innerHTML = "";
-
-  if (keyProblem) {
-    // 金鑰出問題時才讓設定裡的金鑰那一列重新出現
-    const row = $("keyRow");
-    if (row) row.hidden = false;
-    $("keyFix")?.addEventListener("click", () => showScreen("key"));
-  }
 }
 
 /* 連不到的時候多做兩個小測試，直接把結論寫在畫面上，
@@ -418,7 +415,7 @@ function renderError(msg, detail, keyProblem, status, title) {
 async function diagnose() {
   const bits = [navigator.onLine ? "系統：有網路" : "系統：沒網路"];
   try {
-    const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models", { method: "GET" });
+    const res = await fetch("https://firebasevertexai.googleapis.com/", { method: "GET" });
     bits.push("連得到 Google（HTTP " + res.status + "）→ 問題出在送照片那一次的請求");
   } catch (e) {
     bits.push("連不到 Google：" + (e?.message || "不明原因"));
@@ -429,8 +426,8 @@ async function diagnose() {
 function messageFor(err) {
   const status = err?.status;
   if (err?.name === "AbortError") return null;
-  if (status === 401 || status === 403) return "金鑰不對或沒有權限。到設定裡換一把金鑰再試一次。";
-  if (status === 429) return "不是網路的問題，照片也沒事。明天額度會重來，或是去 Google 把方案升上去就能繼續辨。";
+  if (status === 401 || status === 403) return "這支手機這次沒通過 Google 的驗證。把 App 關掉重開，再辨識一次看看。";
+  if (status === 429) return "不是網路的問題，照片也沒事。大家共用的免費額度今天用完了，明天會重來。";
   if (status === 400) return "這次的請求 Google 不收。換一張 JPG 或 PNG 照片再試一次。";
   if (status === 413) return "照片太大了，換一張小一點的再試一次。";
   if (status >= 500) return "Google 那邊暫時有狀況，等一下再辨識一次。";
@@ -443,7 +440,7 @@ function messageFor(err) {
 /* 錯誤畫面上的那一行大標 */
 function titleFor(err) {
   const status = err?.status;
-  if (status === 401 || status === 403) return "金鑰用不了";
+  if (status === 401 || status === 403) return "驗證沒過";
   if (status === 429) return "今天的免費額度用完了";
   if (status === 413) return "照片太大了";
   if (status >= 500) return "Google 那邊出了點狀況";
@@ -563,24 +560,6 @@ const PROMPT = `你是資深的汽車辨識專家。請看這張照片，判斷�
 - 照片裡沒有汽車時，is_vehicle 設為 false，並在 note 說明你看到什麼。
 - 除了 make、model 等專有名詞外，所有文字都用繁體中文。`;
 
-/* 從 Gemini 回應裡把文字挖出來。實測的回應沒有 output_text，文字在
-   steps 裡 type="model_output" 那一段的 content[].text；thought 步驟要跳過。 */
-function outputTextOf(payload) {
-  if (typeof payload?.output_text === "string" && payload.output_text.trim()) return payload.output_text;
-
-  const chunks = [];
-  const walk = (node) => {
-    if (!node || typeof node !== "object") return;
-    if (Array.isArray(node)) { node.forEach(walk); return; }
-    if (node.type === "text" && typeof node.text === "string") chunks.push(node.text);
-    else if (typeof node.text === "string" && !node.type) chunks.push(node.text);
-    for (const v of Object.values(node)) if (v && typeof v === "object") walk(v);
-  };
-  const outs = Array.isArray(payload?.steps) ? payload.steps.filter((s) => s?.type === "model_output") : [];
-  walk(outs.length ? outs : (payload?.steps ?? payload));
-  return chunks.join("\n");
-}
-
 /* 容錯解析：整段 JSON、程式碼區塊、或第一個 { 到最後一個 } */
 function parseJson(text) {
   const tries = [];
@@ -604,35 +583,32 @@ function setBusy(on) {
 
 stopBtn.addEventListener("click", () => controller?.abort());
 
-/* 對單一模型送一次請求，失敗就丟出帶 status 的錯誤 */
+/* 對單一模型送一次請求，回傳模型寫的文字；失敗就丟出帶 status 的錯誤 */
 async function askModel(model, data, effort) {
-  const body = {
-    model,
-    input: [
-      { type: "text", text: PROMPT },
-      { type: "image", data, mime_type: "image/jpeg" },
-    ],
-  };
-  // 深入模式才特別要求多想；標準模式用模型自己的預設值，
-  // 免得某些模型不收 thinking_level 直接回 400
-  if (effort === "deep") body.generation_config = { thinking_level: "high" };
+  const { ai, getGenerativeModel } = await firebaseAI();
+  const generationConfig = { responseMimeType: "application/json" };
+  // 深入模式才特別要求多想；標準模式用模型自己的預設值
+  if (effort === "deep") generationConfig.thinkingConfig = { thinkingLevel: "HIGH" };
+  const m = getGenerativeModel(ai, { model, generationConfig });
 
-  const res = await fetch(ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-    body: JSON.stringify(body),
-    signal: controller.signal,
-  });
-
-  if (!res.ok) {
-    let detail = "";
-    try { detail = (await res.json())?.error?.message || ""; } catch { /* 沒有 JSON 就算了 */ }
-    const err = new Error(detail || res.statusText);
-    err.status = res.status;
-    err.detail = detail;           // Google 的原文，錯誤畫面要顯示出來才查得到原因
+  try {
+    const result = await m.generateContent(
+      [PROMPT, { inlineData: { data, mimeType: "image/jpeg" } }],
+      { signal: controller.signal },
+    );
+    return result.response.text();
+  } catch (e) {
+    if (e?.name === "AbortError") throw e;
+    // SDK 的訊息長這樣：「AI: Error fetching from <網址>: [429 Too Many Requests] <Google 的原文> (AI/fetch-error)」，
+    // 錯誤畫面只留 Google 的原文，才看得出原因
+    const detail = String(e?.message || "")
+      .replace(/^(AI:\s*)?Error fetching from \S+:\s*(\[[^\]]*\]\s*)?/, "")
+      .replace(/\s*\(AI\/[\w-]+\)\s*$/, "");
+    const err = new Error(detail);
+    err.status = e?.customErrorData?.status || (e?.code === "api-not-enabled" ? 403 : undefined);
+    err.detail = detail;
     throw err;
   }
-  return res.json();
 }
 
 /* 依序試 MODEL_CHAIN 裡的模型，全部失敗才把最後一個錯誤丟出去 */
@@ -642,7 +618,8 @@ async function askModels(data, effort) {
     try {
       return await askModel(model, data, effort);
     } catch (err) {
-      if (err?.name === "AbortError") throw err;   // 使用者自己按停止
+      // 使用者自己按停止就不用再試下一個；SDK 自己逾時也是 AbortError，那種就換下一個
+      if (err?.name === "AbortError" && controller?.signal.aborted) throw err;
       last = err;
     }
   }
@@ -651,8 +628,6 @@ async function askModels(data, effort) {
 
 async function run() {
   if (busy || !currentBlob) return;
-
-  if (!apiKey) { showScreen("key"); return; }
 
   showScreen("result");
   controller = new AbortController();
@@ -666,8 +641,7 @@ async function run() {
     const label = $("thinkLabel");
     if (label) label.textContent = "正在判讀…";
 
-    const payload = await askModels(data, effort);
-    const text = outputTextOf(payload);
+    const text = await askModels(data, effort);
     const parsed = parseJson(text);
     if (!parsed) {
       renderError("回來的結果格式不對，再辨識一次通常就好了。");
@@ -682,9 +656,8 @@ async function run() {
       resultBody.innerHTML = '<p class="headline">已停止</p>';
       resultNotes.innerHTML = '<p class="caveat">按「再辨識一次」可以重來。</p>';
     } else {
-      const keyProblem = err?.status === 401 || err?.status === 403;
       const detail = err?.status ? (err.detail || err.message || "") : (err?.message || "");
-      renderError(msg, detail, keyProblem, err?.status, titleFor(err));
+      renderError(msg, detail, err?.status, titleFor(err));
       // 網路類的錯誤再跑一次診斷，把結果補在下面
       if (!err?.status) {
         diagnose().then((line) => {
@@ -1079,9 +1052,11 @@ async function paintArticle(id) {
 
 /* ================= 啟動 ================= */
 
-paintKeyState();
+store(OLD_KEY_STORE, null);
 paintVersion();
-showScreen(apiKey ? "capture" : "key");
+showScreen("capture");
+// 趁使用者還在選照片，先在背景把 Firebase 和 App Check 準備好
+setTimeout(() => firebaseAI().catch(() => { /* 按辨識時會再試 */ }), 0);
 // 從麥塊按「汽車」回來時網址沒有 #，回到上次看的那一頁
 if (!location.hash && lastCarTab() !== "car") history.replaceState(null, "", "#" + lastCarTab());
 route();
