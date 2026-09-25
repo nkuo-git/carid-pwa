@@ -1,0 +1,59 @@
+{
+ "v": 1,
+ "items": [
+  {
+   "id": "2026-09-23-lux",
+   "date": "2026-09-23",
+   "kind": "lux",
+   "title": "Spectre",
+   "lede": "這是勞斯萊斯推出的首款純電動車，不只開啓品牌電動化新頁，也延續了豪華旅行車的高規格水準。",
+   "sections": [
+    {
+     "h": "為什麼值得認識",
+     "p": [
+      "Rolls-Royce Spectre 是品牌歷史上的首款電動車，採用與 Phantom 和 Cullinan 相同的平台打造。這台車在 2021 年 9 月首度公佈並展開測試，隨後在 2022 年 10 月正式亮相，並於 2023 年底開始交車。",
+      "車款發表地點選在美國加州納帕谷，官方象徵性地指出，這裡正如這台沒有 V12 引擎的電動勞斯萊斯一樣，證明了傳統與歷史能夠被改寫。此外，車系也在 2026 年 6 月發表了 Series II，持續帶來技術與設計上的更新。"
+     ]
+    },
+    {
+     "h": "在路上怎麼認出它",
+     "p": [
+      "Spectre 的風阻係數僅有 0.25，是勞斯萊斯有史以來空氣力學表現最好的量產車型。車頭標誌性的歡慶女神立標經過重新設計，線條變得更寫實也更低矮，高度從前一代的 100 毫米縮減至 83 毫米，不僅更具流線感，這款新立標未來也會搭載於其他勞斯萊斯車款上。"
+     ]
+    }
+   ],
+   "make": "Rolls-Royce",
+   "specs": [
+    [
+     "EPA 續航里程",
+     "264 英里 (425 公里)"
+    ],
+    [
+     "WLTP 續航里程",
+     "321 英里 (517 公里)"
+    ],
+    [
+     "風阻係數",
+     "0.25"
+    ],
+    [
+     "歡慶女神立標高度",
+     "83 毫米 (3.3 英吋)"
+    ]
+   ],
+   "sources": [
+    {
+     "name": "維基百科：Rolls-Royce Spectre",
+     "url": "https://en.wikipedia.org/wiki/Rolls-Royce_Spectre"
+    },
+    {
+     "name": "中文維基百科",
+     "url": "https://zh.wikipedia.org/zh-tw/%E5%8A%B3%E6%96%AF%E8%8E%B1%E6%96%AF%E9%97%AA%E7%81%B5"
+    }
+   ],
+   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f2/2024_Rolls-Royce_Spectre_in_Midnight_Sapphire_over_Silver%2C_front_left.jpg/1280px-2024_Rolls-Royce_Spectre_in_Midnight_Sapphire_over_Silver%2C_front_left.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "imgCredit": "Mr.choppers／CC BY-SA 3.0，Wikimedia Commons"
+  }
+ ],
+ "updated": "2026-09-25T05:11:54.693Z"
+}
