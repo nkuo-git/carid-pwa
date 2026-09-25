@@ -179,12 +179,14 @@ function paintVersion() {
   const el = $("versionState");
   if (!el) return;
   const app = appBuild();
-  el.textContent = (app ? "App " + app + "\u3000" : "") + "內容 " + WEB_BUILD;
+  // 0.外殼.內容：兩個數字各自往上加；不在 App 裡（一般瀏覽器）外殼算 0
+  el.textContent = "0." + (app ?? 0) + "." + WEB_BUILD;
 }
 
 /* ---------- 有新版本的那一條 ----------
-   內容和 App 各自可能有新版，但一次只跳一條：App 有新版就只跳 App 那條，
-   因為裝好新 App 重開時，已經下載好的新內容也會一起換上。 */
+   外殼（APK）和內容各自可能有新版，但一次只跳一條，字也一樣，只是按下去做的事不同：
+   外殼有新版就開瀏覽器下載 APK（裝好重開時，已經下載好的新內容也會一起換上）；
+   只有內容有新版就馬上換。 */
 const APK_NEW = "carid.apknew";   // 查到的新版 App 記起來，重開 App 不用等下次查就跳得出來
 let webWaiting = false;           // 新內容下載好了，等使用者按「更新」
 let apkNew = null;                // 有新版 App：{ n: 版號, url: .apk 下載網址 }
@@ -1325,10 +1327,10 @@ function paintAccount() {
   if (!card.hidden) {
     const old = oldShell();
     $("acctCardText").textContent = old
-      ? "要用 email 登入，得先裝新版的 App。直接蓋過去裝就好，手機上的紀錄不會不見。"
+      ? "要用 email 登入，得先更新到最新版。手機上的紀錄不會不見。"
       : "用 email 登入，紀錄會存到雲端。換手機的時候用同一個 email 登入，紀錄就拿得回來。";
     const btn = $("acctCardBtn");
-    btn.textContent = old ? "下載新版 App" : "用 email 登入";
+    btn.textContent = old ? "更新" : "用 email 登入";
     btn.href = old ? apkHref() : "#login";
   }
 
@@ -1388,7 +1390,7 @@ function paintAccount() {
   else sub.textContent = "已登入";
   const inBtn = $("acctIn");
   inBtn.hidden = !!who;
-  inBtn.textContent = oldShell() ? "更新 App" : "登入";
+  inBtn.textContent = oldShell() ? "更新" : "登入";
   inBtn.href = oldShell() ? apkHref() : "#login";
   $("acctOut").hidden = !who;
 
