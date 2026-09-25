@@ -329,15 +329,23 @@ button { font-family: inherit; }
 
 /* ---------- 作品列表 ---------- */
 
-.head { display: flex; align-items: flex-end; gap: 10px; padding: 24px 16px 18px; }
-.head h1 { margin: 0; font-size: 24px; font-weight: 700; }
-.head .kicker {
-  margin: 5px 0 0;
-  font-family: Silkscreen, ui-monospace, monospace;
-  font-size: 10px;
-  letter-spacing: .14em;
-  color: var(--ink-faint);
+/* 跟辨車那頁一樣的標題列 */
+.apphead {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 16px 16px 24px;
+  border-bottom: 1px solid var(--line);
 }
+.apphead .mark { width: 34px; height: 34px; flex: none; border-radius: 10px; object-fit: cover; }
+.apphead .brand { flex: 1; min-width: 0; }
+.apphead .brand-name { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: .02em; line-height: 1.2; }
+.apphead .brand-sub { margin: 2px 0 0; font-size: 12px; color: var(--ink-soft); line-height: 1.4; }
+.apphead .gear { width: 44px; height: 44px; margin-right: -10px; }
+.apphead .gear svg { width: 22px; height: 22px; }
+
+.head { display: flex; align-items: center; gap: 10px; padding: 18px 16px 14px; }
+.head h2 { flex: 1; margin: 0; font-size: 22px; font-weight: 700; }
 .newbtn {
   display: flex;
   align-items: center;
@@ -385,6 +393,34 @@ button { font-family: inherit; }
 }
 .card .when { margin-top: 6px; font-size: 11px; color: var(--ink-faint); }
 .empty { padding: 40px 16px; text-align: center; color: var(--ink-faint); font-size: 13px; }
+
+/* 底部分頁：汽車／麥塊，顏色跟辨車那頁的分頁列一樣，切換時不會跳色 */
+.tabbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  margin-top: 18px;
+  padding: 6px 40px calc(8px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid #23262D;
+  background: #15171C;
+}
+.tabbar a {
+  flex: 1 1 0;
+  height: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #9AA1AC;
+  text-decoration: none;
+}
+.tabbar a[aria-current="page"] { color: var(--accent); font-weight: 700; }
+.tabbar .ico { display: flex; }
+.tabbar svg { width: 23px; height: 23px; display: block; }
 
 /* ---------- 選方塊 ---------- */
 

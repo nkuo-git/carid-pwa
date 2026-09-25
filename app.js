@@ -126,11 +126,11 @@ window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change",
 });
 
 const prefsSheetEl = $("prefsSheet");
-$("prefsBtn").addEventListener("click", () => {
-  const open = prefsSheetEl.hidden;
+function setPrefs(open) {
   prefsSheetEl.hidden = !open;
   $("prefsBtn").setAttribute("aria-expanded", open ? "true" : "false");
-});
+}
+$("prefsBtn").addEventListener("click", () => setPrefs(prefsSheetEl.hidden));
 
 (function restoreLook() {
   const savedTheme = load("carid.theme");
@@ -151,7 +151,7 @@ $("prefsBtn").addEventListener("click", () => {
 /* ================= 版本 ================= */
 
 /* 網頁內容的版號，跟 sw.js 的 CACHE 一起加 */
-const WEB_BUILD = 23;
+const WEB_BUILD = 24;
 
 function appBuild() {
   const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
@@ -196,9 +196,9 @@ $("keyForm").addEventListener("submit", (e) => {
 });
 
 $("keyEdit").addEventListener("click", () => {
-  prefsSheetEl.hidden = true;
-  $("prefsBtn").setAttribute("aria-expanded", "false");
+  setPrefs(false);
   showScreen("key");
+  if (document.body.dataset.view !== "car") location.hash = "#car";
 });
 
 $("keyClear").addEventListener("click", () => {
@@ -206,6 +206,7 @@ $("keyClear").addEventListener("click", () => {
   store(KEY_STORE, null);
   paintKeyState();
   showScreen("key");
+  if (document.body.dataset.view !== "car") location.hash = "#car";
 });
 
 /* ================= 辨識 ================= */
@@ -704,7 +705,8 @@ goBtn.addEventListener("click", run);
 redoBtn.addEventListener("click", run);
 
 /* ================= 分頁 ================= */
-// 網址的 # 決定現在在哪一頁：#car、#history、#history/<id>、#news、#news/<id>
+// 底部分頁是 汽車／麥塊（麥塊是另一頁 mc.html）。
+// 汽車裡面用網址的 # 切換：#car、#history、#history/<id>、#news、#news/<id>
 
 const views = {
   history: $("screenHistory"),
@@ -713,19 +715,36 @@ const views = {
   article: $("screenArticle"),
 };
 
+/* 記住汽車裡上次看的是辨車、紀錄還是車訊，從麥塊切回來時回到同一頁 */
+const CAR_TAB = "carid.tab";
+function lastCarTab() {
+  let t = null;
+  try { t = sessionStorage.getItem(CAR_TAB); } catch { /* 不給用就算了 */ }
+  return t === "history" || t === "news" ? t : "car";
+}
+
 function route() {
-  const [tab, id] = decodeURIComponent(location.hash.replace(/^#/, "")).split("/");
+  let [tab, id] = decodeURIComponent(location.hash.replace(/^#/, "")).split("/");
+  // 麥塊頁的齒輪連到 #settings：停在上次看的那一頁，把設定打開
+  const wantPrefs = tab === "settings";
+  if (wantPrefs) {
+    tab = lastCarTab();
+    id = undefined;
+    history.replaceState(null, "", "#" + tab);
+  }
   let view = "car";
   if (tab === "history") view = id ? "histitem" : "history";
   else if (tab === "news") view = id ? "article" : "news";
 
   document.body.dataset.view = view;
   for (const k in views) views[k].hidden = k !== view;
-  const tabName = view === "histitem" ? "history" : view === "article" ? "news" : view;
-  document.querySelectorAll(".tabbar a[data-tab]").forEach((a) => {
-    if (a.dataset.tab === tabName) a.setAttribute("aria-current", "page");
+  const seg = view === "histitem" ? "history" : view === "article" ? "news" : view;
+  document.querySelectorAll(".segs a[data-seg]").forEach((a) => {
+    if (a.dataset.seg === seg) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   });
+  try { sessionStorage.setItem(CAR_TAB, seg); } catch { /* 不給用就算了 */ }
+  setPrefs(wantPrefs);
   window.scrollTo(0, 0);
 
   if (view === "history") paintHistory();
@@ -734,6 +753,13 @@ function route() {
   else if (view === "article") paintArticle(id);
 }
 window.addEventListener("hashchange", route);
+
+// 已經在辨車頁時再點底部的「汽車」，就捲回最上面
+$("carTab").addEventListener("click", (e) => {
+  if (document.body.dataset.view !== "car") return;
+  e.preventDefault();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+});
 
 /* ---------- 共用的小工具 ---------- */
 
@@ -942,10 +968,16 @@ function longDate(key) {
 }
 const ktag = (k) => `<span class="ktag ${esc(k)}">${esc(KINDS[k]?.tag || "車訊")}</span>`;
 
+/* 有沒看過的車訊時，「車訊」旁邊和底部的「汽車」各亮一個小點 */
+function paintNewsDots(on) {
+  $("segNewsDot").hidden = !on;
+  $("carDot").hidden = !on;
+}
+
 async function checkNewsDot() {
   try {
     const items = newsData || await loadNews();
-    $("newsDot").hidden = !items.length || load(NEWS_SEEN) === items[0].id;
+    paintNewsDots(items.length > 0 && load(NEWS_SEEN) !== items[0].id);
   } catch { /* 沒網路就不亮 */ }
 }
 
@@ -977,7 +1009,7 @@ async function paintNews() {
     return;
   }
   store(NEWS_SEEN, items[0].id);
-  $("newsDot").hidden = true;
+  paintNewsDots(false);
 
   const [first, ...rest] = items;
   const img = first.img
@@ -1050,6 +1082,8 @@ async function paintArticle(id) {
 paintKeyState();
 paintVersion();
 showScreen(apiKey ? "capture" : "key");
+// 從麥塊按「汽車」回來時網址沒有 #，回到上次看的那一頁
+if (!location.hash && lastCarTab() !== "car") history.replaceState(null, "", "#" + lastCarTab());
 route();
 checkNewsDot();
 

@@ -9,7 +9,7 @@
 <link rel="icon" href="./icons/icon-192.png" sizes="192x192">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=Noto+Sans+TC:wght@400;500;700&display=swap">
-<link rel="stylesheet" href="./mc.css?v=23">
+<link rel="stylesheet" href="./mc.css?v=24">
 </head>
 <body>
 
@@ -17,11 +17,16 @@
 
   <!-- ================= 作品列表 ================= -->
   <section class="screen" id="scBuilds">
-    <div class="head">
-      <div class="grow" style="flex:1">
-        <h1>我的作品</h1>
-        <p class="kicker">MINECRAFT BUILDER</p>
+    <header class="apphead">
+      <img class="mark" src="./icons/icon-192.png" alt="" width="34" height="34">
+      <div class="brand">
+        <h1 class="brand-name">大便龍的萬能軟體</h1>
+        <p class="brand-sub">麥塊建築</p>
       </div>
+      <a class="iconbtn gear" href="./index.html#settings" aria-label="設定"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M4.6 14.4h-.5a2 2 0 1 1 0-4h.5a7.5 7.5 0 0 1 .9-2.2l-.4-.4a2 2 0 1 1 2.8-2.8l.4.4a7.5 7.5 0 0 1 2.2-.9v-.5a2 2 0 1 1 4 0v.5a7.5 7.5 0 0 1 2.2.9l.4-.4a2 2 0 1 1 2.8 2.8l-.4.4a7.5 7.5 0 0 1 .9 2.2h.5a2 2 0 1 1 0 4h-.5a7.5 7.5 0 0 1-.9 2.2l.4.4a2 2 0 1 1-2.8 2.8l-.4-.4a7.5 7.5 0 0 1-2.2.9v.5a2 2 0 1 1-4 0v-.5a7.5 7.5 0 0 1-2.2-.9l-.4.4a2 2 0 1 1-2.8-2.8l.4-.4a7.5 7.5 0 0 1-.9-2.2z"/></svg></a>
+    </header>
+    <div class="head">
+      <h2>我的作品</h2>
       <button type="button" class="newbtn" id="newBuild">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
         開新的
@@ -31,9 +36,12 @@
     <p class="empty" id="buildsEmpty" hidden>還沒有作品。按右上角「開新的」開始蓋。</p>
     <p class="note">作品存在這支手機裡。點一個就繼續蓋，長按可以改名或刪掉。</p>
     <div class="spacer"></div>
-    <div class="btnrow">
-      <a class="btn" href="./index.html">回辨車</a>
-    </div>
+
+    <!-- 跟辨車那頁同一排底部分頁 -->
+    <nav class="tabbar" aria-label="功能">
+      <a href="./index.html"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 13l1.7-4.3A3 3 0 0 1 8 6.8h8a3 3 0 0 1 2.8 1.9L20.5 13"/><path d="M3.5 13h17v3.8h-17z"/><path d="M6.8 16.8v1.4"/><path d="M17.2 16.8v1.4"/></svg></span>汽車</a>
+      <a href="./mc.html" aria-current="page"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 20.5 7.5v9L12 21 3.5 16.5v-9z"/><path d="M3.5 7.5 12 12l8.5-4.5"/><path d="M12 12v9"/></svg></span>麥塊</a>
+    </nav>
   </section>
 
   <!-- ================= 編輯器（立體） ================= -->
@@ -183,6 +191,6 @@
   <div class="btnrow"><button type="button" class="btn primary" id="palDone">用這個</button></div>
 </div>
 
-<script type="module" src="./mc.js?v=23"></script>
+<script type="module" src="./mc.js?v=24"></script>
 </body>
 </html>

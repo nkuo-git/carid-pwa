@@ -1,4 +1,4 @@
-/* 大便龍的辨車軟體 —— 黑底橘色的「儀表板」外觀 */
+/* 大便龍的萬能軟體 —— 黑底橘色的「儀表板」外觀 */
 
 :root {
   color-scheme: dark;
@@ -104,17 +104,12 @@ a { color: var(--accent); }
 
 /* ---------- 標題列 ---------- */
 
+/* 標題列跟著畫面捲走，底下的「辨車／紀錄／車訊」切換會黏在最上面 */
 .appbar {
-  position: sticky;
-  top: 0;
-  z-index: 20;
   display: flex;
   align-items: center;
   gap: 11px;
-  padding: 14px 16px 12px;
-  background: var(--bar);
-  backdrop-filter: saturate(180%) blur(12px);
-  border-bottom: 1px solid var(--line);
+  padding: 16px 16px 4px;
 }
 .appbar .mark {
   width: 34px;
@@ -133,13 +128,9 @@ a { color: var(--accent); }
   line-height: 1.2;
 }
 .brand-sub {
-  margin: 0;
-  font-family: "Barlow Condensed", "Noto Sans TC", sans-serif;
+  margin: 2px 0 0;
   font-size: 12px;
-  font-weight: 600;
-  letter-spacing: .22em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
+  color: var(--ink-soft);
   line-height: 1.4;
 }
 
@@ -202,7 +193,9 @@ a { color: var(--accent); }
 /* ---------- 設定 ---------- */
 
 .sheet {
+  margin-top: 8px;
   background: var(--surface);
+  border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
 }
 .sheet-row {
@@ -312,7 +305,8 @@ a { color: var(--accent); }
   position: relative;
   aspect-ratio: 3 / 4;
   max-width: 100%;
-  max-height: 56vh;
+  /* 小螢幕上要讓出標題列、上方切換和底下兩排的位置，整格才看得到 */
+  max-height: min(56vh, calc(100vh - 305px));
   margin-inline: auto;
   border: 1px dashed var(--line-strong);
   border-radius: 22px;
@@ -408,7 +402,8 @@ button.primary {
   font-weight: 700;
   letter-spacing: .04em;
 }
-button.primary:hover:not(:disabled) { filter: brightness(1.08); }
+/* 蓋掉上面一般按鈕的 hover 底色，不然橘色按鈕被滑過或剛點過時會變成灰底 */
+button.primary:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); filter: brightness(1.08); }
 button.primary:disabled { background: var(--surface-2); border-color: var(--line); color: var(--ink-faint); opacity: 1; }
 
 .btnlike {
@@ -658,12 +653,57 @@ footer b { color: var(--ink-soft); font-weight: 500; }
 /* ================= 分頁 ================= */
 
 body:not([data-view="car"]) .car-only { display: none !important; }
+body[data-view="histitem"] .main-only,
+body[data-view="article"] .main-only,
 body[data-view="histitem"] .tabbar,
-body[data-view="article"] .tabbar { display: none; }
+body[data-view="article"] .tabbar { display: none !important; }
 
+/* 汽車裡面的切換：辨車／紀錄／車訊 */
+.segbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding: 8px 16px 12px;
+  background: var(--bar);
+  backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+.segs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 13px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.segs a {
+  flex: 1 1 0;
+  height: 38px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink-soft);
+  text-decoration: none;
+}
+.segs a[aria-current="page"] {
+  background: var(--line-strong);
+  background: color-mix(in srgb, var(--ink) 10%, var(--surface));
+  color: var(--ink);
+  font-weight: 700;
+}
+.segs .sdot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.segs a[aria-current="page"] .sdot { display: none; }
+
+.pagecap { margin: -4px 0 0; font-size: 12px; color: var(--ink-soft); }
+
+/* 底部分頁：汽車／麥塊，之後有新功能就多一格 */
 .tabbar {
   display: flex;
-  padding: 6px 4px calc(8px + env(safe-area-inset-bottom, 0px));
+  padding: 6px 40px calc(8px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--line);
   background: var(--surface);
 }
@@ -686,17 +726,13 @@ body[data-view="article"] .tabbar { display: none; }
 .tabbar .dot {
   position: absolute;
   top: -2px;
-  right: -4px;
+  right: -5px;
   width: 9px;
   height: 9px;
   border-radius: 50%;
   background: var(--accent);
   border: 2px solid var(--surface);
 }
-
-.pagehead { margin: -16px -16px 0; padding: 22px 16px 14px; border-bottom: 1px solid var(--line); }
-.pagehead h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: .02em; line-height: 1.2; }
-.pagehead p { margin: 4px 0 0; font-size: 12px; color: var(--ink-soft); }
 
 .backhead {
   position: sticky;
