@@ -1,6 +1,7 @@
 package com.nkuo.carid;
 
 import android.app.Activity;
+import android.content.ClipData;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -79,19 +80,27 @@ public class MainActivity extends Activity {
         pendingCallback = callback;
         cameraOutputUri = null;
 
-        Intent pick = params.createIntent();
-
-        List<Intent> extras = new ArrayList<>();
         Intent camera = cameraIntent();
-        if (camera != null) extras.add(camera);
-
-        Intent chooser = Intent.createChooser(pick, "選一張車的照片");
-        if (!extras.isEmpty()) {
-          chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, extras.toArray(new Intent[0]));
+        Intent launch;
+        if (params.isCaptureEnabled() && camera != null) {
+          // 網頁上的「拍照」（capture）直接開相機，連拍好幾張時不用每次都先選 App
+          launch = camera;
+        } else {
+          Intent pick = params.createIntent();
+          // 網頁的相簿可以一次選好幾張（最多 5 張由網頁自己管）
+          if (params.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE) {
+            pick.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+          }
+          List<Intent> extras = new ArrayList<>();
+          if (camera != null) extras.add(camera);
+          launch = Intent.createChooser(pick, "選車的照片");
+          if (!extras.isEmpty()) {
+            launch.putExtra(Intent.EXTRA_INITIAL_INTENTS, extras.toArray(new Intent[0]));
+          }
         }
 
         try {
-          startActivityForResult(chooser, REQ_FILE);
+          startActivityForResult(launch, REQ_FILE);
         } catch (Exception e) {
           pendingCallback = null;
           Toast.makeText(MainActivity.this, "打不開相簿", Toast.LENGTH_SHORT).show();
@@ -153,9 +162,20 @@ public class MainActivity extends Activity {
     }
 
     Uri[] result = null;
-    if (data != null && (data.getData() != null || data.getClipData() != null)) {
+    // 相簿一次選好幾張時，照片放在 ClipData；系統的 parseResult 只看 getData()，只會拿到一張或拿不到
+    ClipData clip = data != null ? data.getClipData() : null;
+    if (clip != null && clip.getItemCount() > 0) {
+      List<Uri> uris = new ArrayList<>();
+      for (int i = 0; i < clip.getItemCount(); i++) {
+        Uri u = clip.getItemAt(i).getUri();
+        if (u != null) uris.add(u);
+      }
+      if (!uris.isEmpty()) result = uris.toArray(new Uri[0]);
+    }
+    if (result == null && data != null && data.getData() != null) {
       result = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
-    } else if (cameraOutputUri != null) {
+    }
+    if (result == null && cameraOutputUri != null) {
       // 相機拍完通常不會帶 data 回來，照片在我們給它的那個 Uri
       result = new Uri[]{cameraOutputUri};
     }

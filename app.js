@@ -167,7 +167,7 @@ $("prefsBtn").addEventListener("click", () => setPrefs(prefsSheetEl.hidden));
 /* ================= 版本 ================= */
 
 /* 網頁內容的版號，跟 sw.js 的 CACHE 一起加 */
-const WEB_BUILD = 25;
+const WEB_BUILD = 26;
 
 function appBuild() {
   const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
@@ -230,23 +230,33 @@ const goBtn = $("go");
 const stopBtn = $("stop");
 const redoBtn = $("redo");
 const againBtn = $("again");
-const fileMeta = $("filemeta");
 const screenCapture = $("screenCapture");
 const screenResult = $("screenResult");
 const resultBody = $("resultBody");
 const resultNotes = $("resultNotes");
 const stateTag = $("stateTag");
-const thumb = $("thumb");
+const collage = $("collage");
 const actionbar = $("actionbar");
+const shotsEl = $("shots");
+const pcount = $("pcount");
+const premove = $("premove");
+const tipEl = $("tip");
+const TIP_EMPTY = tipEl.textContent;
 
-let currentBlob = null;
-let previewUrl = null;
+/* 這次要辨的照片。同一台車最多 5 張（拍照、相簿加起來），一起送去判讀 */
+const MAX_SHOTS = 5;
+let shots = [];       // [{ blob, url, name, ratio }]
+let sel = 0;          // 大圖現在是第幾張
 let controller = null;
 let busy = false;
 let screen = "capture";
 
 const hasCamera = window.matchMedia?.("(pointer: coarse)").matches ?? false;
-if (hasCamera) pickBtn.textContent = "相簿";
+const PICK_WORD = hasCamera ? "相簿" : "選照片";
+
+// App 6 以前的外殼接不到相簿一次選的好幾張（選了會整個沒反應），在那些版本裡相簿一次選一張
+const shellBuild = appBuild();
+if (shellBuild !== null && shellBuild <= 6) fileInput.multiple = false;
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => (
   { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
@@ -256,8 +266,6 @@ function setTag(text, live) {
   stateTag.textContent = text;
   stateTag.className = "tag" + (live ? " live" : "");
 }
-
-const kb = (n) => (n < 1024 * 1024 ? Math.round(n / 1024) + " KB" : (n / 1024 / 1024).toFixed(1) + " MB");
 
 function showScreen(name) {
   screen = name;
@@ -269,9 +277,17 @@ function showScreen(name) {
 
 function updateBar() {
   const onResult = screen === "result";
-  camBtn.hidden = busy || onResult || !hasCamera;
-  pickBtn.hidden = busy || onResult;
-  goBtn.hidden = busy || onResult || !currentBlob;
+  const n = shots.length;
+  const full = n >= MAX_SHOTS;
+  // 還沒放照片時「拍照」是主按鈕；放了以後拍照、相簿都變成「再加一張」
+  camBtn.hidden = busy || onResult || !hasCamera || full;
+  pickBtn.hidden = busy || onResult || full;
+  camBtn.textContent = n ? "＋ 拍照" : "拍照";
+  pickBtn.textContent = n ? "＋ " + PICK_WORD : PICK_WORD;
+  camBtn.classList.toggle("primary", n === 0);
+  camBtn.classList.toggle("wide", n === 0);
+  goBtn.hidden = busy || onResult || n === 0;
+  goBtn.innerHTML = n > 1 ? `開始辨識<span class="cnt">${n} 張</span>` : "開始辨識";
   stopBtn.hidden = !busy;
   redoBtn.hidden = busy || !onResult;
   againBtn.hidden = busy || !onResult;
@@ -279,57 +295,139 @@ function updateBar() {
 
 /* ---------- 選擇照片 ---------- */
 
-function showPhoto(blob, name) {
-  currentBlob = blob;
-  if (previewUrl) URL.revokeObjectURL(previewUrl);
-  previewUrl = URL.createObjectURL(blob);
+const PLUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
 
-  let img = drop.querySelector("img");
-  if (!img) {
-    img = document.createElement("img");
-    img.alt = "已選擇的汽車照片";
-    drop.appendChild(img);
-  }
-  // 預覽框的長寬跟著照片走，橫的就是橫的，直的就是直的，不要硬裁成 3:4
-  img.onload = () => {
-    const w = img.naturalWidth, h = img.naturalHeight;
-    if (!w || !h) return;
-    // 太極端的全景或長截圖還是夾住，不然版面會被拉爆
-    const ratio = Math.min(2.2, Math.max(0.5, w / h));
-    drop.style.aspectRatio = String(ratio);
+/* 預覽框的長寬跟著照片走，橫的就是橫的，直的就是直的，不要硬裁成 3:4。
+   只看第 1 張：點其他縮圖時框的大小不變，下面那排縮圖才不會跟著跳 */
+function fitDrop() {
+  const r = shots[0]?.ratio;
+  // 太極端的全景或長截圖還是夾住，不然版面會被拉爆
+  drop.style.aspectRatio = r ? String(Math.min(2.2, Math.max(0.5, r))) : "";
+}
+
+function addShot(blob, name) {
+  const sh = { blob, url: URL.createObjectURL(blob), name, ratio: 0 };
+  shots.push(sh);
+  const probe = new Image();
+  probe.onload = () => {
+    sh.ratio = probe.naturalHeight ? probe.naturalWidth / probe.naturalHeight : 0;
+    if (shots[0] === sh) fitDrop();
   };
-  img.src = previewUrl;
-  thumb.src = previewUrl;
-  dropInner.hidden = true;
+  probe.src = sh.url;
+}
 
-  fileMeta.hidden = false;
-  fileMeta.textContent = (name || "photo") + " · " + kb(blob.size);
+/* 大圖、縮圖列、按鈕、提示一起照 shots 重畫 */
+function paintShots(extra) {
+  const n = shots.length;
+  let img = drop.querySelector("img");
+
+  if (!n) {
+    img?.remove();
+    drop.style.aspectRatio = "";
+    drop.classList.remove("has-shots");
+    drop.setAttribute("role", "button");
+    drop.tabIndex = 0;
+    dropInner.hidden = false;
+    pcount.hidden = true;
+    premove.hidden = true;
+  } else {
+    const s = shots[sel];
+    if (!img) {
+      img = document.createElement("img");
+      drop.insertBefore(img, pcount);   // 放在「2 / 3」和「拿掉」底下
+    }
+    fitDrop();
+    img.alt = n > 1 ? `第 ${sel + 1} 張照片` : "已選擇的汽車照片";
+    if (img.getAttribute("src") !== s.url) img.src = s.url;
+    // 放了照片以後大圖只是給你看，要加照片用下面的「＋」
+    drop.classList.add("has-shots");
+    drop.removeAttribute("role");
+    drop.tabIndex = -1;
+    dropInner.hidden = true;
+    pcount.hidden = n < 2;
+    pcount.textContent = `${sel + 1} / ${n}`;
+    premove.hidden = false;
+  }
+
+  shotsEl.hidden = n === 0;
+  shotsEl.innerHTML =
+    shots.map((sh, i) =>
+      `<button type="button" class="shot${i === sel ? " on" : ""}" data-i="${i}" aria-label="第 ${i + 1} 張"` +
+      (i === sel ? ' aria-current="true"' : "") + `><img src="${sh.url}" alt=""></button>`
+    ).join("") +
+    (n && n < MAX_SHOTS ? `<button type="button" class="shot add" data-add="1" aria-label="再加一張">${PLUS_SVG}<span>加一張</span></button>` : "");
+
+  const tips = [];
+  if (extra) tips.push(extra);
+  if (!n) tips.push(TIP_EMPTY);
+  else if (n >= MAX_SHOTS) tips.push(`已經 ${MAX_SHOTS} 張了。要換照片，先把其中一張拿掉。`);
+  else tips.push(`點縮圖看大張。拍照、${PICK_WORD}都是再加一張，加起來最多 ${MAX_SHOTS} 張。`);
+  tipEl.textContent = tips.join(" ");
+
   updateBar();
 }
 
-function acceptFile(f) {
-  if (!f) return;
-  if (!/^image\//.test(f.type)) {
-    showScreen("result");
-    renderError("這個檔案不是圖片。請選 JPG、PNG 或 WebP 格式的照片。");
-    return;
-  }
-  if (screen !== "capture") showScreen("capture");
-  showPhoto(f, f.name);
+function clearShots() {
+  shots.forEach((sh) => URL.revokeObjectURL(sh.url));
+  shots = [];
+  sel = 0;
 }
+
+/* 加照片：一次可以好幾張（相簿多選、拖曳），超過 5 張的就不收 */
+function acceptFiles(list, name) {
+  const files = [...(list || [])].filter(Boolean);
+  if (!files.length) return;
+  const imgs = files.filter((f) => /^image\//.test(f.type));
+  if (screen !== "capture") showScreen("capture");
+  const room = MAX_SHOTS - shots.length;
+  const take = imgs.slice(0, Math.max(0, room));
+  for (const f of take) addShot(f, name || f.name || "photo");
+  if (take.length) sel = shots.length - 1;
+  const msgs = [];
+  if (imgs.length < files.length) {
+    msgs.push(imgs.length ? `有 ${files.length - imgs.length} 個不是圖片的檔案沒有放進來。` : "這個檔案不是圖片。請選 JPG、PNG 或 WebP 格式的照片。");
+  }
+  const skipped = imgs.length - take.length;
+  if (skipped > 0) msgs.push(`最多 ${MAX_SHOTS} 張，多的 ${skipped} 張沒有放進來。`);
+  paintShots(msgs.join(" "));
+}
+
+shotsEl.addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b || busy) return;
+  if (b.dataset.add) { fileInput.click(); return; }
+  const i = Number(b.dataset.i);
+  if (Number.isInteger(i) && shots[i]) { sel = i; paintShots(); }
+});
+
+premove.addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (busy) return;
+  const [gone] = shots.splice(sel, 1);
+  if (gone) URL.revokeObjectURL(gone.url);
+  sel = Math.max(0, Math.min(sel, shots.length - 1));
+  paintShots();
+});
 
 camBtn.addEventListener("click", () => camInput.click());
 pickBtn.addEventListener("click", () => fileInput.click());
 againBtn.addEventListener("click", () => {
+  // 換一台：清掉這次的照片，直接開相機（或相簿）拍下一台
+  clearShots();
   showScreen("capture");
+  paintShots();
   (hasCamera ? camInput : fileInput).click();
 });
-drop.addEventListener("click", () => (hasCamera ? camInput : fileInput).click());
+drop.addEventListener("click", () => {
+  if (!shots.length) (hasCamera ? camInput : fileInput).click();
+});
 drop.addEventListener("keydown", (e) => {
+  if (shots.length) return;
   if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); }
 });
-fileInput.addEventListener("change", () => acceptFile(fileInput.files?.[0]));
-camInput.addEventListener("change", () => acceptFile(camInput.files?.[0]));
+// 選完把 value 清掉，同一張再選一次才會觸發 change
+fileInput.addEventListener("change", () => { acceptFiles(fileInput.files); fileInput.value = ""; });
+camInput.addEventListener("change", () => { acceptFiles(camInput.files); camInput.value = ""; });
 
 for (const ev of ["dragenter", "dragover"]) {
   drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("is-over"); });
@@ -338,18 +436,15 @@ for (const ev of ["dragleave", "drop"]) {
   drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("is-over"); });
 }
 drop.addEventListener("drop", (e) => {
-  const f = e.dataTransfer?.files?.[0];
-  if (f) acceptFile(f);
+  if (!busy) acceptFiles(e.dataTransfer?.files);
 });
 document.addEventListener("paste", (e) => {
-  const f = e.clipboardData?.files?.[0];
-  if (f) acceptFile(f);
+  if (!busy && e.clipboardData?.files?.length) acceptFiles(e.clipboardData.files);
 });
 
 /* ---------- 照片轉成 API 要的 base64 ---------- */
 
-async function toBase64Jpeg(blob) {
-  const max = 1600;
+async function toBase64Jpeg(blob, max = 1600) {
   let w, h, src;
 
   if (typeof createImageBitmap === "function") {
@@ -528,6 +623,7 @@ function renderResult(d, out) {
   bodyEl.innerHTML = hero + `<table class="spec"><tbody>${rows}</tbody></table>`;
 
   let notes = "";
+  if (d?.same_car === false) notes += '<p class="note warn">這幾張看起來不是同一台車，結果以第 1 張為主。</p>';
   if (hasEngine) notes += '<p class="caveat">動力規格為該車型年份的常見配置，實際依等級與販售市場而異。</p>';
   if (hasMarket) notes += '<p class="caveat">價格與數量是模型依既有知識的粗估，沒有連接任何行情或掛牌資料庫，請以實際報價與官方統計為準。</p>';
   if (conf < 50) notes += '<p class="note warn">把握程度偏低。換一個角度（車頭或四分之三角度）、離近一點、避免逆光，通常會準很多。</p>';
@@ -560,6 +656,23 @@ const PROMPT = `你是資深的汽車辨識專家。請看這張照片，判斷�
 - 照片裡沒有汽車時，is_vehicle 設為 false，並在 note 說明你看到什麼。
 - 除了 make、model 等專有名詞外，所有文字都用繁體中文。`;
 
+/* 好幾張照片時換掉開頭、多一個 same_car 欄位和兩條規則；一張的時候跟以前一模一樣 */
+function promptFor(n) {
+  if (n < 2) return PROMPT;
+  const swaps = [
+    ["請看這張照片，判斷照片中主要車輛的品牌與車型",
+      `下面有 ${n} 張照片，拍的是同一台車的不同角度或局部。請把所有照片合起來看，判斷這台車的品牌與車型`],
+    ['{"is_vehicle":true,', '{"is_vehicle":true,"same_car":true,'],
+    ["規則：\n",
+      "規則：\n" +
+      `- 這 ${n} 張是同一台車。把每張看到的線索（車頭、車尾、側面、輪圈、車尾字樣、內裝等）合起來判斷，confidence 是看完全部照片後的把握程度。\n` +
+      "- same_car：這幾張看起來是同一台車就給 true；明顯是不同的車就給 false，並以第 1 張照片裡的車為準回答，在 note 說明哪幾張不一樣。\n"],
+    ["- 照片裡沒有汽車時，is_vehicle 設為 false，並在 note 說明你看到什麼。",
+      "- 有幾張沒拍到車或看不清楚就略過那幾張；全部照片都沒有汽車時，is_vehicle 才設為 false，並在 note 說明你看到什麼。"],
+  ];
+  return swaps.reduce((t, [a, b]) => t.replace(a, b), PROMPT);
+}
+
 /* 容錯解析：整段 JSON、程式碼區塊、或第一個 { 到最後一個 } */
 function parseJson(text) {
   const tries = [];
@@ -583,8 +696,8 @@ function setBusy(on) {
 
 stopBtn.addEventListener("click", () => controller?.abort());
 
-/* 對單一模型送一次請求，回傳模型寫的文字；失敗就丟出帶 status 的錯誤 */
-async function askModel(model, data, effort) {
+/* 對單一模型送一次請求（所有照片放在同一個請求裡），回傳模型寫的文字；失敗就丟出帶 status 的錯誤 */
+async function askModel(model, images, effort) {
   const { ai, getGenerativeModel } = await firebaseAI();
   const generationConfig = { responseMimeType: "application/json" };
   // 深入模式才特別要求多想；標準模式用模型自己的預設值
@@ -593,7 +706,7 @@ async function askModel(model, data, effort) {
 
   try {
     const result = await m.generateContent(
-      [PROMPT, { inlineData: { data, mimeType: "image/jpeg" } }],
+      [promptFor(images.length), ...images.map((data) => ({ inlineData: { data, mimeType: "image/jpeg" } }))],
       { signal: controller.signal },
     );
     return result.response.text();
@@ -612,11 +725,11 @@ async function askModel(model, data, effort) {
 }
 
 /* 依序試 MODEL_CHAIN 裡的模型，全部失敗才把最後一個錯誤丟出去 */
-async function askModels(data, effort) {
+async function askModels(images, effort) {
   let last;
   for (const model of MODEL_CHAIN) {
     try {
-      return await askModel(model, data, effort);
+      return await askModel(model, images, effort);
     } catch (err) {
       // 使用者自己按停止就不用再試下一個；SDK 自己逾時也是 AbortError，那種就換下一個
       if (err?.name === "AbortError" && controller?.signal.aborted) throw err;
@@ -626,28 +739,44 @@ async function askModels(data, effort) {
   throw last;
 }
 
+/* 結果頁上面的照片：1 張滿版，好幾張拼在一起 */
+function paintCollage(urls) {
+  const n = Math.min(urls.length, MAX_SHOTS);
+  collage.hidden = n === 0;
+  collage.className = "collage n" + n;
+  collage.innerHTML = urls.slice(0, n)
+    .map((u, i) => `<img src="${u}" alt="${n > 1 ? `第 ${i + 1} 張照片` : "這次辨識的照片"}">`).join("");
+}
+
 async function run() {
-  if (busy || !currentBlob) return;
+  if (busy || !shots.length) return;
+  const n = shots.length;
 
   showScreen("result");
+  paintCollage(shots.map((sh) => sh.url));
   controller = new AbortController();
   setBusy(true);
-  renderThinking("正在看這張照片…");
+  renderThinking(n > 1 ? `正在看這 ${n} 張照片…` : "正在看這張照片…");
 
   try {
-    const { data, canvas: shot } = await toBase64Jpeg(currentBlob);
+    // 好幾張時每張縮小一點，上傳比較快。一張一張轉，手機記憶體才不會一下子吃太多
+    const prepared = [];
+    for (const sh of shots.slice(0, MAX_SHOTS)) prepared.push(await toBase64Jpeg(sh.blob, n > 1 ? 1280 : 1600));
     const effort = document.querySelector('input[name="tier"]:checked').value;
 
     const label = $("thinkLabel");
-    if (label) label.textContent = "正在判讀…";
+    if (label) label.textContent = n > 1 ? `正在把 ${n} 張照片合起來判讀…` : "正在判讀…";
 
-    const text = await askModels(data, effort);
+    const text = await askModels(prepared.map((p) => p.data), effort);
     const parsed = parseJson(text);
     if (!parsed) {
       renderError("回來的結果格式不對，再辨識一次通常就好了。");
     } else {
       renderResult(parsed);
-      if (parsed.is_vehicle !== false) saveHistory(parsed, shot).catch(() => { /* 存不進去不影響結果 */ });
+      if (parsed.is_vehicle !== false) {
+        if (n > 1) setTag(`已辨識・${n} 張一起看`, true);
+        saveHistory(parsed, prepared.map((p) => p.canvas)).catch(() => { /* 存不進去不影響結果 */ });
+      }
     }
   } catch (err) {
     const msg = messageFor(err);
@@ -760,10 +889,12 @@ function confOf(d) {
   return c >= 70 ? ["高", " good"] : c >= 40 ? ["普通", ""] : ["偏低", " weak"];
 }
 const CHEV = '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>';
+const STACK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5"/></svg>';
 const PHOTO_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3 16.2l4.6-4.4 3.8 3.6 2.8-2.6 6.8 6"/><circle cx="8.8" cy="9.6" r="1.3"/></svg>';
 
 /* ================= 紀錄 ================= */
-// 存在這支手機的 IndexedDB：辨識結果、一張 1024px 的照片（再辨一次用）、一張小縮圖
+// 存在這支手機的 IndexedDB：辨識結果、這次的照片（再辨一次用）、一張小縮圖。
+// 內容 25 以前一筆只有一張照片，存在 photo；之後存在 photos 陣列
 
 const HIST_MAX = 300;
 let dbPromise = null;
@@ -808,10 +939,20 @@ function canvasBlob(src, max, quality, square) {
   return new Promise((resolve) => c.toBlob(resolve, "image/jpeg", quality));
 }
 
-async function saveHistory(data, shot) {
-  const [photo, thumb] = await Promise.all([canvasBlob(shot, 1024, 0.8), canvasBlob(shot, 176, 0.78, true)]);
+/* 一筆紀錄的所有照片，舊的紀錄只有一張 */
+function recPhotos(r) {
+  if (Array.isArray(r?.photos) && r.photos.length) return r.photos;
+  return r?.photo ? [r.photo] : [];
+}
+
+async function saveHistory(data, canvases) {
+  // 第 1 張存 1024px，其他張存 800px 省一點空間
+  const [thumb, ...photos] = await Promise.all([
+    canvasBlob(canvases[0], 176, 0.78, true),
+    ...canvases.map((c, i) => canvasBlob(c, i ? 800 : 1024, 0.8)),
+  ]);
   const t = Date.now();
-  await histPut({ id: t.toString(36), t, data, photo, thumb });
+  await histPut({ id: t.toString(36), t, data, photos, thumb });
   const all = await histAll();
   if (all.length > HIST_MAX) {
     all.sort((a, b) => a.t - b.t);
@@ -859,9 +1000,11 @@ async function paintHistory() {
     if (g !== last) { html += `<div class="hgroup">${esc(g)}</div>`; last = g; }
     const d = r.data || {};
     const [word, cls] = confOf(d);
+    const n = recPhotos(r).length;
+    const thumb = `<img class="hthumb" src="${blobUrl(r.thumb)}" alt="">`;
     html +=
       `<a class="hrow" href="#history/${encodeURIComponent(r.id)}">` +
-      `<img class="hthumb" src="${blobUrl(r.thumb)}" alt="">` +
+      (n > 1 ? `<span class="hthumbwrap">${thumb}<span class="hcount" aria-label="${n} 張照片">${STACK_ICON}${n}</span></span>` : thumb) +
       '<span class="hinfo">' +
       `<span class="hmake">${esc(d.make || d.make_zh || "")}</span>` +
       `<span class="hmodel">${esc(d.model || "沒認出車型")}</span>` +
@@ -871,6 +1014,34 @@ async function paintHistory() {
   $("histList").innerHTML = html;
 }
 
+/* 紀錄裡的照片：好幾張就左右滑，角落是「2 / 3」，下面是小圓點 */
+const histPhotos = $("histPhotos");
+const histCount = $("histCount");
+const histDots = $("histDots");
+
+function paintHistPhotos(r) {
+  let list = recPhotos(r);
+  if (!list.length) list = [r.thumb].filter(Boolean);   // 萬一沒有照片，至少放縮圖
+  const n = list.length;
+  histPhotos.innerHTML = list
+    .map((b, i) => `<img src="${blobUrl(b)}" alt="${n > 1 ? `第 ${i + 1} 張照片` : "紀錄裡的照片"}">`).join("");
+  histPhotos.scrollLeft = 0;
+  histCount.hidden = n < 2;
+  histDots.hidden = n < 2;
+  histDots.innerHTML = n > 1 ? list.map((_, i) => `<i${i ? "" : ' class="on"'}></i>`).join("") : "";
+  markHistPhoto();
+}
+
+function markHistPhoto() {
+  const n = histPhotos.children.length;
+  if (n < 2) return;
+  const w = histPhotos.clientWidth || 1;
+  const i = Math.max(0, Math.min(n - 1, Math.round(histPhotos.scrollLeft / w)));
+  histCount.textContent = `${i + 1} / ${n}`;
+  [...histDots.children].forEach((dot, k) => dot.classList.toggle("on", k === i));
+}
+histPhotos.addEventListener("scroll", markHistPhoto, { passive: true });
+
 let histCurrent = null;
 async function paintHistItem(id) {
   freeUrls();
@@ -878,7 +1049,7 @@ async function paintHistItem(id) {
   try { r = await histGet(id); } catch { /* 找不到就回列表 */ }
   if (!r) { location.hash = "#history"; return; }
   histCurrent = r;
-  $("histPhoto").src = blobUrl(r.photo || r.thumb);
+  paintHistPhotos(r);
   renderResult(r.data, {
     body: $("histBody"),
     notes: $("histNotes"),
@@ -894,11 +1065,16 @@ $("histDel").addEventListener("click", async () => {
 });
 
 $("histRedo").addEventListener("click", () => {
-  if (!histCurrent?.photo) return;
-  const photo = histCurrent.photo;
+  const list = recPhotos(histCurrent);
+  if (!list.length) return;
   location.hash = "#car";
+  if (busy) return;           // 正在辨別台，回辨車頁看那一台就好
+  // 把這筆的照片全部放回去，一起再辨一次
+  clearShots();
+  for (const b of list.slice(0, MAX_SHOTS)) addShot(b, "紀錄裡的照片");
+  sel = 0;
   showScreen("capture");
-  showPhoto(photo, "紀錄裡的照片");
+  paintShots();
   run();
 });
 

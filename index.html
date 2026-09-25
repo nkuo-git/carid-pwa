@@ -16,8 +16,8 @@
 <link rel="icon" href="./icons/icon-192.png" sizes="192x192">
 
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap">
-<link rel="stylesheet" href="./styles.css?v=25">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="./styles.css?v=26">
 </head>
 <body data-view="car">
 
@@ -96,16 +96,20 @@
         <span class="badge">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h2.8l1.4-2h7.6L17.2 8H20a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.6"/></svg>
         </span>
-        <p class="hint">放一張車的照片</p>
-        <p class="sub">辨完會自動存進「紀錄」</p>
+        <p class="hint">放車的照片，最多 5 張</p>
+        <p class="sub">拍照或從相簿選，有幾張就用幾張<br>辨完會自動存進「紀錄」</p>
       </div>
+      <span class="pcount" id="pcount" hidden></span>
+      <button type="button" class="premove" id="premove" hidden aria-label="拿掉這張"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>拿掉</button>
     </div>
 
-    <input type="file" id="file" accept="image/*" hidden>
+    <!-- 放了幾張：縮圖一排，點了看大張，最後一格加一張 -->
+    <div class="shots" id="shots" hidden></div>
+
+    <input type="file" id="file" accept="image/*" multiple hidden>
     <input type="file" id="fileCam" accept="image/*" capture="environment" hidden>
 
-    <p class="filemeta" id="filemeta" hidden></p>
-    <p class="tip">車頭或四分之三角度最好認，整台車入鏡、避免逆光會更準。</p>
+    <p class="tip" id="tip">車頭或四分之三角度最好認，整台車入鏡、避免逆光會更準。</p>
 
     <footer>
       <p>結果是當場判讀出來的，沒有另外接車輛資料庫。價格與數量是粗估，請以實際報價與官方統計為準。</p>
@@ -116,7 +120,7 @@
   <!-- 結果 -->
   <main class="screen car-only" id="screenResult" hidden>
     <div class="result-head">
-      <img class="thumb" id="thumb" alt="剛才辨識的照片">
+      <div class="collage" id="collage"></div>
       <span class="tag live" id="stateTag">辨識中</span>
     </div>
     <div class="card" id="resultCard">
@@ -140,7 +144,11 @@
       <a class="icon-btn" href="#history" aria-label="回紀錄"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></a>
       <span>紀錄</span>
     </header>
-    <div class="detail-photo"><img id="histPhoto" alt="當時拍的照片"></div>
+    <div class="detail-photo">
+      <div class="swipe" id="histPhotos"></div>
+      <span class="pcount" id="histCount" hidden></span>
+      <div class="dots" id="histDots" hidden></div>
+    </div>
     <div class="card"><div id="histBody"></div></div>
     <div id="histNotes"></div>
     <div class="btnrow">
@@ -176,7 +184,7 @@
     <button type="button" id="go" class="primary wide" hidden>開始辨識</button>
     <button type="button" id="stop" class="wide" hidden>停止</button>
     <button type="button" id="redo" hidden>再辨識一次</button>
-    <button type="button" id="again" class="primary wide" hidden>換一張</button>
+    <button type="button" id="again" class="primary wide" hidden>換一台</button>
   </div>
 
   <nav class="tabbar" aria-label="功能">
@@ -186,6 +194,6 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=25"></script>
+<script type="module" src="./app.js?v=26"></script>
 </body>
 </html>
