@@ -1,6 +1,6 @@
 name: 車訊
 
-# 每週三（豪車）、六（新車快訊）、日（汽車原理）台北時間早上產生一篇，存成 news/index.json。
+# 每週三（汽車介紹）、六（新車快訊）、日（汽車原理）台北時間早上產生一篇，存成 news/index.json。
 # 06:10 那班常撞到 Gemini 忙線，07:30 再跑一次補；已經有了就什麼都不做。
 on:
   schedule:
@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       kind:
-        description: "種類：lux 豪車 / new 新車快訊 / how 汽車原理（空白＝照今天星期幾）"
+        description: "種類：lux 汽車介紹 / new 新車快訊 / how 汽車原理（空白＝照今天星期幾）"
         required: false
         default: ""
       force:

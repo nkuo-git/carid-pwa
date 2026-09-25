@@ -151,7 +151,7 @@ $("prefsBtn").addEventListener("click", () => {
 /* ================= 版本 ================= */
 
 /* 網頁內容的版號，跟 sw.js 的 CACHE 一起加 */
-const WEB_BUILD = 22;
+const WEB_BUILD = 23;
 
 function appBuild() {
   const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
@@ -909,7 +909,7 @@ $("histRedo").addEventListener("click", () => {
 const NEWS_URL = "./news/index.json";
 const NEWS_SEEN = "carid.newsSeen";
 const KINDS = {
-  lux: { tag: "週三豪車", short: "豪車", wd: 3 },
+  lux: { tag: "週三汽車介紹", short: "汽車介紹", wd: 3 },
   new: { tag: "週六新車快訊", short: "新車快訊", wd: 6 },
   how: { tag: "週日汽車原理", short: "汽車原理", wd: 0 },
 };
@@ -917,6 +917,8 @@ let newsData = null;
 
 async function loadNews() {
   const res = await fetch(NEWS_URL, { cache: "no-store" });
+  // 還沒出過任何一篇時檔案不存在，那不是網路問題
+  if (res.status === 404) { newsData = []; return newsData; }
   if (!res.ok) throw new Error("HTTP " + res.status);
   const j = await res.json();
   newsData = Array.isArray(j?.items) ? j.items : [];

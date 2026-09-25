@@ -1,4 +1,4 @@
-// 車訊產生器 —— 每週三（豪車）、六（新車快訊）、日（汽車原理）各一篇。
+// 車訊產生器 —— 每週三（汽車介紹，挑的都是豪車）、六（新車快訊）、日（汽車原理）各一篇。
 //
 // 原則照「每日新聞」那套：事實只從真實來源來（新聞走 RSS，豪車和原理走維基百科），
 // Gemini 只負責挑選和改寫成繁體中文，不准加來源裡沒有的事實。
@@ -6,7 +6,7 @@
 //
 // 用法（GitHub Actions 會替你跑，見 .github/workflows/news.yml）：
 //   node scripts/news.mjs                 照台北今天星期幾決定寫哪一種，今天已經有了就不做
-//   node scripts/news.mjs --kind lux      指定種類：lux 豪車 / new 新車快訊 / how 汽車原理
+//   node scripts/news.mjs --kind lux      指定種類：lux 汽車介紹 / new 新車快訊 / how 汽車原理
 //   node scripts/news.mjs --force         今天已經有了也重做一篇蓋掉
 //   node scripts/news.mjs --probe         只試抓所有來源，印出抓到幾筆，不叫 Gemini、不寫檔
 //   node scripts/news.mjs --mock out.json 不叫 Gemini，拿檔案內容當模型的回答（本機測試用）
@@ -25,7 +25,7 @@ const UA = "carid-news/1.0 (https://github.com/nkuo-git/carid-pwa)";
 const MODELS = ["gemini-flash-latest", "gemini-flash-lite-latest"];
 
 const KIND_BY_WEEKDAY = { 3: "lux", 6: "new", 0: "how" };
-const KIND_NAME = { lux: "週三豪車", new: "週六新車快訊", how: "週日汽車原理" };
+const KIND_NAME = { lux: "週三汽車介紹", new: "週六新車快訊", how: "週日汽車原理" };
 
 /* ---------- 參數 ---------- */
 
@@ -294,7 +294,7 @@ ${COMMON}`;
 }
 
 function promptLux(src) {
-  return `你是汽車 App「大便龍的萬能軟體」的編輯，今天要出「週三豪車」，介紹這台車：${src.title}。
+  return `你是汽車 App「大便龍的萬能軟體」的編輯，今天要出「週三汽車介紹」，介紹這台豪車：${src.title}。
 下面是維基百科的條目內容，是你唯一可以用的事實來源。
 
 【英文維基百科：${src.title}】
