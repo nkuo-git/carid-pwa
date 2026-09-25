@@ -17,7 +17,7 @@ const FIREBASE_CONFIG = {
   messagingSenderId: "211232229775",
   appId: "1:211232229775:web:d4e39ba53ee75e61a8a3fa",
 };
-const RECAPTCHA_KEY = "RECAPTCHA_KEY_ID";
+const RECAPTCHA_KEY = "6LdJF84tAAAAAOhEqju6oi0J2XDnQZO0M0_kWSLB";
 const FIREBASE_SDK = "https://www.gstatic.com/firebasejs/12.19.0/";
 
 // 以前要使用者自己貼的 Gemini 金鑰，現在用不到了，順手從手機裡清掉
