@@ -168,7 +168,7 @@ $("prefsBtn").addEventListener("click", () => setPrefs(prefsSheetEl.hidden));
 
 /* 網頁內容的版號，跟 sw.js 的 CACHE、index.html 和 mc.html 裡的 ?v= 一起加
    （account.js 也用這個版號載入） */
-const WEB_BUILD = 28;
+const WEB_BUILD = 29;
 
 function appBuild() {
   const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
@@ -180,6 +180,31 @@ function paintVersion() {
   if (!el) return;
   const app = appBuild();
   el.textContent = (app ? "App " + app + "\u3000" : "") + "內容 " + WEB_BUILD;
+}
+
+/* ---------- 有新版本的那一條 ----------
+   內容和 App 各自可能有新版，但一次只跳一條：App 有新版就只跳 App 那條，
+   因為裝好新 App 重開時，已經下載好的新內容也會一起換上。 */
+const APK_NEW = "carid.apknew";   // 查到的新版 App 記起來，重開 App 不用等下次查就跳得出來
+let webWaiting = false;           // 新內容下載好了，等使用者按「更新」
+let apkNew = null;                // 有新版 App：{ n: 版號, url: .apk 下載網址 }
+
+try {
+  const saved = JSON.parse(load(APK_NEW) || "null");
+  const mine = appBuild();
+  if (saved && mine !== null && saved.n > mine && /\.apk$/i.test(saved.url || "")) apkNew = saved;
+  else if (saved) store(APK_NEW, null);   // 已經裝好了
+} catch {
+  store(APK_NEW, null);
+}
+
+function paintUpdate() {
+  const appBar = $("appUpdateBar");
+  const link = $("appUpdateLink");
+  const webBar = $("updateBar");
+  if (link && apkNew) link.href = apkNew.url;
+  if (appBar) appBar.hidden = !apkNew;
+  if (webBar) webBar.hidden = !webWaiting || !!apkNew;
 }
 
 /* ================= Firebase ================= */
@@ -1275,8 +1300,7 @@ const ICONS = {
 
 /* 新版 APK 的下載網址：查到過就直接給 .apk，不然給 Releases 頁 */
 function apkHref() {
-  const a = $("appUpdateLink");
-  return a && !$("appUpdateBar").hidden && /\.apk$/i.test(a.href) ? a.href : APK_LATEST;
+  return apkNew ? apkNew.url : APK_LATEST;
 }
 
 function syncErrorText(err) {
@@ -1754,6 +1778,7 @@ async function paintArticle(id) {
 
 store(OLD_KEY_STORE, null);
 paintVersion();
+paintUpdate();
 showScreen("capture");
 // 趁使用者還在選照片，先在背景把 Firebase 和 App Check 準備好
 setTimeout(() => firebaseAI().catch(() => { /* 按辨識時會再試 */ }), 0);
@@ -1779,9 +1804,8 @@ const APK_API = "https://api.github.com/repos/nkuo-git/carid-pwa/releases/latest
 const APK_SEEN = "carid.apkcheck";
 
 async function checkAppUpdate() {
-  const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
-  if (!m) return;                      // 不是在 App 裡，不用查
-  const mine = Number(m[1]);
+  const mine = appBuild();
+  if (mine === null) return;           // 不是在 App 裡，不用查
 
   // 一小時查一次就夠了，GitHub 的匿名 API 有次數限制
   const last = Number(load(APK_SEEN) || 0);
@@ -1789,7 +1813,7 @@ async function checkAppUpdate() {
 
   let latest;
   try {
-    const res = await fetch(APK_API, { headers: { Accept: "application/vnd.github+json" } });
+    const res = await fetch(APK_API, { cache: "no-cache", headers: { Accept: "application/vnd.github+json" } });
     if (!res.ok) return;
     latest = await res.json();
   } catch {
@@ -1798,31 +1822,34 @@ async function checkAppUpdate() {
   store(APK_SEEN, String(Date.now()));
 
   const tag = /^apk-(\d+)$/.exec(latest?.tag_name || "");
-  if (!tag || Number(tag[1]) <= mine) return;
-
-  const apk = (latest.assets || []).find((a) => /\.apk$/i.test(a.name || ""));
-  if (!apk?.browser_download_url) return;
-
-  const bar = $("appUpdateBar");
-  const link = $("appUpdateLink");
-  if (!bar || !link) return;
-  link.href = apk.browser_download_url;
-  bar.hidden = false;
+  if (!tag) return;
+  const n = Number(tag[1]);
+  if (n <= mine) {
+    apkNew = null;                     // 已經是最新的
+  } else {
+    const apk = (latest.assets || []).find((a) => /\.apk$/i.test(a.name || ""));
+    if (!apk?.browser_download_url) return;   // Release 還在上傳，下次再看
+    apkNew = { n, url: apk.browser_download_url };
+  }
+  store(APK_NEW, apkNew ? JSON.stringify(apkNew) : null);
+  paintUpdate();
 }
 
-/* ---------- 自動更新 ----------
-   新版的 Service Worker 裝好之後會在旁邊待命。閒著沒事（沒選照片、沒在辨識）
-   就直接換過去並重新載入；正在用就先跳一條橫幅，讓使用者自己決定什麼時候更新。 */
+/* ---------- 內容有沒有新版 ----------
+   新版的 Service Worker 裝好之後會在旁邊待命，不自動換：跳一條橫幅，
+   讓使用者自己按「更新」。 */
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
+    // 先問 App 有沒有新版：有的話只跳 App 那條，不要先跳內容那條再換掉
+    const appChecked = checkAppUpdate().catch(() => { /* 查不到就算了 */ });
     let reg;
     try {
       reg = await navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" });
     } catch {
       return; // 沒註冊成功就當一般網頁用
     }
+    if (!reg) return;
 
-    const bar = $("updateBar");
     const btn = $("updateBtn");
     // 第一次安裝時 SW 接管這一頁也會觸發 controllerchange，那次不算換版，不要重載
     const hadController = !!navigator.serviceWorker.controller;
@@ -1840,7 +1867,8 @@ if ("serviceWorker" in navigator) {
       // 第一次安裝沒有舊版可換，不用打擾使用者
       if (!reg.waiting || !navigator.serviceWorker.controller) return;
       // 不自動換版，只通知；換不換由使用者自己按
-      if (bar) bar.hidden = false;
+      webWaiting = true;
+      paintUpdate();
     };
 
     navigator.serviceWorker.addEventListener("controllerchange", () => {
@@ -1851,7 +1879,6 @@ if ("serviceWorker" in navigator) {
 
     if (btn) btn.addEventListener("click", apply);
 
-    offer();
     reg.addEventListener("updatefound", () => {
       const fresh = reg.installing;
       if (!fresh) return;
@@ -1859,7 +1886,6 @@ if ("serviceWorker" in navigator) {
         if (fresh.state === "installed") offer();
       });
     });
-
     // 開起來時、每次從背景切回來時都去問一次有沒有新版，最多一分鐘一次
     let checkedAt = 0;
     const check = () => {
@@ -1879,15 +1905,18 @@ if ("serviceWorker" in navigator) {
         await checkAppUpdate();
         // 換版的通知要一點時間才冒出來，等一下再看結論
         setTimeout(() => {
-          const pending = (bar && !bar.hidden) || !$("appUpdateBar").hidden;
+          const pending = webWaiting || !!apkNew;
           manual.textContent = pending ? "有新版" : "已經是最新";
           setTimeout(() => { manual.textContent = "檢查更新"; manual.disabled = false; }, 2500);
         }, 1200);
       });
     }
 
+    // App 那邊最多等兩秒，GitHub 慢的話內容那條先跳
+    await Promise.race([appChecked, new Promise((r) => setTimeout(r, 2000))]);
+    offer();
+
     check();
-    checkAppUpdate();
     document.addEventListener("visibilitychange", () => { if (!document.hidden) check(); });
     window.addEventListener("focus", check);
     // App 一直開著沒關也要會更新，所以固定每五分鐘問一次
