@@ -167,7 +167,7 @@ $("prefsBtn").addEventListener("click", () => setPrefs(prefsSheetEl.hidden));
 /* ================= 版本 ================= */
 
 /* 網頁內容的版號，跟 sw.js 的 CACHE 一起加 */
-const WEB_BUILD = 26;
+const WEB_BUILD = 27;
 
 function appBuild() {
   const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
@@ -518,9 +518,16 @@ async function diagnose() {
   return bits.join("　·　");
 }
 
+/* 付費方案的預付額度用完：Google 回 402，或是 429 加上「prepayment credits are depleted」。
+   這種不會隔天自己恢復，要去 AI Studio 儲值 */
+function outOfCredit(err) {
+  return err?.status === 402 || (err?.status === 429 && /prepay|credit/i.test(err?.detail || err?.message || ""));
+}
+
 function messageFor(err) {
   const status = err?.status;
   if (err?.name === "AbortError") return null;
+  if (outOfCredit(err)) return "不是網路的問題，照片也沒事。App 用的 Google 預付額度用完了，要等儲值之後才能再辨識。";
   if (status === 401 || status === 403) return "這支手機這次沒通過 Google 的驗證。把 App 關掉重開，再辨識一次看看。";
   if (status === 429) return "不是網路的問題，照片也沒事。大家共用的免費額度今天用完了，明天會重來。";
   if (status === 400) return "這次的請求 Google 不收。換一張 JPG 或 PNG 照片再試一次。";
@@ -535,6 +542,7 @@ function messageFor(err) {
 /* 錯誤畫面上的那一行大標 */
 function titleFor(err) {
   const status = err?.status;
+  if (outOfCredit(err)) return "預付額度用完了";
   if (status === 401 || status === 403) return "驗證沒過";
   if (status === 429) return "今天的免費額度用完了";
   if (status === 413) return "照片太大了";
@@ -733,6 +741,8 @@ async function askModels(images, effort) {
     } catch (err) {
       // 使用者自己按停止就不用再試下一個；SDK 自己逾時也是 AbortError，那種就換下一個
       if (err?.name === "AbortError" && controller?.signal.aborted) throw err;
+      // 額度用完是整個帳戶的事，換模型也一樣，不用再多等一次
+      if (outOfCredit(err)) throw err;
       last = err;
     }
   }

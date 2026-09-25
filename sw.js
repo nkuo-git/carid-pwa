@@ -1,11 +1,11 @@
 // 大便龍的萬能軟體 — Service Worker
 // 只快取 App 本身（殼），辨識一定要連網，API 的請求永遠不進快取。
 
-const CACHE = "carid-v26";
+const CACHE = "carid-v27";
 
 /* 跟 index.html 裡 styles.css / app.js 後面的 ?v= 一樣。
    換版就換網址，任何一層快取（瀏覽器、CDN、這裡）都不可能給到舊檔。 */
-const V = "26";
+const V = "27";
 
 const SHELL = [
   "./",
