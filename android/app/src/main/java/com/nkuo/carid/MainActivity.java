@@ -7,6 +7,7 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -17,6 +18,8 @@ import android.widget.Toast;
 
 import androidx.core.content.FileProvider;
 
+import org.json.JSONObject;
+
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -24,8 +27,8 @@ import java.util.List;
 
 /**
  * 很薄的一層殼：整個畫面就是 WebView，載入 GitHub Pages 上的辨車網頁。
- * 這裡唯一要自己處理的是網頁上的 <input type="file">，WebView 預設不會有反應，
- * 要自己把相簿與相機的 Intent 接起來。
+ * 這裡要自己處理的只有兩件事：網頁上的 <input type="file">（WebView 預設不會有反應，
+ * 要自己把相簿與相機的 Intent 接起來），以及登入信的連結從瀏覽器跳回 App（carid://login）。
  */
 public class MainActivity extends Activity {
 
@@ -37,6 +40,9 @@ public class MainActivity extends Activity {
   private WebView web;
   private ValueCallback<Uri[]> pendingCallback;
   private Uri cameraOutputUri;
+
+  /** 從瀏覽器跳回來的登入連結，先收著，等網頁準備好再交給它。 */
+  private volatile String pendingLink;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -54,8 +60,15 @@ public class MainActivity extends Activity {
     // 把外殼版號寫進 User-Agent，網頁才知道自己是跑在 App 裡、是哪一版，
     // 可以自己去比對 GitHub 上有沒有更新的 APK
     s.setUserAgentString(s.getUserAgentString() + " CaridApp/" + versionCode());
+    web.addJavascriptInterface(new Bridge(), "CaridApp");
 
     web.setWebViewClient(new WebViewClient() {
+      @Override
+      public void onPageFinished(WebView view, String url) {
+        // 網頁通常會自己說 ready()，這裡是保險：載好了還有沒交出去的登入連結就交出去
+        deliverLink();
+      }
+
       @Override
       public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
         Uri url = request.getUrl();
@@ -111,7 +124,61 @@ public class MainActivity extends Activity {
       }
     });
 
+    keepLink(getIntent());
     web.loadUrl(START_URL);
+  }
+
+  @Override
+  protected void onNewIntent(Intent intent) {
+    super.onNewIntent(intent);
+    setIntent(intent);
+    // App 本來就開著（singleTask），點了登入信跳回來會走這裡
+    if (keepLink(intent)) deliverLink();
+  }
+
+  /** 是 carid://login?… 就收起來，回傳有沒有收到。 */
+  private boolean keepLink(Intent intent) {
+    Uri data = intent != null ? intent.getData() : null;
+    if (data == null || !"carid".equals(data.getScheme()) || !"login".equals(data.getHost())) return false;
+    pendingLink = data.toString();
+    return true;
+  }
+
+  /**
+   * 把收著的登入連結交給網頁的 window.caridLink()。用 evaluateJavascript 只會送進主頁面，
+   * 頁面裡的 iframe（例如 reCAPTCHA）拿不到。網頁還沒準備好就先留著，等它說 ready() 再送。
+   */
+  private void deliverLink() {
+    final String link = pendingLink;
+    if (link == null || web == null) return;
+    pendingLink = null;
+    web.evaluateJavascript(
+        "window.caridLink?(window.caridLink(" + JSONObject.quote(link) + "),'ok'):''",
+        result -> {
+          if (!"\"ok\"".equals(result) && pendingLink == null) pendingLink = link;
+        });
+  }
+
+  /** 網頁可以呼叫的小功能，在網頁裡叫 window.CaridApp。 */
+  private class Bridge {
+    /** 網頁準備好接登入連結了。 */
+    @JavascriptInterface
+    public void ready() {
+      runOnUiThread(MainActivity.this::deliverLink);
+    }
+
+    /** 打開手機的信箱 App（通常是 Gmail），找不到就回 false。 */
+    @JavascriptInterface
+    public boolean openMail() {
+      Intent mail = Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_EMAIL);
+      mail.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+      try {
+        startActivity(mail);
+        return true;
+      } catch (Exception e) {
+        return false;
+      }
+    }
   }
 
   /** 這個 APK 的版號，對應 GitHub Release 的 apk-N。 */

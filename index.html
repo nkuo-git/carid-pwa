@@ -17,7 +17,7 @@
 
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap">
-<link rel="stylesheet" href="./styles.css?v=27">
+<link rel="stylesheet" href="./styles.css?v=28">
 </head>
 <body data-view="car">
 
@@ -37,6 +37,15 @@
   </header>
 
   <div class="sheet main-only" id="prefsSheet" hidden>
+    <div class="sheet-row acct-row" id="acctRow">
+      <span class="acct-avatar" id="acctAvatar" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8.5" r="3.6"/><path d="M4.8 19.5a7.2 7.2 0 0 1 14.4 0"/></svg></span>
+      <div class="acct-who">
+        <b id="acctWho">還沒登入</b>
+        <span id="acctSub">紀錄只存在這支手機</span>
+      </div>
+      <a class="btnlike acct-in" id="acctIn" href="#login">登入</a>
+      <button type="button" class="small acct-out" id="acctOut" hidden>登出</button>
+    </div>
     <div class="sheet-row">
       <span class="sheet-label">主色</span>
       <div class="swatches" id="swatches" role="group" aria-label="主色">
@@ -113,7 +122,7 @@
 
     <footer>
       <p>結果是當場判讀出來的，沒有另外接車輛資料庫。價格與數量是粗估，請以實際報價與官方統計為準。</p>
-      <p>照片會送去判讀，另外存一份在這支手機的「紀錄」裡，不會傳去別的地方。車牌號碼不會被讀出來。</p>
+      <p id="privacyLine">照片會送去判讀，另外存一份在這支手機的「紀錄」裡，不會傳去別的地方。車牌號碼不會被讀出來。</p>
     </footer>
   </main>
 
@@ -132,10 +141,63 @@
 
   <!-- 紀錄 -->
   <section class="screen" id="screenHistory" hidden>
-    <p class="pagecap">辨過的車都在這裡，只存在這支手機</p>
+    <!-- 帳號：還沒登入時是這張卡片；登入後換成下面的一行字和同步進度 -->
+    <section class="acct-card" id="acctCard" aria-label="登入">
+      <div class="acct-top">
+        <span class="acct-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18.5h10.3a4.2 4.2 0 0 0 .5-8.4 6 6 0 0 0-11.5-.9A4.7 4.7 0 0 0 7 18.5z"/></svg></span>
+        <div class="acct-txt">
+          <b>紀錄現在只存在這支手機</b>
+          <span id="acctCardText">用 email 登入，紀錄會存到雲端。換手機的時候用同一個 email 登入，紀錄就拿得回來。</span>
+        </div>
+      </div>
+      <a class="btnlike acct-cta" id="acctCardBtn" href="#login">用 email 登入</a>
+    </section>
+    <p class="acct-line" id="acctLine" hidden></p>
+    <div class="acct-status" id="acctStatus" role="status" hidden>
+      <div class="acct-status-row"><span class="ic" id="acctStatusIc"></span><span class="txt" id="acctStatusText"></span><b id="acctStatusNum"></b></div>
+      <div class="acct-bar" id="acctBar" hidden><i id="acctBarFill"></i></div>
+    </div>
     <div class="stats" id="histStats" hidden></div>
     <div id="histList"></div>
     <p class="empty" id="histEmpty" hidden>還沒有紀錄。去「辨車」拍一台，辨完會自動存進來。</p>
+  </section>
+
+  <!-- 登入：輸入 email → 登入信寄出了 -->
+  <section class="screen detail" id="screenLogin" hidden>
+    <header class="backhead">
+      <a class="icon-btn" href="#history" aria-label="返回"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></a>
+      <span>登入</span>
+    </header>
+    <form class="login" id="loginForm" novalidate>
+      <div class="login-head">
+        <h2 id="loginTitle">用 email 登入</h2>
+        <p id="loginText">不用密碼。輸入 email 之後會收到一封登入信，點信裡的連結就登入了。</p>
+      </div>
+      <div class="login-field">
+        <label for="loginEmail">Email</label>
+        <input id="loginEmail" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="name@example.com">
+        <p class="login-err" id="loginErr" role="alert" hidden></p>
+      </div>
+      <div class="login-note" id="loginNote" hidden><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18.5h10.3a4.2 4.2 0 0 0 .5-8.4 6 6 0 0 0-11.5-.9A4.7 4.7 0 0 0 7 18.5z"/></svg></span><span id="loginNoteText"></span></div>
+      <div class="login-foot">
+        <button type="submit" class="primary block" id="loginSend">寄登入信</button>
+        <p class="login-lock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2"/><path d="M8 10.5V7.8a4 4 0 0 1 8 0v2.7"/></svg>紀錄和照片只有你自己登入才看得到</p>
+      </div>
+    </form>
+    <div class="login" id="loginSent" hidden>
+      <span class="login-mail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2.5"/><path d="M3.8 7l8.2 6 8.2-6"/></svg></span>
+      <div class="login-head">
+        <h2>去信箱收登入信</h2>
+        <p>寄到 <b id="sentTo"></b> 了。<span id="sentHow">在這支手機上打開信，點信裡的連結，就會回到 App 登入。</span></p>
+      </div>
+      <div class="login-tip"><b>沒看到信？</b><span>看一下垃圾郵件匣。寄件人是 noreply@beaupower-307a5.firebaseapp.com。</span></div>
+      <p class="login-err" id="sentErr" role="alert" hidden></p>
+      <div class="login-foot">
+        <button type="button" class="primary block" id="openMail" hidden>打開信箱</button>
+        <button type="button" class="block" id="resend" disabled>重寄一次</button>
+        <button type="button" class="linkish" id="changeEmail">改用別的 email</button>
+      </div>
+    </div>
   </section>
 
   <!-- 紀錄：點進一筆 -->
@@ -194,6 +256,6 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=27"></script>
+<script type="module" src="./app.js?v=28"></script>
 </body>
 </html>

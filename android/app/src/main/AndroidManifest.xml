@@ -32,6 +32,13 @@
         <action android:name="android.intent.action.MAIN" />
         <category android:name="android.intent.category.LAUNCHER" />
       </intent-filter>
+      <!-- 登入信的連結先開在瀏覽器（login.html），再用 carid://login?… 跳回 App -->
+      <intent-filter>
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <category android:name="android.intent.category.BROWSABLE" />
+        <data android:scheme="carid" android:host="login" />
+      </intent-filter>
     </activity>
 
     <provider

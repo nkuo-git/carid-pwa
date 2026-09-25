@@ -166,8 +166,9 @@ $("prefsBtn").addEventListener("click", () => setPrefs(prefsSheetEl.hidden));
 
 /* ================= 版本 ================= */
 
-/* 網頁內容的版號，跟 sw.js 的 CACHE 一起加 */
-const WEB_BUILD = 27;
+/* 網頁內容的版號，跟 sw.js 的 CACHE、index.html 和 mc.html 裡的 ?v= 一起加
+   （account.js 也用這個版號載入） */
+const WEB_BUILD = 28;
 
 function appBuild() {
   const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
@@ -196,21 +197,33 @@ if (typeof AbortSignal !== "undefined" && !AbortSignal.any) {
 }
 
 /* 第一次要用時才去載 Firebase，載不到（例如沒網路）也不會拖垮整個 App，
-   下次按辨識會再試。App Check 一初始化就會在背景拿通行證。 */
-let aiReady = null;
-function firebaseAI() {
-  if (!aiReady) {
-    aiReady = (async () => {
-      const [{ initializeApp }, { initializeAppCheck, ReCaptchaEnterpriseProvider }, fai] = await Promise.all([
+   下次要用會再試。App Check 一初始化就會在背景拿通行證。
+   辨車和帳號（登入、雲端紀錄）共用同一個 Firebase app。 */
+let appReady = null;
+function firebaseApp() {
+  if (!appReady) {
+    appReady = (async () => {
+      const [{ initializeApp, getApps }, { initializeAppCheck, ReCaptchaEnterpriseProvider }] = await Promise.all([
         import(FIREBASE_SDK + "firebase-app.js"),
         import(FIREBASE_SDK + "firebase-app-check.js"),
-        import(FIREBASE_SDK + "firebase-ai.js"),
       ]);
-      const app = initializeApp(FIREBASE_CONFIG);
+      const app = getApps()[0] || initializeApp(FIREBASE_CONFIG);
       initializeAppCheck(app, {
         provider: new ReCaptchaEnterpriseProvider(RECAPTCHA_KEY),
         isTokenAutoRefreshEnabled: true,
       });
+      return { app, sdk: FIREBASE_SDK };
+    })();
+    appReady.catch(() => { appReady = null; });
+  }
+  return appReady;
+}
+
+let aiReady = null;
+function firebaseAI() {
+  if (!aiReady) {
+    aiReady = (async () => {
+      const [{ app }, fai] = await Promise.all([firebaseApp(), import(FIREBASE_SDK + "firebase-ai.js")]);
       return { ai: fai.getAI(app, { backend: new fai.GoogleAIBackend() }), getGenerativeModel: fai.getGenerativeModel };
     })();
     aiReady.catch(() => { aiReady = null; });
@@ -818,11 +831,13 @@ redoBtn.addEventListener("click", run);
 
 /* ================= 分頁 ================= */
 // 底部分頁是 汽車／麥塊（麥塊是另一頁 mc.html）。
-// 汽車裡面用網址的 # 切換：#car、#history、#history/<id>、#news、#news/<id>
+// 汽車裡面用網址的 # 切換：#car、#history、#history/<id>、#news、#news/<id>，
+// 登入頁是 #login（算在紀錄底下）
 
 const views = {
   history: $("screenHistory"),
   histitem: $("screenHistItem"),
+  login: $("screenLogin"),
   news: $("screenNews"),
   article: $("screenArticle"),
 };
@@ -847,10 +862,14 @@ function route() {
   let view = "car";
   if (tab === "history") view = id ? "histitem" : "history";
   else if (tab === "news") view = id ? "article" : "news";
+  else if (tab === "login") view = "login";
+
+  // 「登入好了」只在剛登入後的紀錄頁出現一次，離開就收起來
+  if (view !== "history" && view !== "login" && acctSnap.sync.phase === "idle") justIn = false;
 
   document.body.dataset.view = view;
   for (const k in views) views[k].hidden = k !== view;
-  const seg = view === "histitem" ? "history" : view === "article" ? "news" : view;
+  const seg = view === "histitem" || view === "login" ? "history" : view === "article" ? "news" : view;
   document.querySelectorAll(".segs a[data-seg]").forEach((a) => {
     if (a.dataset.seg === seg) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
@@ -859,8 +878,9 @@ function route() {
   setPrefs(wantPrefs);
   window.scrollTo(0, 0);
 
-  if (view === "history") paintHistory();
+  if (view === "history") { paintHistory(); paintAccount(); }
   else if (view === "histitem") paintHistItem(id);
+  else if (view === "login") paintLogin();
   else if (view === "news") paintNews();
   else if (view === "article") paintArticle(id);
 }
@@ -904,7 +924,9 @@ const PHOTO_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 
 /* ================= 紀錄 ================= */
 // 存在這支手機的 IndexedDB：辨識結果、這次的照片（再辨一次用）、一張小縮圖。
-// 內容 25 以前一筆只有一張照片，存在 photo；之後存在 photos 陣列
+// 內容 25 以前一筆只有一張照片，存在 photo；之後存在 photos 陣列。
+// 內容 28 起可以登入：登入時辨的紀錄記著 owner（誰的）和 dirty（還沒傳上雲端）；
+// 從雲端拿回來的紀錄先只有縮圖，照片（n 張）第一次點開才下載。
 
 const HIST_MAX = 300;
 let dbPromise = null;
@@ -935,6 +957,21 @@ const histGet = (id) => histTx("readonly", (st) => st.get(id));
 const histPut = (rec) => histTx("readwrite", (st) => st.put(rec));
 const histDelete = (id) => histTx("readwrite", (st) => st.delete(id));
 
+/* 在同一個交易裡讀出來、改一改、存回去；紀錄已經被刪掉就不動，回傳 false */
+function histPatch(id, fn) {
+  return histTx("readwrite", (st) => {
+    const out = { result: false };
+    const req = st.get(id);
+    req.onsuccess = () => {
+      if (!req.result) return;
+      fn(req.result);
+      st.put(req.result);
+      out.result = true;
+    };
+    return out;
+  });
+}
+
 function canvasBlob(src, max, quality, square) {
   let w = src.width, h = src.height, sx = 0, sy = 0, sw = w, sh = h;
   if (square) {                       // 縮圖裁成正方形，列表比較整齊
@@ -962,12 +999,21 @@ async function saveHistory(data, canvases) {
     ...canvases.map((c, i) => canvasBlob(c, i ? 800 : 1024, 0.8)),
   ]);
   const t = Date.now();
-  await histPut({ id: t.toString(36), t, data, photos, thumb });
-  const all = await histAll();
-  if (all.length > HIST_MAX) {
-    all.sort((a, b) => a.t - b.t);
-    for (const old of all.slice(0, all.length - HIST_MAX)) await histDelete(old.id);
+  const rec = { id: t.toString(36), t, data, photos, thumb };
+  // 登入中辨的算這個人的，等一下傳上雲端；沒登入的沒有主人，登入時再一起傳
+  if (who) { rec.owner = who.uid; rec.dirty = true; }
+  await histPut(rec);
+  // 最多留 300 筆，只算畫面上看得到的這一份（別的帳號藏起來的不動）；太舊的連雲端一起刪
+  const mine = (await histAll()).filter(visibleRec);
+  if (mine.length > HIST_MAX) {
+    mine.sort((a, b) => a.t - b.t);
+    for (const old of mine.slice(0, mine.length - HIST_MAX)) {
+      await histDelete(old.id);
+      acctDeleted(old);
+    }
   }
+  acctSync();
+  refreshCounts();
 }
 
 let histUrls = [];
@@ -985,6 +1031,7 @@ function freeUrls() {
 async function paintHistory() {
   let all = [];
   try { all = await histAll(); } catch { /* 瀏覽器不給用 IndexedDB 就當沒有 */ }
+  all = all.filter(visibleRec);
   freeUrls();
   all.sort((a, b) => b.t - a.t);
 
@@ -1010,7 +1057,7 @@ async function paintHistory() {
     if (g !== last) { html += `<div class="hgroup">${esc(g)}</div>`; last = g; }
     const d = r.data || {};
     const [word, cls] = confOf(d);
-    const n = recPhotos(r).length;
+    const n = recPhotos(r).length || r.n || 0;
     const thumb = `<img class="hthumb" src="${blobUrl(r.thumb)}" alt="">`;
     html +=
       `<a class="hrow" href="#history/${encodeURIComponent(r.id)}">` +
@@ -1057,7 +1104,8 @@ async function paintHistItem(id) {
   freeUrls();
   let r = null;
   try { r = await histGet(id); } catch { /* 找不到就回列表 */ }
-  if (!r) { location.hash = "#history"; return; }
+  // 找不到，或是別的帳號的（登出後按返回鍵回到這裡）
+  if (!r || !visibleRec(r)) { location.replace("#history"); return; }
   histCurrent = r;
   paintHistPhotos(r);
   renderResult(r.data, {
@@ -1065,18 +1113,35 @@ async function paintHistItem(id) {
     notes: $("histNotes"),
     when: dayLabel(r.t) + " " + clockText(r.t) + " 辨的",
   });
+  // 從雲端拿回來的紀錄第一次點開：先放縮圖，照片下載好再換上去
+  if (!recPhotos(r).length && r.n) {
+    cloudPhotos(r).then((list) => {
+      if (histCurrent !== r || document.body.dataset.view !== "histitem" || !list.length) return;
+      r.photos = list;
+      paintHistPhotos(r);
+    });
+  }
 }
 
 $("histDel").addEventListener("click", async () => {
   if (!histCurrent || !confirm("刪掉這筆紀錄？刪了就找不回來。")) return;
-  await histDelete(histCurrent.id);
+  const gone = histCurrent;
+  await histDelete(gone.id);
+  acctDeleted(gone);
   histCurrent = null;
+  refreshCounts();
   location.hash = "#history";
 });
 
-$("histRedo").addEventListener("click", () => {
-  const list = recPhotos(histCurrent);
-  if (!list.length) return;
+$("histRedo").addEventListener("click", async () => {
+  const rec = histCurrent;
+  let list = recPhotos(rec);
+  if (!list.length && rec?.n) list = await cloudPhotos(rec);
+  if (!list.length) {
+    if (rec?.n) alert("照片還沒從雲端拿回來，連上網路再試一次。");
+    return;
+  }
+  if (histCurrent !== rec || document.body.dataset.view !== "histitem") return;
   location.hash = "#car";
   if (busy) return;           // 正在辨別台，回辨車頁看那一台就好
   // 把這筆的照片全部放回去，一起再辨一次
@@ -1086,6 +1151,455 @@ $("histRedo").addEventListener("click", () => {
   showScreen("capture");
   paintShots();
   run();
+});
+
+/* ================= 帳號 ================= */
+// 用 email 連結登入，不用密碼（account.js 負責登入和跟雲端對齊）。
+// 紀錄一律從手機的 IndexedDB 讀：沒登入只看沒主人的；登入後看自己的，加上還沒傳上去的。
+// 登入信的連結：App 裡由外殼從 carid://login?… 交給 window.caridLink()；
+// 網頁版則是 login.html 轉回來，網址上帶著 oobCode。
+
+const ACCT_KEY = "carid.acct";   // 上次登入的是誰 { uid, email }：一打開就知道要顯示誰的紀錄，不用等 Firebase
+const APK_LATEST = "https://github.com/nkuo-git/carid-pwa/releases/latest";
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function readWho() {
+  try {
+    const v = JSON.parse(load(ACCT_KEY) || "null");
+    return v && v.uid ? { uid: String(v.uid), email: String(v.email || "") } : null;
+  } catch {
+    return null;
+  }
+}
+let who = readWho();
+const visibleRec = (r) => (who ? !r.owner || r.owner === who.uid : !r.owner);
+
+/* 跑在 App 裡、而且外殼接得到登入連結（App 8 起有 window.CaridApp） */
+const inApp = () => !!window.CaridApp?.ready;
+/* App 7 以前的外殼接不到登入信的連結，要先裝新版 */
+const oldShell = () => appBuild() !== null && !window.CaridApp;
+
+let acctMod = null;
+let acctSnap = { user: null, sync: { phase: "idle", done: 0, total: 0, pulled: 0, pushed: 0, rounds: 0, error: null } };
+let signing = false;      // 點了信裡的連結回來，正在登入
+let justIn = false;       // 剛登入：登入後第一次對齊完，在紀錄頁說一次「登入好了」
+let justInAt = 0;         // 登入那一刻已經對齊過幾次
+let logoutErr = "";
+let counts = { mine: 0, loose: 0, dirty: 0 };
+let lastPhase = "idle";
+
+/* account.js 第一次要用才載；Firebase 的登入和資料庫要等 start() 才載 */
+function account() {
+  if (!acctMod) {
+    acctMod = import("./account.js?v=" + WEB_BUILD).then((m) => {
+      m.init({
+        firebaseApp,
+        hist: { all: histAll, get: histGet, put: histPut, del: histDelete, patch: histPatch },
+        inApp,
+      });
+      m.onChange(onAccount);
+      return m;
+    });
+    acctMod.catch(() => { acctMod = null; });
+  }
+  return acctMod;
+}
+/* 開始看登入狀態（會載 Firebase），第一次知道有沒有登入才 resolve */
+const acctStart = () => account().then((m) => m.start().then(() => m));
+
+/* 紀錄有變動就跟雲端對齊一次（沒登入什麼都不做） */
+function acctSync(delay) {
+  if (who) acctStart().then((m) => m.syncSoon(delay)).catch(() => { /* 沒網路：等有網路再說 */ });
+}
+function acctDeleted(rec) {
+  if (rec?.owner) account().then((m) => m.recordDeleted(rec)).catch(() => { /* 載不到就算了 */ });
+}
+/* 從雲端拿回來的紀錄，照片第一次要用才下載；拿不到就回空的 */
+function cloudPhotos(rec) {
+  return acctStart().then((m) => m.photosFor(rec)).catch(() => []);
+}
+
+function onAccount(snap) {
+  acctSnap = snap;
+  const u = snap.user;
+  const changed = (u?.uid || null) !== (who?.uid || null);
+  if (changed || (u && u.email !== who.email)) {
+    who = u ? { uid: u.uid, email: u.email } : null;
+    store(ACCT_KEY, who ? JSON.stringify(who) : null);
+  }
+  if (u) signing = false;
+  if (!u) justIn = false;
+  const phase = snap.sync.phase;
+  // 換了人、同步完：紀錄重畫；拿雲端紀錄的時候最多一秒畫一次
+  if (changed || (phase === "idle" && lastPhase !== "idle")) refreshHistory();
+  else if (phase === "down") refreshHistory(true);
+  lastPhase = phase;
+  paintAccount();
+}
+
+let histTimer = 0;
+let histPaintAt = 0;
+function refreshHistory(throttle) {
+  clearTimeout(histTimer);
+  const wait = throttle ? Math.max(0, histPaintAt + 1000 - Date.now()) : 0;
+  histTimer = setTimeout(() => {
+    histPaintAt = Date.now();
+    refreshCounts();
+    if (document.body.dataset.view === "history") paintHistory();
+  }, wait);
+}
+
+/* 幾筆是自己的（設定裡顯示）、幾筆還沒有主人（登入頁說會一起存上去）、幾筆還沒傳 */
+async function refreshCounts() {
+  let all = [];
+  try { all = await histAll(); } catch { /* 沒有 IndexedDB 就當沒有 */ }
+  counts = {
+    mine: who ? all.filter((r) => r.owner === who.uid).length : 0,
+    loose: all.filter((r) => !r.owner).length,
+    dirty: who ? all.filter((r) => r.owner === who.uid && r.dirty).length : 0,
+  };
+  paintAccount();
+}
+
+const SVG = (paths, w = 1.8) =>
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+const CLOUD = '<path d="M7 18.5h10.3a4.2 4.2 0 0 0 .5-8.4 6 6 0 0 0-11.5-.9A4.7 4.7 0 0 0 7 18.5z"/>';
+const ICONS = {
+  cloud: SVG(CLOUD, 1.9),
+  cloudOk: SVG(CLOUD + '<path d="M9.4 13.6l1.9 1.9 3.5-3.7"/>', 1.9),
+  sync: SVG('<path d="M20 12a8 8 0 0 1-13.7 5.6"/><path d="M4 12a8 8 0 0 1 13.7-5.6"/><path d="M17.7 3v3.6h-3.6"/><path d="M6.3 21v-3.6h3.6"/>', 1.9),
+  check: SVG('<path d="M5 12.5l4.2 4.2L19 7"/>', 2.2),
+  alert: SVG('<circle cx="12" cy="12" r="9"/><path d="M12 7.4v5.4"/><path d="M12 16.1v.3"/>'),
+  person: SVG('<circle cx="12" cy="8.5" r="3.6"/><path d="M4.8 19.5a7.2 7.2 0 0 1 14.4 0"/>'),
+};
+
+/* 新版 APK 的下載網址：查到過就直接給 .apk，不然給 Releases 頁 */
+function apkHref() {
+  const a = $("appUpdateLink");
+  return a && !$("appUpdateBar").hidden && /\.apk$/i.test(a.href) ? a.href : APK_LATEST;
+}
+
+function syncErrorText(err) {
+  if (err?.code === "permission-denied") return "雲端還不讓這個帳號存紀錄，紀錄先留在這支手機";
+  return "雲端同步沒成功，有網路時會再試一次";
+}
+
+function doneText(s) {
+  if (s.pulled) return `登入好了，雲端的 ${s.pulled} 筆紀錄都拿回來了`;
+  if (s.pushed) return `登入好了，這支手機的 ${s.pushed} 筆紀錄都存到雲端了`;
+  return "登入好了，之後辨的車都會存到雲端";
+}
+
+function paintAccount() {
+  const s = acctSnap.sync;
+  const syncing = !!who && (s.phase === "up" || s.phase === "down");
+  const synced = !!who && !!acctSnap.user && s.phase === "idle" && !s.error && counts.dirty === 0;
+
+  // 紀錄頁：沒登入是一張卡片；登入後是一行字，加上同步進度
+  const card = $("acctCard");
+  card.hidden = !!who || signing;
+  if (!card.hidden) {
+    const old = oldShell();
+    $("acctCardText").textContent = old
+      ? "要用 email 登入，得先裝新版的 App。直接蓋過去裝就好，手機上的紀錄不會不見。"
+      : "用 email 登入，紀錄會存到雲端。換手機的時候用同一個 email 登入，紀錄就拿得回來。";
+    const btn = $("acctCardBtn");
+    btn.textContent = old ? "下載新版 App" : "用 email 登入";
+    btn.href = old ? apkHref() : "#login";
+  }
+
+  const line = $("acctLine");
+  line.hidden = !who;
+  if (who) {
+    line.innerHTML = synced
+      ? `<span class="ok">${ICONS.cloudOk}</span><span>已存到雲端・${esc(who.email)}</span>`
+      : `${ICONS.cloud}<span>已登入・${esc(who.email)}</span>`;
+  }
+
+  // [樣式, 圖示, 文字, 數字, 進度 0–1]
+  let st = null;
+  if (signing) st = ["busy", ICONS.sync, "正在登入…"];
+  else if (syncing) {
+    st = ["busy", ICONS.sync,
+      s.phase === "up" ? "正在把這支手機的紀錄存上去…" : "正在把雲端的紀錄拿回來…",
+      s.total ? `${Math.min(s.done, s.total)} / ${s.total}` : "",
+      s.total ? Math.min(1, s.done / s.total) : null];
+  } else if (who && s.error) st = ["bad", ICONS.alert, syncErrorText(s.error)];
+  else if (who && justIn && acctSnap.user && s.phase === "idle" && s.rounds > justInAt) st = ["ok", ICONS.check, doneText(s)];
+  const box = $("acctStatus");
+  box.hidden = !st;
+  if (st) {
+    box.className = "acct-status " + st[0];
+    $("acctStatusIc").innerHTML = st[1];
+    $("acctStatusText").textContent = st[2];
+    $("acctStatusNum").textContent = st[3] || "";
+    $("acctStatusNum").hidden = !st[3];
+    $("acctBar").hidden = st[4] == null;
+    // 從「存上去」換到「拿回來」時進度條直接歸零，不要倒著滑回去
+    const fill = $("acctBarFill");
+    const width = st[4] == null ? "0%" : (st[4] * 100).toFixed(1) + "%";
+    if (fill.dataset.k !== st[2]) {
+      fill.dataset.k = st[2];
+      fill.style.transition = "none";
+      fill.style.width = width;
+      void fill.offsetWidth;
+      fill.style.transition = "";
+    } else {
+      fill.style.width = width;
+    }
+  }
+
+  // 設定面板最上面那一列
+  const av = $("acctAvatar");
+  av.classList.toggle("on", !!who);
+  if (who) av.textContent = (who.email.trim().charAt(0) || "?").toUpperCase();
+  else av.innerHTML = ICONS.person;
+  $("acctWho").textContent = who ? who.email : "還沒登入";
+  const sub = $("acctSub");
+  if (!who) sub.textContent = "紀錄只存在這支手機";
+  else if (logoutErr) sub.textContent = logoutErr;
+  else if (s.error) sub.textContent = "雲端同步沒成功";
+  else if (syncing || signing) sub.textContent = "正在同步…";
+  else if (synced) sub.innerHTML = `${ICONS.cloudOk}紀錄已存到雲端・${counts.mine} 筆`;
+  else sub.textContent = "已登入";
+  const inBtn = $("acctIn");
+  inBtn.hidden = !!who;
+  inBtn.textContent = oldShell() ? "更新 App" : "登入";
+  inBtn.href = oldShell() ? apkHref() : "#login";
+  $("acctOut").hidden = !who;
+
+  // 辨車頁最下面那段話：登入後照片也會存到雲端，要照實說
+  $("privacyLine").textContent = who
+    ? "照片會送去判讀，另外存一份在「紀錄」裡，也會存到你登入的雲端帳號，只有你自己看得到。車牌號碼不會被讀出來。"
+    : "照片會送去判讀，另外存一份在這支手機的「紀錄」裡，不會傳去別的地方。車牌號碼不會被讀出來。";
+}
+
+// 點了設定裡的「登入」就把設定收起來
+$("acctIn").addEventListener("click", () => setPrefs(false));
+
+$("acctOut").addEventListener("click", async () => {
+  const btn = $("acctOut");
+  btn.disabled = true;
+  logoutErr = "";
+  try {
+    await (await acctStart()).logout();
+  } catch {
+    logoutErr = "要連上網路才能登出";
+  }
+  btn.disabled = false;
+  paintAccount();
+});
+
+/* ---------- 登入頁 ---------- */
+
+const loginForm = $("loginForm");
+const loginEmail = $("loginEmail");
+const loginSend = $("loginSend");
+const loginErr = $("loginErr");
+const sentErr = $("sentErr");
+const resendBtn = $("resend");
+let linkWaiting = null;   // 點了連結回來，但這支手機不知道是哪個 email：等使用者再輸入一次
+let loginError = "";      // 登入頁上要顯示的錯誤（例如連結過期了）
+let sent = null;          // 剛寄出的登入信 { email, at }
+let resendTimer = 0;
+
+function showErr(el, msg) {
+  el.textContent = msg || "";
+  el.hidden = !msg;
+  if (el === loginErr) loginEmail.setAttribute("aria-invalid", msg ? "true" : "false");
+}
+
+function paintLogin() {
+  // 已經登入就不用再登入；舊版 App 在紀錄頁有說要先更新
+  if (who || oldShell()) { location.replace("#history"); return; }
+  acctStart().catch(() => { /* 按寄信時會再試 */ });
+  const confirming = !!linkWaiting;
+  const showSent = !confirming && !!sent && Date.now() - sent.at < 30 * 60e3;
+  loginForm.hidden = showSent;
+  $("loginSent").hidden = !showSent;
+  if (showSent) { paintSent(); return; }
+
+  $("loginTitle").textContent = confirming ? "再輸入一次 email" : "用 email 登入";
+  $("loginText").textContent = confirming
+    ? "為了確認是你本人，請輸入剛剛收到登入信的 email。"
+    : "不用密碼。輸入 email 之後會收到一封登入信，點信裡的連結就登入了。";
+  loginSend.textContent = confirming ? "登入" : "寄登入信";
+  loginSend.disabled = false;
+  $("loginNote").hidden = confirming || counts.loose === 0;
+  $("loginNoteText").textContent = `這支手機上已經有的 ${counts.loose} 筆紀錄，登入後會一起存上去。`;
+  showErr(loginErr, loginError);
+  if (!loginEmail.value) account().then((m) => { if (!loginEmail.value) loginEmail.value = m.savedEmail(); }).catch(() => {});
+}
+
+function paintSent() {
+  $("sentTo").textContent = sent.email;
+  $("sentHow").textContent = inApp()
+    ? "在這支手機上打開信，點信裡的連結，就會回到 App 登入。"
+    : "打開信，點信裡的連結，就會回到這裡登入。";
+  $("openMail").hidden = typeof window.CaridApp?.openMail !== "function";
+  resendCountdown();
+}
+
+/* 重寄要等 60 秒，免得連按好幾次把今天能寄的信用光 */
+function resendCountdown() {
+  clearInterval(resendTimer);
+  const tick = () => {
+    const left = sent ? Math.ceil((sent.at + 60e3 - Date.now()) / 1000) : 0;
+    resendBtn.disabled = left > 0;
+    resendBtn.textContent = left > 0 ? `重寄一次（${left} 秒後）` : "重寄一次";
+    if (left <= 0) clearInterval(resendTimer);
+  };
+  tick();
+  resendTimer = setInterval(tick, 1000);
+}
+
+function sendErrorText(err) {
+  const code = err?.code || "";
+  if (code === "auth/invalid-email" || code === "auth/missing-email") return "這個 email 看起來不太對，再檢查一下。";
+  if (code === "auth/network-request-failed" || err instanceof TypeError) return "連不到網路。確認手機有網路之後再按一次。";
+  if (code === "auth/too-many-requests") return "寄太多次了，等幾分鐘再試。";
+  if (code === "auth/quota-exceeded") return "今天能寄的登入信用完了，明天再試。";
+  if (/operation-not-allowed|continue-uri|unauthorized-domain|admin-restricted/.test(code)) {
+    return `登入功能還沒開好，晚一點再試。（${code}）`;
+  }
+  return "登入信沒寄出去，再按一次看看。" + (code ? `（${code}）` : "");
+}
+
+function linkErrorText(err) {
+  const code = err?.code || "";
+  if (code === "auth/invalid-action-code" || code === "auth/expired-action-code") {
+    return "這封登入信的連結已經用過或過期了，請再寄一次登入信。";
+  }
+  if (code === "auth/invalid-email") return "這個 email 跟收到登入信的不一樣，再檢查一下。";
+  if (code === "auth/argument-error") return "這個連結不完整，請再寄一次登入信。";
+  if (code === "auth/user-disabled") return "這個帳號被停用了。";
+  if (code === "auth/network-request-failed" || err instanceof TypeError) {
+    return "連不到網路，連上之後再點一次信裡的連結。";
+  }
+  return "沒有登入成功，請再寄一次登入信。" + (code ? `（${code}）` : "");
+}
+
+loginEmail.addEventListener("input", () => {
+  if (loginError) { loginError = ""; showErr(loginErr, ""); }
+});
+
+loginForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const email = loginEmail.value.trim();
+  if (!EMAIL_RE.test(email)) {
+    loginError = "這個 email 看起來不太對，再檢查一下。";
+    showErr(loginErr, loginError);
+    loginEmail.focus();
+    return;
+  }
+  loginError = "";
+  showErr(loginErr, "");
+  if (linkWaiting) {                   // 再輸入一次 email：直接完成登入
+    finishSignIn(linkWaiting, email);
+    return;
+  }
+  loginSend.disabled = true;
+  loginSend.textContent = "寄送中…";
+  try {
+    await (await account()).sendLink(email);
+    sent = { email, at: Date.now() };
+    showErr(sentErr, "");
+    paintLogin();
+  } catch (err) {
+    loginError = sendErrorText(err);
+    showErr(loginErr, loginError);
+  }
+  loginSend.disabled = false;
+  loginSend.textContent = "寄登入信";
+});
+
+$("openMail").addEventListener("click", () => {
+  let ok = false;
+  try { ok = !!window.CaridApp?.openMail?.(); } catch { ok = false; }
+  showErr(sentErr, ok ? "" : "找不到信箱 App，請自己打開收信的 App。");
+});
+
+resendBtn.addEventListener("click", async () => {
+  if (!sent) return;
+  clearInterval(resendTimer);
+  resendBtn.disabled = true;
+  resendBtn.textContent = "寄送中…";
+  showErr(sentErr, "");
+  try {
+    await (await account()).sendLink(sent.email);
+    sent.at = Date.now();
+  } catch (err) {
+    showErr(sentErr, sendErrorText(err));
+  }
+  resendCountdown();
+});
+
+$("changeEmail").addEventListener("click", () => {
+  sent = null;
+  clearInterval(resendTimer);
+  showErr(sentErr, "");
+  paintLogin();
+  loginEmail.focus();
+  loginEmail.select?.();
+});
+
+/* 點了信裡的連結回來：這支手機記得 email 就直接登入，不記得就請他再輸入一次 */
+function handleLink(link) {
+  account().then((m) => {
+    if (!m.looksLikeLink(link)) return;
+    const email = m.savedEmail();
+    if (email) { finishSignIn(link, email); return; }
+    linkWaiting = link;
+    loginError = "";
+    loginEmail.value = "";
+    if (location.hash === "#login") paintLogin();
+    else location.hash = "#login";
+  }).catch(() => {
+    loginError = "連不到網路，連上之後再點一次信裡的連結。";
+    if (location.hash === "#login") paintLogin();
+    else location.hash = "#login";
+  });
+}
+
+async function finishSignIn(link, email) {
+  signing = true;
+  linkWaiting = null;
+  loginError = "";
+  if (location.hash === "#history") paintAccount();
+  else location.hash = "#history";
+  try {
+    const m = await acctStart();
+    await m.finishLink(link, email);
+    sent = null;
+    justIn = true;
+    justInAt = acctSnap.sync.rounds;
+    m.syncSoon(0);
+  } catch (err) {
+    // 已經是登入的狀態（例如同一封信點了兩次），就不用吵他
+    if (!who) {
+      if (err?.code === "auth/invalid-email") linkWaiting = link;   // email 打錯了，讓他再輸入一次
+      loginError = linkErrorText(err);
+      signing = false;
+      location.hash = "#login";
+    }
+  }
+  signing = false;
+  paintAccount();
+}
+
+/* App（新版外殼）把 carid://login?… 交過來；網址後面那串就是信裡連結帶的參數 */
+window.caridLink = (url) => {
+  const q = String(url || "").replace(/^[^?]*/, "");
+  if (q) handleLink(new URL("login.html" + q, location.href).href);
+};
+
+// 有網路了、從背景切回來（最多一分鐘一次），就跟雲端對齊一次
+window.addEventListener("online", () => acctSync(0));
+let acctKickAt = 0;
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden || Date.now() - acctKickAt < 60e3) return;
+  acctKickAt = Date.now();
+  acctSync(0);
 });
 
 /* ================= 車訊 ================= */
@@ -1243,10 +1757,19 @@ paintVersion();
 showScreen("capture");
 // 趁使用者還在選照片，先在背景把 Firebase 和 App Check 準備好
 setTimeout(() => firebaseAI().catch(() => { /* 按辨識時會再試 */ }), 0);
+// 網頁版點了登入信的連結：網址上帶著 oobCode。拿下來之後把網址清乾淨，重新整理才不會再用一次
+const webLink = /oobCode(=|%3D)/i.test(location.search) ? location.href : null;
+if (webLink) history.replaceState(null, "", location.pathname + "#history");
 // 從麥塊按「汽車」回來時網址沒有 #，回到上次看的那一頁
 if (!location.hash && lastCarTab() !== "car") history.replaceState(null, "", "#" + lastCarTab());
 route();
 checkNewsDot();
+paintAccount();
+refreshCounts();
+if (webLink) handleLink(webLink);
+else if (who) acctStart().catch(() => { /* 沒網路：先照上次登入的人顯示，有網路再同步 */ });
+// 告訴 App 的外殼可以把登入連結交過來了（舊版外殼沒有這個）
+window.CaridApp?.ready?.();
 
 /* ---------- 外殼（APK）有沒有新版 ----------
    跑在 App 裡時 User-Agent 會帶 CaridApp/<版號>，拿它跟 GitHub 上最新的

@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>登入・大便龍的萬能軟體</title>
+<meta name="theme-color" content="#0E0F12">
+<link rel="icon" href="./icons/icon-192.png" sizes="192x192">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<!--
+  登入信裡的連結會先到 Firebase，再轉來這一頁（網址後面帶著 oobCode 那些參數）。
+  從 App 寄的信（via=app）：這一頁開在手機瀏覽器，用 carid://login?… 跳回 App，由 App 裡的網頁完成登入。
+  從瀏覽器寄的信（via=web）：直接回到網頁版完成登入。
+-->
+<style>
+  :root {
+    color-scheme: dark;
+    --ground: #0E0F12;
+    --ink: #F2F3F5;
+    --ink-soft: #9AA1AC;
+    --accent: #FF6A1F;
+    --accent-ink: #0E0F12;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      color-scheme: light;
+      --ground: #F2F2EF;
+      --ink: #15181D;
+      --ink-soft: #5A6470;
+      --accent: #B8480C;
+      --accent-ink: #FFFFFF;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    min-height: 100vh;
+    min-height: 100dvh;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Noto Sans TC", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  main {
+    width: 100%;
+    max-width: 420px;
+    padding: 0 28px 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    text-align: center;
+  }
+  .icon { width: 72px; height: 72px; border-radius: 20px; }
+  .name { font-size: 13px; color: var(--ink-soft); letter-spacing: .04em; }
+  h1 { margin: 0; font-size: 26px; font-weight: 700; line-height: 1.35; }
+  p { margin: 0; font-size: 14px; line-height: 1.8; color: var(--ink-soft); }
+  p.small { font-size: 12px; line-height: 1.7; }
+  .btn {
+    align-self: stretch;
+    height: 54px;
+    border-radius: 15px;
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-size: 16px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+  }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <img class="icon" src="./icons/icon-192.png" alt="" width="72" height="72">
+  <div class="name">大便龍的萬能軟體</div>
+  <h1 id="title">正在回到 App…</h1>
+  <p id="text">沒有自動跳回去的話，按下面的按鈕。</p>
+  <a class="btn" id="go" href="./">回到 App 完成登入</a>
+  <p class="small" id="note">用電腦打開的話，請改用裝了 App 的手機點信裡的連結。</p>
+</main>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const show = (title, text, btn, note) => {
+    $("title").textContent = title;
+    $("text").textContent = text;
+    $("go").hidden = !btn;
+    if (btn) { $("go").textContent = btn.label; $("go").href = btn.href; }
+    $("note").hidden = !note;
+    if (note) $("note").textContent = note;
+  };
+
+  const qs = (u) => {
+    try { return new URL(u, location.href).searchParams; } catch { return new URLSearchParams(); }
+  };
+  const params = new URLSearchParams(location.search);
+  // Firebase 有時把整個連結包在 link= 裡，裡面的參數才是真的
+  const inner = params.get("link");
+  const real = inner ? qs(inner) : params;
+  const cont = real.get("continueUrl") || params.get("continueUrl");
+  const via = params.get("via") || (cont ? qs(cont).get("via") : null);
+  const isLink = real.get("mode") === "signIn" && !!real.get("oobCode");
+  const android = /Android/i.test(navigator.userAgent);
+
+  if (!isLink) {
+    show("這個連結不完整", "請回到 App，再寄一次登入信。");
+    return;
+  }
+
+  // 網頁版寄的信：回到網頁版，在那裡完成登入
+  if (via === "web" || (via !== "app" && !android)) {
+    location.replace("./" + location.search + "#history");
+    return;
+  }
+
+  if (params.get("noapp") === "1") {
+    show("這支手機還沒裝 App", "先安裝大便龍的萬能軟體，再回信箱點一次信裡的連結。",
+      { label: "下載 App", href: "https://github.com/nkuo-git/carid-pwa/releases/latest" });
+    return;
+  }
+
+  if (!android) {
+    show("請用手機打開", "這封登入信要在裝了 App 的手機上打開，點信裡的連結才會登入。");
+    return;
+  }
+
+  // 沒裝 App 的話，Chrome 會改開這個網址
+  const fallback = location.href + (location.search ? "&" : "?") + "noapp=1";
+  const target = "intent://login" + location.search +
+    "#Intent;scheme=carid;package=com.nkuo.carid;S.browser_fallback_url=" +
+    encodeURIComponent(fallback) + ";end";
+  $("go").href = target;
+
+  // 跳回 App 之後這一頁會退到背景，回來看到時告訴使用者可以關掉了
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      show("已經回到 App 了", "這一頁可以關掉了。App 裡還沒登入的話，再按一次下面的按鈕。",
+        { label: "回到 App 完成登入", href: target });
+    }
+  });
+
+  // 先自己試著跳；瀏覽器擋下來的話（有些要手按才行），就靠畫面上的按鈕
+  setTimeout(() => { location.href = target; }, 60);
+})();
+</script>
+</body>
+</html>

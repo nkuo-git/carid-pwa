@@ -1,17 +1,18 @@
 // 大便龍的萬能軟體 — Service Worker
 // 只快取 App 本身（殼），辨識一定要連網，API 的請求永遠不進快取。
 
-const CACHE = "carid-v27";
+const CACHE = "carid-v28";
 
 /* 跟 index.html 裡 styles.css / app.js 後面的 ?v= 一樣。
    換版就換網址，任何一層快取（瀏覽器、CDN、這裡）都不可能給到舊檔。 */
-const V = "27";
+const V = "28";
 
 const SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=" + V,
   "./app.js?v=" + V,
+  "./account.js?v=" + V,
   "./mc.html",
   "./mc.css?v=" + V,
   "./mc.js?v=" + V,
@@ -72,6 +73,9 @@ self.addEventListener("fetch", (event) => {
     );
     return;
   }
+
+  // 登入信轉過來的那一頁：一律走網路，也不能被存成首頁
+  if (req.mode === "navigate" && url.pathname.endsWith("/login.html")) return;
 
   // 導覽請求：先連網，失敗才用快取的殼（離線時至少開得起來）
   if (req.mode === "navigate") {

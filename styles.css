@@ -20,6 +20,11 @@
   --danger-bg: #2A1A18;
   --bar: rgba(14, 15, 18, .94);
   --shadow: 0 1px 2px rgba(0, 0, 0, .45), 0 10px 28px rgba(0, 0, 0, .38);
+  --ink-mid: #C9CDD3;
+  --line-mid: #2A2E36;
+  --ok-bg: #1B2A20;
+  --ok-line: #2C4434;
+  --ok-ink: #BFE8CC;
 }
 
 /* 淺色只在使用者自己挑「淺色」或「跟系統」而系統是亮的時候才出現 */
@@ -48,6 +53,11 @@
     --danger-bg: #FDECEA;
     --bar: rgba(242, 242, 239, .94);
     --shadow: 0 1px 2px rgba(20, 24, 30, .06), 0 8px 24px rgba(20, 24, 30, .07);
+    --ink-mid: #3A434E;
+    --line-mid: #D6D6D0;
+    --ok-bg: #E2F3E8;
+    --ok-line: #BFE0CB;
+    --ok-ink: #1F5F3A;
   }
 }
 :root[data-theme="light"] {
@@ -69,6 +79,11 @@
   --danger-bg: #FDECEA;
   --bar: rgba(242, 242, 239, .94);
   --shadow: 0 1px 2px rgba(20, 24, 30, .06), 0 8px 24px rgba(20, 24, 30, .07);
+  --ink-mid: #3A434E;
+  --line-mid: #D6D6D0;
+  --ok-bg: #E2F3E8;
+  --ok-line: #BFE0CB;
+  --ok-ink: #1F5F3A;
 }
 
 * { box-sizing: border-box; }
@@ -738,8 +753,10 @@ footer b { color: var(--ink-soft); font-weight: 500; }
 body:not([data-view="car"]) .car-only { display: none !important; }
 body[data-view="histitem"] .main-only,
 body[data-view="article"] .main-only,
+body[data-view="login"] .main-only,
 body[data-view="histitem"] .tabbar,
-body[data-view="article"] .tabbar { display: none !important; }
+body[data-view="article"] .tabbar,
+body[data-view="login"] .tabbar { display: none !important; }
 
 /* 汽車裡面的切換：辨車／紀錄／車訊 */
 .segbar {
@@ -1053,3 +1070,200 @@ button.danger { color: var(--danger); border-color: color-mix(in srgb, var(--dan
 #articleBody p.ap { margin: 12px 0 0; font-size: 16px; line-height: 1.85; color: var(--ink); opacity: .9; }
 .asrc { margin: 22px 0 0; padding-top: 14px; border-top: 1px solid var(--line); font-size: 12px; line-height: 1.8; color: var(--ink-soft); }
 .asrc a { overflow-wrap: anywhere; }
+
+/* ---------- 帳號：紀錄頁上面、設定裡、登入頁 ---------- */
+
+/* 還沒登入：紀錄頁最上面一張卡片 */
+.acct-card {
+  margin: -2px 0 2px;
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line-mid);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.acct-top { display: flex; gap: 12px; align-items: flex-start; }
+.acct-ic {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--accent);
+  display: grid;
+  place-items: center;
+}
+.acct-ic svg { width: 22px; height: 22px; }
+.acct-txt { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.acct-txt b { font-size: 15px; font-weight: 700; }
+.acct-txt span { font-size: 13px; line-height: 1.65; color: var(--ink-soft); }
+.btnlike.acct-cta {
+  height: 48px;
+  justify-content: center;
+  border-radius: 12px;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* 登入後：一行字寫登入的是誰，存好了雲朵變綠色 */
+.acct-line {
+  margin: -4px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.acct-line svg { width: 16px; height: 16px; flex: none; display: block; }
+.acct-line .ok { flex: none; color: var(--glow); }
+.acct-line span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 同步進度、登入好了、同步失敗 */
+.acct-status {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border-radius: 13px;
+  background: var(--surface);
+  border: 1px solid var(--line-mid);
+  color: var(--ink-mid);
+  font-size: 13px;
+  line-height: 1.6;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.acct-line[hidden] + .acct-status { margin-top: -2px; }
+.acct-status-row { display: flex; align-items: center; gap: 10px; }
+.acct-status .ic { flex: none; display: flex; color: var(--accent); }
+.acct-status .ic svg { width: 18px; height: 18px; }
+.acct-status .txt { flex: 1; min-width: 0; }
+.acct-status b {
+  flex: none;
+  font-family: "Barlow Condensed", "Noto Sans TC", sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.acct-bar { height: 4px; border-radius: 2px; background: var(--line-mid); overflow: hidden; }
+.acct-bar i { display: block; width: 0; height: 100%; border-radius: 2px; background: var(--accent); transition: width .3s ease; }
+.acct-status.busy .ic svg { animation: acct-spin 1.2s linear infinite; }
+@keyframes acct-spin { to { transform: rotate(360deg); } }
+.acct-status.ok { padding: 11px 14px; background: var(--ok-bg); border-color: var(--ok-line); color: var(--ok-ink); }
+.acct-status.ok .ic { color: var(--glow); }
+.acct-status.ok .ic svg { width: 16px; height: 16px; }
+.acct-status.bad { background: var(--warm); border-color: var(--warm-line); }
+.acct-status.bad .ic { color: var(--danger); }
+@media (prefers-reduced-motion: reduce) {
+  .acct-status.busy .ic svg { animation: none; }
+  .acct-bar i { transition: none; }
+}
+
+/* 設定面板最上面一列：頭像、email、登入／登出 */
+.sheet-row.acct-row { flex-wrap: nowrap; gap: 12px; padding: 16px; }
+.acct-avatar {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--line);
+  color: var(--ink-soft);
+  display: grid;
+  place-items: center;
+}
+.acct-avatar svg { width: 20px; height: 20px; }
+.acct-avatar.on {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-family: "Barlow Condensed", "Noto Sans TC", sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+}
+.acct-who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.acct-who b { font-size: 14px; font-weight: 700; line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.acct-who span { margin-top: 2px; display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-soft); }
+.acct-who span svg { width: 14px; height: 14px; flex: none; color: var(--glow); }
+.btnlike.acct-in {
+  flex: none;
+  height: 38px;
+  padding: 0 16px;
+  border-radius: 10px;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 14px;
+  font-weight: 700;
+}
+button.small.acct-out { height: 38px; padding: 0 14px; border-radius: 10px; font-size: 14px; color: var(--ink-mid); }
+
+/* 登入頁：輸入 email、登入信寄出了。按鈕固定在最下面 */
+#screenLogin:not([hidden]) { display: flex; flex-direction: column; }
+.login { flex: 1; display: flex; flex-direction: column; gap: 22px; padding: 26px 4px 14px; }
+#loginSent { padding-top: 34px; }
+.login-head { display: flex; flex-direction: column; gap: 8px; }
+.login-head h2 { margin: 0; font-size: 24px; font-weight: 700; line-height: 1.35; }
+.login-head p { margin: 0; font-size: 14px; line-height: 1.8; color: var(--ink-soft); }
+.login-head p b { color: var(--ink); font-weight: 500; overflow-wrap: anywhere; }
+.login-field { display: flex; flex-direction: column; gap: 8px; }
+.login-field label { font-size: 13px; color: var(--ink-mid); }
+.login-field input {
+  width: 100%;
+  height: 52px;
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px;
+}
+.login-field input::placeholder { color: var(--ink-faint); }
+.login-field input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.login-field input[aria-invalid="true"] { border-color: var(--danger); }
+.login-err { margin: 0; font-size: 13px; line-height: 1.65; color: var(--danger); overflow-wrap: anywhere; }
+.login-note,
+.login-tip {
+  padding: 12px 14px;
+  border-radius: 13px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--ink-mid);
+}
+.login-note { display: flex; gap: 10px; }
+.login-note .ic { flex: none; display: flex; padding-top: 2px; color: var(--accent); }
+.login-note svg { width: 18px; height: 18px; }
+.login-tip { display: flex; flex-direction: column; gap: 4px; line-height: 1.7; }
+.login-tip b { color: var(--ink); }
+.login-tip span { overflow-wrap: anywhere; }
+.login-mail {
+  width: 64px;
+  height: 64px;
+  flex: none;
+  border-radius: 20px;
+  background: var(--surface-2);
+  color: var(--accent);
+  display: grid;
+  place-items: center;
+}
+.login-mail svg { width: 34px; height: 34px; }
+.login-foot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+#loginSent .login-foot { gap: 10px; }
+.login-foot button:not(.primary):not(.linkish) { height: 50px; border-radius: 14px; font-size: 15px; color: var(--ink-soft); }
+.login-lock { margin: 0; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: var(--ink-soft); }
+.login-lock svg { width: 14px; height: 14px; flex: none; }
+button.linkish { height: 44px; border: 0; background: transparent; color: var(--accent); font-size: 14px; }
+button.linkish:hover:not(:disabled) { background: transparent; text-decoration: underline; }
