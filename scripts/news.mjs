@@ -8,6 +8,7 @@
 //   node scripts/news.mjs                 照台北今天星期幾決定寫哪一種，今天已經有了就不做
 //   node scripts/news.mjs --kind lux      指定種類：lux 汽車介紹 / new 新車快訊 / how 汽車原理
 //   node scripts/news.mjs --force         今天已經有了也重做一篇蓋掉
+//   node scripts/news.mjs --date 2026-09-23 補發時排到那天那一格（沒給 --kind 就照那天星期幾）
 //   node scripts/news.mjs --probe         只試抓所有來源，印出抓到幾筆，不叫 Gemini、不寫檔
 //   node scripts/news.mjs --mock out.json 不叫 Gemini，拿檔案內容當模型的回答（本機測試用）
 //
@@ -378,10 +379,12 @@ async function readJson(url, fallback) {
 async function main() {
   const now = taipeiNow();
   const date = opt("date") || now.date;
-  const kind = opt("kind") || KIND_BY_WEEKDAY[now.wd];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("日期要寫成 2026-09-23 這樣：" + date);
+  const wd = new Date(date + "T00:00:00Z").getUTCDay();
+  const kind = opt("kind") || KIND_BY_WEEKDAY[wd];
 
   if (flag("probe")) return probe();
-  if (!kind) { console.log(`今天（台北 ${date}，星期${"日一二三四五六"[now.wd]}）不出刊。`); return; }
+  if (!kind) { console.log(`台北 ${date}（星期${"日一二三四五六"[wd]}）不出刊。`); return; }
   if (!KIND_NAME[kind]) throw new Error("不認得的種類：" + kind);
 
   const index = await readJson(INDEX, { v: 1, items: [] });

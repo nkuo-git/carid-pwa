@@ -12,6 +12,10 @@ on:
         description: "種類：lux 汽車介紹 / new 新車快訊 / how 汽車原理（空白＝照今天星期幾）"
         required: false
         default: ""
+      date:
+        description: "補發時排到哪一天那一格，寫成 2026-09-23（空白＝台北今天）"
+        required: false
+        default: ""
       force:
         description: "今天已經有了也重做一篇"
         type: boolean
@@ -44,11 +48,16 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           IN_KIND: ${{ inputs.kind }}
+          IN_DATE: ${{ inputs.date }}
           IN_FORCE: ${{ inputs.force }}
           IN_PROBE: ${{ inputs.probe }}
         run: |
           args=()
           case "$IN_KIND" in lux|new|how) args+=(--kind "$IN_KIND");; "") ;; *) echo "::error::種類只能是 lux、new、how"; exit 1;; esac
+          if [ -n "$IN_DATE" ]; then
+            [[ "$IN_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || { echo "::error::日期要寫成 2026-09-23 這樣"; exit 1; }
+            args+=(--date "$IN_DATE")
+          fi
           [ "$IN_FORCE" = "true" ] && args+=(--force)
           [ "$IN_PROBE" = "true" ] && args+=(--probe)
           node scripts/news.mjs "${args[@]}"
