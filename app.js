@@ -10,12 +10,12 @@ const MODEL_CHAIN = ["gemini-3.5-flash-lite", "gemini-3.8-flash"];
 /* Firebase 專案的公開設定和 reCAPTCHA 的 key ID。這兩個本來就會出現在網頁原始碼裡，
    不是金鑰；別人抄走也過不了 App Check，用不到 Gemini。 */
 const FIREBASE_CONFIG = {
-  apiKey: "FIREBASE_API_KEY",
-  authDomain: "PROJECT_ID.firebaseapp.com",
-  projectId: "PROJECT_ID",
-  storageBucket: "PROJECT_ID.firebasestorage.app",
-  messagingSenderId: "SENDER_ID",
-  appId: "APP_ID",
+  apiKey: "AIzaSyBdfoxNYRp_IucYCHzKHvKjwO4ggJ8BezQ",
+  authDomain: "beaupower-307a5.firebaseapp.com",
+  projectId: "beaupower-307a5",
+  storageBucket: "beaupower-307a5.firebasestorage.app",
+  messagingSenderId: "211232229775",
+  appId: "1:211232229775:web:d4e39ba53ee75e61a8a3fa",
 };
 const RECAPTCHA_KEY = "RECAPTCHA_KEY_ID";
 const FIREBASE_SDK = "https://www.gstatic.com/firebasejs/12.19.0/";
@@ -167,7 +167,7 @@ $("prefsBtn").addEventListener("click", () => setPrefs(prefsSheetEl.hidden));
 /* ================= 版本 ================= */
 
 /* 網頁內容的版號，跟 sw.js 的 CACHE 一起加 */
-const WEB_BUILD = 24;
+const WEB_BUILD = 25;
 
 function appBuild() {
   const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
