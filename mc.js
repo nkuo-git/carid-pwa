@@ -932,6 +932,16 @@ function toast(msg) {
 
 /* ================= 起動 ================= */
 
+// 標題旁的版本號，跟汽車那頁一樣是 0.外殼.內容：外殼看 User-Agent 裡的 CaridApp/<版號>，
+// 內容就是這支檔案網址上的 ?v=（每次換版都跟 app.js 的 WEB_BUILD 一起加）
+(function paintVersion() {
+  const el = $("brandVer");
+  const web = new URL(import.meta.url).searchParams.get("v");
+  if (!el || !web) return;
+  const app = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
+  el.textContent = "0." + (app ? app[1] : 0) + "." + web;
+})();
+
 window.addEventListener("resize", () => { if (!screens.edit.hidden) render(); });
 
 (function start() {

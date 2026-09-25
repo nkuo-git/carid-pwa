@@ -25,7 +25,7 @@
   <header class="appbar main-only">
     <img class="mark" src="./icons/icon-192.png" alt="" width="34" height="34">
     <div class="brand">
-      <h1 class="brand-name">大便龍的萬能軟體</h1>
+      <h1 class="brand-name">大便龍的萬能軟體<span class="brand-ver" id="brandVer"></span></h1>
       <p class="brand-sub">汽車</p>
     </div>
     <button type="button" class="icon-btn" id="prefsBtn" aria-expanded="false" aria-controls="prefsSheet" aria-label="設定">
@@ -69,11 +69,6 @@
         <label><input type="radio" name="tier" id="tierDeep" value="deep"><span>深入</span></label>
       </div>
       <p class="hint-sm">深入會多想一下，比較慢，冷門車款認得準一些。</p>
-    </div>
-    <div class="sheet-row">
-      <span class="sheet-label">版本</span>
-      <span class="keystate" id="versionState">—</span>
-      <button type="button" id="checkUpdateBtn" class="small">檢查更新</button>
     </div>
   </div>
 

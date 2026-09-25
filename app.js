@@ -176,7 +176,7 @@ function appBuild() {
 }
 
 function paintVersion() {
-  const el = $("versionState");
+  const el = $("brandVer");
   if (!el) return;
   const app = appBuild();
   // 0.外殼.內容：兩個數字各自往上加；不在 App 裡（一般瀏覽器）外殼算 0
@@ -1804,22 +1804,26 @@ window.CaridApp?.ready?.();
    在一般瀏覽器裡不會有那段 UA，整段直接跳過。 */
 const APK_API = "https://api.github.com/repos/nkuo-git/carid-pwa/releases/latest";
 const APK_SEEN = "carid.apkcheck";
+let apkAsking = false;                 // 正在問 GitHub，別同時再問一次
 
 async function checkAppUpdate() {
   const mine = appBuild();
-  if (mine === null) return;           // 不是在 App 裡，不用查
+  if (mine === null || apkAsking) return;   // 不是在 App 裡不用查
 
   // 一小時查一次就夠了，GitHub 的匿名 API 有次數限制
   const last = Number(load(APK_SEEN) || 0);
   if (Date.now() - last < 60 * 60 * 1000) return;
 
   let latest;
+  apkAsking = true;
   try {
     const res = await fetch(APK_API, { cache: "no-cache", headers: { Accept: "application/vnd.github+json" } });
     if (!res.ok) return;
     latest = await res.json();
   } catch {
     return;                            // 沒網路就算了
+  } finally {
+    apkAsking = false;
   }
   store(APK_SEEN, String(Date.now()));
 
@@ -1889,30 +1893,15 @@ if ("serviceWorker" in navigator) {
       });
     });
     // 開起來時、每次從背景切回來時都去問一次有沒有新版，最多一分鐘一次
+    // （外殼那邊 checkAppUpdate 自己會擋成一小時一次）
     let checkedAt = 0;
     const check = () => {
       const now = Date.now();
       if (now - checkedAt < 60000) return;
       checkedAt = now;
       reg.update().catch(() => { /* 離線就算了 */ });
+      checkAppUpdate();
     };
-    const manual = $("checkUpdateBtn");
-    if (manual) {
-      manual.addEventListener("click", async () => {
-        manual.disabled = true;
-        manual.textContent = "檢查中…";
-        checkedAt = 0;
-        store(APK_SEEN, "0");
-        try { await reg.update(); } catch { /* 離線就算了 */ }
-        await checkAppUpdate();
-        // 換版的通知要一點時間才冒出來，等一下再看結論
-        setTimeout(() => {
-          const pending = webWaiting || !!apkNew;
-          manual.textContent = pending ? "有新版" : "已經是最新";
-          setTimeout(() => { manual.textContent = "檢查更新"; manual.disabled = false; }, 2500);
-        }, 1200);
-      });
-    }
 
     // App 那邊最多等兩秒，GitHub 慢的話內容那條先跳
     await Promise.race([appChecked, new Promise((r) => setTimeout(r, 2000))]);

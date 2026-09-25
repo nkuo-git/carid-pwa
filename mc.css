@@ -340,6 +340,7 @@ button { font-family: inherit; }
 .apphead .mark { width: 34px; height: 34px; flex: none; border-radius: 10px; object-fit: cover; }
 .apphead .brand { flex: 1; min-width: 0; }
 .apphead .brand-name { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: .02em; line-height: 1.2; }
+.apphead .brand-ver { margin-left: 7px; font-size: 12px; font-weight: 500; letter-spacing: .02em; color: var(--ink-soft); }
 .apphead .brand-sub { margin: 2px 0 0; font-size: 12px; color: var(--ink-soft); line-height: 1.4; }
 .apphead .gear { width: 44px; height: 44px; margin-right: -10px; }
 .apphead .gear svg { width: 22px; height: 22px; }
