@@ -31,7 +31,7 @@
 </script>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap">
-<link rel="stylesheet" href="./tune.css?v=30">
+<link rel="stylesheet" href="./tune.css?v=31">
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/"}}</script>
 </head>
 <body>
@@ -57,6 +57,7 @@
   </div>
 
   <main class="tune" id="tune">
+    <div class="wallet" id="wallet"><span>你的錢</span><b id="cash">NT$ 0 萬</b><small id="cashTip">贏比賽拿獎金，買零件和新車</small></div>
     <div class="cars" id="cars" role="group" aria-label="選車"></div>
     <div class="stage" id="stage">
       <div class="status" id="status"><span id="msg">車子開進車庫中⋯</span><div class="bar"><i id="prog"></i></div></div>
@@ -70,19 +71,25 @@
         <div class="pedals"><button type="button" class="nitro" id="nitroBtn" disabled>氮氣</button><button type="button" class="go" id="goBtn" disabled>起步</button></div>
         <div class="toast" id="toast" role="status" aria-live="polite"></div>
       </div>
+      <div class="toast gtoast" id="gtoast" role="status" aria-live="polite"></div>
     </div>
     <section class="race" id="race" hidden aria-label="賽道">
       <div class="result" id="result" hidden></div>
       <div class="race-btns"><button type="button" class="primary" id="raceGo">開始比賽</button><button type="button" class="ghost" id="raceBack">回車庫</button></div>
-      <div class="group"><h2>選對手</h2><div class="cars" id="opps" role="group" aria-label="選對手"></div></div>
+      <div class="group"><h2>選對手<small>贏了拿獎金，贏過一次下一個才會出現</small></h2><div class="cars opps" id="opps" role="group" aria-label="選對手"></div></div>
       <p class="me" id="meStat"></p>
-      <p class="how">綠燈一亮就按「起步」；指針進到綠色區按「換檔」，太早太晚都會慢；「氮氣」一場只能用一次。綠燈前按起步算偷跑。電腦可以用空白鍵起步和換檔、N 鍵放氮氣。</p>
+      <p class="how">綠燈一亮就按「起步」；指針進到綠色區按「換檔」，太早太晚都會慢；「氮氣」一場只能用一次。綠燈前按起步算偷跑，輸了、偷跑都沒有獎金。電腦可以用空白鍵起步和換檔、N 鍵放氮氣。</p>
     </section>
     <div class="name"><b id="carName">Toyota Supra</b><span id="carSub">玩命關頭那台 · 3D 試做版</span></div>
     <p class="spec" id="carSpec"></p>
-    <button type="button" class="cta" id="toRace"><b>上賽道比賽</b><span>400 公尺直線加速 · 開這台跟別台比</span></button>
-    <div class="opts">
-      <div class="group wide"><h2>引擎<small id="engName"></small></h2><div class="eng" id="engine" role="group" aria-label="引擎改裝"></div></div>
+    <button type="button" class="cta" id="toRace"><b>上賽道比賽</b><span>400 公尺直線加速 · 贏了拿獎金</span></button>
+    <button type="button" class="cta buy" id="buyCar" hidden><b id="buyHead">買這台</b><span id="buyNote"></span></button>
+    <p class="locknote" id="lockNote" hidden>這台還不是你的：買了才能改裝、開上賽道。</p>
+    <div class="opts" id="opts">
+      <h3 class="optsub">性能<small>用比賽贏來的錢買，裝了就變快</small></h3>
+      <div class="group wide"><h2>引擎零件<small id="engName"></small></h2><div class="parts" id="parts" role="group" aria-label="引擎零件"></div></div>
+      <div class="group wide"><h2>輪胎<small>起步比較不會打滑</small></h2><div class="eng tyres" id="tyres" role="group" aria-label="輪胎"></div></div>
+      <h3 class="optsub">外觀<small>免費，不影響速度</small></h3>
       <div class="group wide"><h2>車色</h2><div class="chips" id="paints"></div></div>
       <div class="group"><h2>輪框</h2><div class="chips" id="rims"></div></div>
       <div class="group"><h2>卡鉗</h2><div class="chips" id="calipers"></div></div>
@@ -94,7 +101,8 @@
       <div class="group"><h2>隔熱紙</h2><div class="seg" data-opt="tint"></div></div>
       <div class="group"><h2>攝影棚</h2><div class="seg" data-opt="studio"></div></div>
     </div>
-    <p class="note" id="garageNote">車子是照你給的照片用程式捏出來的 3D 模型，還在修。哪裡不像，直接跟我說是哪裡。價錢是大概的行情（二手車看車況差很多），改裝費用和馬力也是估的。</p>
+    <p class="note" id="garageNote">一開始只有 GC8、身上沒錢：上賽道贏了才有獎金，拿去買引擎零件、輪胎和新車。車子是照你給的照片用程式捏出來的 3D 模型，哪裡不像直接跟我說。價錢是大概的行情（二手車看車況差很多），零件的價錢和馬力也是估的。</p>
+    <div class="restart"><button type="button" class="ghost" id="restart">重新開始</button><span id="restartTip">錢、車、零件都歸零，外觀留著</span></div>
   </main>
 
   <nav class="tabbar" aria-label="功能">
@@ -103,6 +111,6 @@
   </nav>
 </div>
 
-<script type="module" src="./tune.js?v=30"></script>
+<script type="module" src="./tune.js?v=31"></script>
 </body>
 </html>

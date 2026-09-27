@@ -324,13 +324,168 @@ const SUPRA_LOOK = {
   U: { uXr: -1.3375, uXf: 1.2125, uFx: [1.72, 1.80], uRx: [-1.88, -1.96], uWell: [0.325, 0.385, 0.875], uGlassY: 0.9 },
 };
 
+// ---- 通用拉花（每台車都能選，車子自己的拉花照舊）：flames 火焰、stripes 賽車條紋、team 大便龍車隊貼紙 ----
+// 位置照每台車自己的前後輪軸（uXf、uXr）、輪子半徑＝輪心高度和輪拱半徑（uWell、uWellR）、車窗下緣（uGlassY）算；
+// 再看側面投影圖（R 玻璃、G 黑、B 縫）：火焰、條紋、貼紙都在門檻黑色側裙上面，貼紙找一塊沒有黑色、玻璃、縫的地方。正面不畫。
+const LIV_GENERIC = [['flames', '火焰'], ['stripes', '賽車條紋'], ['team', '大便龍車隊']];
+// 車庫的拉花選項：車子自己的＋通用的（'none' 放最後；名字撞到車子自己的，例如 918 的 stripes，通用的改用 'gen:stripes'）
+const livOptions = (own) => {
+  const has = new Set(own.map((o) => o[0]));
+  return [...own.filter((o) => o[0] !== 'none'), ...LIV_GENERIC.map(([k, l]) => [has.has(k) ? 'gen:' + k : k, l]), ...own.filter((o) => o[0] === 'none')];
+};
+function genericLivery(look, sideTex) {
+  const u = look.U, wf = u.uWell, wr = u.uWellR ?? u.uWell, G = u.uGlassY, b = BOX.side;
+  const F = { x: u.uXf, y: wf[0], r: wf[1] + 0.04 }, R = { x: u.uXr, y: wr[0], r: wr[1] + 0.04 }; // r：輪拱外面再留 4 公分
+  const xs = F.x - F.r, xe = R.x + R.r, len = xs - xe; // 門那段：前輪拱後緣到後輪拱前緣
+  // 側面投影圖：擋住的地方（黑、玻璃、縫）做成累加表，一個方塊裡有沒有東西一次查完；側裙＝最下面那塊黑的上緣
+  const img = sideTex && sideTex.image, W = img ? img.width : 0, H = img ? img.height : 0;
+  const at = (x, y, ch) => { const i = Math.floor(((x - b.x0) / (b.x1 - b.x0)) * W), j = Math.floor(((y - b.y0) / (b.y1 - b.y0)) * H); return i < 0 || j < 0 || i >= W || j >= H ? 0 : img.data[(j * W + i) * 4 + ch]; };
+  let sum = null, skirtY = null;
+  const busy = (x0, y0, x1, y1) => {
+    if (!W) return 0;
+    if (!sum) {
+      sum = new Int32Array((W + 1) * (H + 1));
+      for (let j = 0; j < H; j++) for (let i = 0, run = 0; i < W; i++) {
+        const o = (j * W + i) * 4; run += img.data[o] > 80 || img.data[o + 1] > 80 || img.data[o + 2] > 60 ? 1 : 0;
+        sum[(j + 1) * (W + 1) + i + 1] = sum[j * (W + 1) + i + 1] + run;
+      }
+    }
+    const I = (x) => Math.max(0, Math.min(W, Math.round(((x - b.x0) / (b.x1 - b.x0)) * W))), J = (y) => Math.max(0, Math.min(H, Math.round(((y - b.y0) / (b.y1 - b.y0)) * H)));
+    const i0 = I(x0), i1 = I(x1), j0 = J(y0), j1 = J(y1), s = (i, j) => sum[j * (W + 1) + i];
+    return s(i1, j1) - s(i0, j1) - s(i1, j0) + s(i0, j0);
+  };
+  const skirt = () => {
+    if (skirtY !== null) return skirtY;
+    const tops = [];
+    for (let x = xe + 0.05; x < xs - 0.05; x += 0.01) { // 每一欄從下往上：第一段黑色從 0.2 公尺以下開始才算側裙
+      let y = 0.06; while (y < 0.2 && at(x, y, 1) <= 80) y += 0.005;
+      if (y >= 0.2) { tops.push(0); continue; }
+      while (y < F.y + 0.1 && at(x, y, 1) > 80) y += 0.005;
+      tops.push(y);
+    }
+    tops.sort((p, q) => p - q);
+    return (skirtY = tops.length ? tops[Math.floor(tops.length * 0.9)] : 0);
+  };
+
+  // 一圈點畫成平滑的路徑：第三個數字是 1 的點是尖角（火舌尖端、轉角），其他點平滑通過
+  function curvy(g, pts) {
+    const n = pts.length, s0 = Math.max(0, pts.findIndex((p) => p[2])), P = (i) => pts[(s0 + i) % n];
+    g.beginPath(); g.moveTo(P(0)[0], P(0)[1]);
+    for (let a = 0; a < n;) {
+      let e = a + 1; while (e < n && !P(e)[2]) e++;
+      const run = []; for (let i = a; i <= e; i++) run.push(P(i));
+      const m = run.length - 1, Q = (i) => run[Math.max(0, Math.min(m, i))];
+      for (let i = 0; i < m; i++) {
+        const p0 = Q(i - 1), p1 = Q(i), p2 = Q(i + 1), p3 = Q(i + 2);
+        g.bezierCurveTo(p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6, p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6, p2[0], p2[1]);
+      }
+      a = e;
+    }
+    g.closePath();
+  }
+  // 火焰：前緣貼著前輪拱後半圈，五條火舌往後舔到門的下半部；黃→橘→紅，外面一圈深色邊
+  // 樣板座標：u＝往後（0 前緣～1 最長那條的尖端），v＝往上（0 下緣～1 上緣）；[u, v, 1] 是尖角
+  const FLAME = [[0, 1, 1], [0.1, 1], [0.2, 0.99], [0.3, 0.975], [0.4, 0.95], [0.48, 0.92], [0.54, 0.9], [0.6, 0.93, 1],
+    [0.56, 0.87], [0.49, 0.845], [0.4, 0.83], [0.32, 0.815], [0.26, 0.8], [0.225, 0.78], [0.215, 0.76], [0.235, 0.74],
+    [0.31, 0.735], [0.42, 0.73], [0.54, 0.72], [0.64, 0.7], [0.73, 0.67], [0.8, 0.64], [0.85, 0.63], [0.9, 0.66, 1],
+    [0.86, 0.605], [0.79, 0.58], [0.69, 0.56], [0.58, 0.545], [0.47, 0.535], [0.38, 0.525], [0.325, 0.51], [0.31, 0.49], [0.33, 0.47],
+    [0.4, 0.465], [0.49, 0.455], [0.57, 0.44], [0.63, 0.42], [0.67, 0.405], [0.72, 0.43, 1],
+    [0.68, 0.375], [0.61, 0.35], [0.52, 0.335], [0.43, 0.325], [0.37, 0.315], [0.335, 0.3], [0.325, 0.28], [0.345, 0.262],
+    [0.43, 0.258], [0.55, 0.252], [0.67, 0.24], [0.78, 0.22], [0.87, 0.2], [0.93, 0.195], [1, 0.23, 1],
+    [0.95, 0.165], [0.87, 0.14], [0.76, 0.128], [0.64, 0.12], [0.54, 0.112], [0.47, 0.105], [0.43, 0.09], [0.425, 0.07], [0.445, 0.055],
+    [0.52, 0.052], [0.6, 0.048], [0.67, 0.045], [0.76, 0.072, 1],
+    [0.7, 0.015], [0.58, -0.005], [0.4, -0.01], [0.2, -0.005], [0, 0, 1], [0, 0.25], [0, 0.5], [0, 0.75]];
+  function flames(g) {
+    const yb = Math.max(0.2, 0.9 * F.y, skirt() + 0.03), yt = Math.min(F.y + 0.94 * F.r, G - 0.07), h = yt - yb; // 上緣從輪拱頂端後面一點開始
+    const x0 = (y) => F.x - Math.sqrt(Math.max(0, F.r * F.r - (y - F.y) * (y - F.y))); // 輪拱後半圈（前緣貼著它）
+    let reach = xs - 0.7 * len; // 最長那條舔到門的 70%，前面有大塊黑的（進氣口）就停在它前面
+    for (let x = xs - 0.15; x > reach; x -= 0.01) { let n = 0; for (let v = 0.05; v < 0.85; v += 0.05) n += at(x, yb + v * h, 1) > 80 ? 1 : 0; if (n >= 5) { reach = x + 0.08; break; } }
+    const Lm = x0(yb + 0.235 * h) - reach;
+    const pts = FLAME.map(([u, v, s]) => { const y = yb + v * h; return [x0(y) - u * Lm, y, s]; });
+    g.lineJoin = 'round'; g.lineWidth = 0.024; g.strokeStyle = '#1c0b06'; curvy(g, pts); g.stroke(); // 先描邊再填色：只剩外面一圈深色邊
+    const gr = g.createLinearGradient(F.x, 0, reach, 0);
+    for (const [k, col] of [[0, '#fff6a8'], [0.14, '#ffe236'], [0.36, '#ffac18'], [0.6, '#ff6512'], [0.84, '#e2300f'], [1, '#c01610']]) gr.addColorStop(k, col);
+    g.fillStyle = gr; g.fill();
+  }
+
+  // 賽車條紋：兩條平行的深色條紋＋白色細邊，高度在側裙和車窗中間，從車頭到車尾，經過輪拱照輪拱的圓讓開（留白邊）
+  // 前後兩頭斜切，停在車頭、車尾轉角前面（輪拱前後各多 22 公分、不超過正面／後面投影開始的地方；不到 12 公分就不畫那段）
+  function band(g, y0, hh, grow, col, x0, x1, yc) {
+    const X = (x, y) => x + (y - yc) * 0.35;
+    g.save(); poly(g, [[X(x0 + grow, y0), y0], [X(x1 - grow, y0), y0], [X(x1 - grow, y0 + hh), y0 + hh], [X(x0 + grow, y0 + hh), y0 + hh]]); g.clip();
+    g.beginPath(); g.rect(b.x0 - 1, y0 - 1, b.x1 - b.x0 + 2, hh + 2);
+    for (const A of [F, R]) { g.moveTo(A.x + A.r + grow, A.y); g.arc(A.x, A.y, A.r + grow, 0, Math.PI * 2); }
+    g.fillStyle = col; g.fill('evenodd'); g.restore();
+  }
+  function stripes(g) {
+    const yc = (Math.max(0.14, skirt()) + G) / 2, w = 0.042, k = 0.007, gap = 0.02;
+    const fx = Math.min(F.x + F.r + 0.22, u.uFx[1] + 0.05), rx = Math.max(R.x - R.r - 0.22, u.uRx[1] - 0.05);
+    const x1 = fx - (F.x + F.r) < 0.12 ? F.x : fx, x0 = R.x - R.r - rx < 0.12 ? R.x : rx;
+    for (const y0 of [yc + gap / 2, yc - gap / 2 - w - 2 * k]) { band(g, y0, w + 2 * k, 0, '#f4f5f6', x0, x1, yc); band(g, y0 + k, w, k, '#16171a', x0, x1, yc); }
+  }
+
+  // 車隊貼紙：「大便龍 RACING」粗斜體，深色斜牌子＋白邊；兩邊的字都是正的（左邊整塊左右翻過來畫）
+  const FONT = '"Arial Black", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Noto Sans CJK TC", sans-serif';
+  function spot(w, h) { // 門的下半部找一塊乾淨的地方（沒有黑色、玻璃、縫，也不碰輪拱），越低越好、越靠門中間越好
+    const y0 = Math.max(0.2, 0.95 * F.y, skirt() + 0.02), m = 0.015, cx = (xs + xe) / 2;
+    for (let y = y0 + h / 2; y + h / 2 < G - 0.08; y += 0.01) {
+      for (let k = 0; k <= 80; k++) {
+        const x = cx + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.02;
+        if (x - w / 2 - m < xe || x + w / 2 + m > xs) continue;
+        if (!busy(x - w / 2 - m, y - h / 2 - m, x + w / 2 + m, y + h / 2 + m)) return [x, y];
+      }
+    }
+    return [cx, y0 + h / 2];
+  }
+  let where = null; // 貼紙位置（兩邊一樣，算一次就記住；累加表用完就丟，手機記憶體比較夠）
+  function team(g, sd) {
+    const fs = 0.085, sk = 0.22, t1 = '大便龍', t2 = 'RACING';
+    g.save(); g.font = `900 100px ${FONT}`;
+    const w1 = (g.measureText(t1).width * fs) / 100, w2 = (g.measureText(t2).width * fs) / 100, sp = fs * 0.32, tw = w1 + sp + w2;
+    const pw = tw + fs * 0.9, ph = fs * 1.5, key = `${pw.toFixed(4)},${ph.toFixed(4)}`;
+    if (!where || where.key !== key) { where = { key, at: spot(pw + ph * sk, ph) }; sum = null; }
+    const [cx, cy] = where.at;
+    g.translate(cx, cy); g.scale(sd < 0 ? -1 : 1, 1);
+    const P = (x, y) => [x + y * sk, y]; // 往前斜的平行四邊形
+    poly(g, [P(-pw / 2, -ph / 2), P(pw / 2, -ph / 2), P(pw / 2, ph / 2), P(-pw / 2, ph / 2)]);
+    g.fillStyle = '#141518'; g.fill(); g.lineJoin = 'miter'; g.lineWidth = 0.007; g.strokeStyle = '#f4f5f6'; g.stroke();
+    g.scale(1, -1); g.transform(1, 0, -sk, 1, 0, 0); g.scale(fs / 100, fs / 100);
+    g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.lineJoin = 'round';
+    const x0 = (-tw / 2 / fs) * 100, base = 36;
+    g.fillStyle = g.strokeStyle = '#ffd21f'; g.lineWidth = 3; g.fillText(t1, x0, base); g.strokeText(t1, x0, base); // 中文字描一圈，加粗
+    g.fillStyle = '#f4f5f6'; g.fillText(t2, x0 + ((w1 + sp) / fs) * 100, base);
+    g.restore();
+  }
+
+  return (sd, style) => {
+    const { c, g } = canvas(b);
+    g.clearRect(b.x0 - 1, b.y0 - 1, b.x1 - b.x0 + 2, b.y1 - b.y0 + 2);
+    if (style === 'flames') flames(g); else if (style === 'stripes') stripes(g); else if (style === 'team') team(g, sd);
+    return c;
+  };
+}
+// 包一層 look 的拉花：通用的名字畫通用的（正面空白），其他名字照車子自己的。
+// 車子自己也有同名的拉花（918 的 stripes）就用車子自己的，通用的改用 'gen:stripes'（'gen:' 開頭一定是通用的）
+function withGenericLivery(look, sideTex) {
+  const draw = genericLivery(look, sideTex), own = {}, keys = LIV_GENERIC.map((o) => o[0]);
+  let last = 'ff'; // 最後畫的車子自己的拉花（探測完再畫一次，車子自己記的狀態才不會亂掉，例如 Jesko 的點綴色）
+  const sig = (c) => { const s = document.createElement('canvas'); s.width = 256; s.height = 80; const g = s.getContext('2d'); g.drawImage(c, 0, 0, 256, 80); return g.getImageData(0, 0, 256, 80).data; };
+  const mine = (k) => (own[k] ??= (() => { const p = sig(look.livery(1, k)), q = sig(look.livery(1, '?')); look.livery(1, last); return p.some((v, i) => Math.abs(v - q[i]) > 16); })());
+  const gen = (s) => { const k = String(s).replace(/^gen:/, ''); return keys.includes(k) && (k !== s || !mine(k)) ? k : null; };
+  const blank = () => { const { c, g } = canvas(BOX.front); g.clearRect(-2, -1, 4, 3); return c; };
+  return {
+    livery: (sd, s) => { const k = gen(s); if (k) return draw(sd, k); last = s; return look.livery(sd, s); },
+    frontLivery: (s, nose) => (gen(s) ? blank() : look.frontLivery(s, nose)),
+  };
+}
+
 function makeMaskTextures(look = SUPRA_LOOK) {
   const cv = (c) => { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; };
-  const noses = Object.keys(look.fronts);
+  const noses = Object.keys(look.fronts), side = look.side(), L = withGenericLivery(look, side); // L：拉花（含通用的）
   const t = {
-    side: look.side(), rear: look.rear(), top: look.top(), livR: cv(look.livery(1, 'ff')), livL: cv(look.livery(-1, 'ff')),
+    side, rear: look.rear(), top: look.top(), livR: cv(L.livery(1, 'ff')), livL: cv(L.livery(-1, 'ff')),
     fronts: Object.fromEntries(noses.map((k) => [k, look.fronts[k]()])),
-    livFs: Object.fromEntries(noses.map((k) => [k, cv(look.frontLivery('ff', k))])),
+    livFs: Object.fromEntries(noses.map((k) => [k, cv(L.frontLivery('ff', k))])),
   };
   // 所有車身材質共用這組 uniform：換套件只要換 tFront、tLivF 的 value
   const V2 = (a) => new THREE.Vector2(...a), V3 = (a) => new THREE.Vector3(...a), u = look.U;
@@ -342,15 +497,15 @@ function makeMaskTextures(look = SUPRA_LOOK) {
   };
   t.uLiv = t.U.uLiv;
   t.setNose = (k) => { t.nose = k; t.U.tFront.value = t.fronts[k]; t.U.tLivF.value = t.livFs[k]; };
-  // 換拉花：'none' 關掉，其他名字就重畫三張拉花貼圖（look.livery(side, 名字)、look.frontLivery(名字, 車頭)）
+  // 換拉花：'none' 關掉，其他名字就重畫三張拉花貼圖（L.livery(side, 名字)、L.frontLivery(名字, 車頭)；通用的名字見 LIV_GENERIC）
   t.livStyle = 'ff';
   t.setLivery = (style) => {
     t.U.uLiv.value = style === 'none' ? 0 : 1;
     if (style === 'none' || style === t.livStyle) return;
     t.livStyle = style;
-    t.livR.image = look.livery(1, style); t.livR.needsUpdate = true;
-    t.livL.image = look.livery(-1, style); t.livL.needsUpdate = true;
-    for (const k of noses) { t.livFs[k].image = look.frontLivery(style, k); t.livFs[k].needsUpdate = true; }
+    t.livR.image = L.livery(1, style); t.livR.needsUpdate = true;
+    t.livL.image = L.livery(-1, style); t.livL.needsUpdate = true;
+    for (const k of noses) { t.livFs[k].image = L.frontLivery(style, k); t.livFs[k].needsUpdate = true; }
   };
   return t;
 }
@@ -3023,7 +3178,7 @@ const PAINT_COMMON = [['#f2f3f5', '白'], ['#141518', '黑'], ['#c3c8ce', '銀']
 const SIZES = {"supra":1304976,"gtr":1707668,"sp3":1379416,"jesko":1696900,"yaris":1544848,"gc8":1532924,"p918":1745044};
 const CARS = {
   supra: {
-    file: 'tune/supra.glb?v=30', size: SIZES.supra, spec: SUPRA_SPEC, btn: ['SUPRA', '橘 · 玩命關頭'], name: 'Toyota Supra', sub: '玩命關頭那台 · 3D 試做版',
+    file: 'tune/supra.glb?h=f69628b4', size: SIZES.supra, spec: SUPRA_SPEC, btn: ['SUPRA', '橘 · 玩命關頭'], name: 'Toyota Supra', sub: '玩命關頭那台 · 3D 試做版',
     paints: [['#ff7414', '玩命關頭橘'], ...PAINT_COMMON, ['#1d4fb8', '藍']],
     opts: {
       wing: [['stock', '原廠'], ['gt', 'GT 大尾翼'], ['none', '不要']],
@@ -3034,7 +3189,7 @@ const CARS = {
     state: { paint: '#ff7414', rim: 'chrome', caliper: '#9da1a6', wing: 'gt', kit: 'bomex', height: '0', livery: 'ff', tint: 'light' },
   },
   gtr: {
-    file: 'tune/gtr.glb?v=30', size: SIZES.gtr, spec: GTR_SPEC, btn: ['GT-R R34', '藍 · 玩命關頭 4'], name: 'Nissan Skyline GT-R', sub: '玩命關頭 4 那台 R34 · 3D 試做版',
+    file: 'tune/gtr.glb?h=4f4f4a5c', size: SIZES.gtr, spec: GTR_SPEC, btn: ['GT-R R34', '藍 · 玩命關頭 4'], name: 'Nissan Skyline GT-R', sub: '玩命關頭 4 那台 R34 · 3D 試做版',
     paints: [['#1d4fc9', '灣岸藍'], ...PAINT_COMMON, ['#ff7414', '橘']],
     opts: {
       wing: [['stock', '原廠'], ['gt', 'GT 大尾翼'], ['none', '不要']],
@@ -3045,63 +3200,104 @@ const CARS = {
     state: { paint: '#1d4fc9', rim: 'gunmetal', caliper: '#c8141e', wing: 'stock', kit: 'bomex', height: '-0.03', livery: 'none', tint: 'light' },
   },
   // 之後加的車：車子的名字、車色、選項、預設值寫在各自的 <KEY>_GARAGE（sp3-spec.js 等）
-  sp3: { file: 'tune/sp3.glb?v=30', size: SIZES.sp3, spec: SP3_SPEC, btn: ['SP3', '法拉利 · 紅'], ...SP3_GARAGE },
-  jesko: { file: 'tune/jesko.glb?v=30', size: SIZES.jesko, spec: JESKO_SPEC, btn: ['JESKO', '柯尼賽格 · 白'], ...JESKO_GARAGE },
-  yaris: { file: 'tune/yaris.glb?v=30', size: SIZES.yaris, spec: YARIS_SPEC, btn: ['YARIS', '豐田 GR · 白'], ...YARIS_GARAGE },
-  gc8: { file: 'tune/gc8.glb?v=30', size: SIZES.gc8, spec: GC8_SPEC, btn: ['GC8', '速霸陸 · 藍'], ...GC8_GARAGE },
-  p918: { file: 'tune/p918.glb?v=30', size: SIZES.p918, spec: P918_SPEC, btn: ['918', '保時捷 · 灰'], ...P918_GARAGE },
+  sp3: { file: 'tune/sp3.glb?h=dc0369f5', size: SIZES.sp3, spec: SP3_SPEC, btn: ['SP3', '法拉利 · 紅'], ...SP3_GARAGE },
+  jesko: { file: 'tune/jesko.glb?h=218ad737', size: SIZES.jesko, spec: JESKO_SPEC, btn: ['JESKO', '柯尼賽格 · 白'], ...JESKO_GARAGE },
+  yaris: { file: 'tune/yaris.glb?h=97cc1c84', size: SIZES.yaris, spec: YARIS_SPEC, btn: ['YARIS', '豐田 GR · 白'], ...YARIS_GARAGE },
+  gc8: { file: 'tune/gc8.glb?h=054e4976', size: SIZES.gc8, spec: GC8_SPEC, btn: ['GC8', '速霸陸 · 藍'], ...GC8_GARAGE },
+  p918: { file: 'tune/p918.glb?h=67c1216a', size: SIZES.p918, spec: P918_SPEC, btn: ['918', '保時捷 · 灰'], ...P918_GARAGE },
 };
-// 性能（約略照真車）：馬力、重量、四驅、紅線、極速、風阻；price＝大概的行情價（新台幣「萬」，二手車看車況差很多）
-// 引擎改裝 stages：[階, 改什麼, 改完馬力, 大概花多少（萬）]；越高階越貴
+// 性能（約略照真車）：馬力、重量、四驅、紅線、極速、風阻；drive＝後驅的車起步時後輪壓到多少重量（引擎在中間的比較會起步）
+// price＝大概的行情價（新台幣「萬」，二手車看車況差很多）；tyres＝半熱熔胎、直線加速胎的價錢（萬）
+// parts：引擎零件 [代號, 名字, 做什麼, 加幾匹, 多少錢（萬）]，每台車不一樣，便宜的在前面；買了就一直裝著
 const PERF = {
-  gc8: { price: 150, hp: 280, kg: 1260, awd: 1, red: 8000, vmax: 250, cda: 0.62, eng: 'EJ20 水平對臥四缸渦輪',
-    stages: [['一階', 'ECU 調校＋進排氣', 330, 8], ['二階', '大渦輪＋中冷＋噴油嘴', 420, 35], ['三階', '鍛造引擎＋大渦輪', 550, 120]] },
-  yaris: { price: 260, hp: 300, kg: 1280, awd: 1, red: 7000, vmax: 230, cda: 0.66, eng: 'G16E 1.6 三缸渦輪',
-    stages: [['一階', 'ECU 調校＋進排氣', 340, 8], ['二階', '大渦輪＋中冷', 420, 40], ['三階', '鍛造引擎＋大渦輪', 550, 130]] },
-  supra: { price: 400, hp: 550, kg: 1520, awd: 0, red: 7200, vmax: 300, cda: 0.62, eng: '2JZ 直六雙渦輪',
-    stages: [['一階', 'ECU 調校＋進排氣', 650, 12], ['二階', '單顆大渦輪', 800, 50], ['三階', '鍛造 2JZ＋大渦輪', 1000, 150]] },
-  gtr: { price: 800, hp: 500, kg: 1560, awd: 1, red: 8000, vmax: 290, cda: 0.66, eng: 'RB26 直六雙渦輪',
-    stages: [['一階', 'ECU 調校＋進排氣', 600, 15], ['二階', '雙大渦輪', 750, 60], ['三階', '鍛造 RB26 2.8 升', 900, 180]] },
-  p918: { price: 6000, hp: 887, kg: 1675, awd: 1, red: 9150, vmax: 345, cda: 0.62, eng: '4.6 V8＋兩顆電動馬達',
-    stages: [['一階', 'ECU＋鈦合金排氣', 930, 100], ['二階', '引擎＋電池重新調校', 1000, 300], ['三階', 'V8 加雙渦輪', 1150, 900]] },
-  sp3: { price: 12000, hp: 829, kg: 1485, awd: 0, red: 9500, vmax: 340, cda: 0.62, eng: '6.5 V12 自然進氣',
-    stages: [['一階', 'ECU＋賽車排氣', 860, 80], ['二階', '進氣＋凸輪軸', 900, 250], ['三階', '機械增壓 V12', 1050, 900]] },
-  jesko: { price: 15000, hp: 1280, kg: 1420, awd: 0, red: 8500, vmax: 330, cda: 0.72, eng: '5.0 V8 雙渦輪',
-    stages: [['一階', '改加 E85 生質燃料', 1600, 30], ['二階', '大渦輪', 1750, 400], ['三階', '賽車引擎', 1900, 1200]] },
+  gc8: { price: 150, hp: 280, kg: 1260, awd: 1, red: 8000, vmax: 250, cda: 0.62, eng: 'EJ20 水平對臥四缸渦輪', tyres: [3, 6], parts: [
+    ['intake', '高流量進氣', '空濾換成香菇頭', 10, 2], ['ecu', 'ECU 調校', '重寫點火和增壓', 30, 4], ['exhaust', '不鏽鋼排氣', '中尾段換大口徑', 15, 4],
+    ['ic', '上置大中冷', '進氣溫度降下來', 15, 5], ['fuel', '大噴油嘴＋汽油泵', '大馬力要更多油', 10, 5], ['header', '等長排氣頭段', '水平對臥的咕嚕聲會變順', 20, 8],
+    ['turbo', 'TD05 大渦輪', '換更大顆的渦輪', 100, 20], ['forged', '鍛造活塞連桿', '引擎撐得住高增壓', 40, 35]] },
+  yaris: { price: 260, hp: 300, kg: 1280, awd: 1, red: 7000, vmax: 230, cda: 0.66, eng: 'G16E 1.6 三缸渦輪', tyres: [3, 6], parts: [
+    ['intake', '高流量進氣', '空濾換成高流量的', 10, 2], ['ecu', 'ECU 調校', '重寫點火和增壓', 40, 4], ['exhaust', '中尾段排氣', '排氣更順', 10, 5],
+    ['fuel', '大噴油嘴＋汽油泵', '大馬力要更多油', 10, 5], ['ic', '大中冷', '進氣溫度降下來', 15, 6], ['cams', '賽車凸輪軸', '高轉更有力', 25, 15],
+    ['turbo', '混合式大渦輪', '渦輪換大一號', 80, 22], ['forged', '鍛造活塞連桿', '三缸也撐得住高增壓', 40, 38]] },
+  supra: { price: 400, hp: 550, kg: 1520, awd: 0, drive: 0.7, red: 7200, vmax: 300, cda: 0.62, eng: '2JZ 直六雙渦輪', tyres: [4, 8], parts: [
+    ['intake', '高流量進氣', '空濾換成香菇頭', 15, 2], ['ecu', 'ECU 調校', '重寫點火和增壓', 40, 5], ['exhaust', '3 吋全段排氣', '整條換大口徑', 25, 6],
+    ['ic', '前置大中冷', '進氣溫度降下來', 20, 6], ['fuel', '1000cc 噴油嘴＋雙汽油泵', '大馬力要很多油', 30, 8], ['cams', '高角度凸輪軸', '高轉更有力', 60, 18],
+    ['turbo', '單顆大渦輪', '兩顆渦輪換成一顆大的', 180, 35], ['forged', '鍛造活塞連桿', '2JZ 撐到 1000 匹', 80, 60]] },
+  gtr: { price: 800, hp: 500, kg: 1560, awd: 1, red: 8000, vmax: 290, cda: 0.66, eng: 'RB26 直六雙渦輪', tyres: [4, 8], parts: [
+    ['intake', '高流量進氣', '空濾換成香菇頭', 10, 2], ['ecu', 'ECU 調校', '重寫點火和增壓', 40, 6], ['ic', '前置大中冷', '進氣溫度降下來', 20, 7],
+    ['exhaust', '鈦合金排氣', '又輕又大口徑', 20, 8], ['fuel', '大噴油嘴＋汽油泵', '大馬力要更多油', 20, 8], ['cams', '高角度凸輪軸', '高轉更有力', 60, 20],
+    ['turbo', '雙大渦輪', '兩顆渦輪都換大', 150, 45], ['stroker', 'RB28 鍛造曲軸', '排氣量加到 2.8 升', 80, 80]] },
+  p918: { price: 6000, hp: 887, kg: 1675, awd: 1, red: 9150, vmax: 345, cda: 0.62, eng: '4.6 V8＋兩顆電動馬達', tyres: [12, 20], parts: [
+    ['filter', '賽車空濾', '吸氣更順', 8, 5], ['flywheel', '輕量化飛輪', '轉速拉得更快', 10, 25], ['exhaust', '鈦合金排氣', '頂出式排氣換鈦合金', 20, 30],
+    ['ecu', 'ECU 調校', '引擎和馬達一起重調', 30, 40], ['battery', '電池放電升級', '電池一次放更多電', 40, 120], ['motorF', '前馬達升級', '前輪的電動馬達換大', 40, 150],
+    ['motorR', '後馬達升級', '後面的電動馬達換大', 45, 180], ['turbo', 'V8 加裝雙渦輪', '自然進氣改成渦輪', 70, 450]] },
+  sp3: { price: 12000, hp: 829, kg: 1485, awd: 0, drive: 0.8, red: 9500, vmax: 340, cda: 0.62, eng: '6.5 V12 自然進氣', tyres: [12, 20], parts: [
+    ['filter', '賽車空濾', '吸氣更順', 8, 5], ['flywheel', '輕量化飛輪', '轉速拉得更快', 10, 30], ['ecu', 'ECU 調校', '重寫點火和汽門正時', 20, 35],
+    ['exhaust', '鈦合金排氣', 'V12 叫得更大聲', 25, 45], ['intake', '可變長度進氣歧管', '高轉低轉都有力', 15, 60], ['cams', '高角度凸輪軸', '高轉更有力', 30, 90],
+    ['forged', '鍛造活塞', '撐得住機械增壓', 20, 150], ['sc', '機械增壓', 'V12 加一顆機械增壓器', 250, 600]] },
+  jesko: { price: 15000, hp: 1280, kg: 1420, awd: 0, drive: 0.8, red: 8500, vmax: 330, cda: 0.72, eng: '5.0 V8 雙渦輪', tyres: [12, 20], parts: [
+    ['filter', '賽車空濾', '吸氣更順', 10, 8], ['e85', 'E85 生質燃料', '改加 E85，1280 匹變 1600 匹', 320, 30], ['fuel', '大噴油嘴', 'E85 要更多油', 20, 50],
+    ['exhaust', '鈦合金排氣', '又輕又大聲', 30, 60], ['ecu', 'ECU 調校', '重寫點火和增壓', 50, 80], ['cams', '賽車凸輪軸', '高轉更有力', 20, 150],
+    ['forged', '鍛造內部', '曲軸、活塞都換鍛造', 40, 300], ['turbo', '大渦輪', '兩顆渦輪都換大', 150, 400]] },
 };
-const hpOf = (k) => { const n = +CARS[k].state.engine || 0; return n ? PERF[k].stages[n - 1][2] : PERF[k].hp; };
-const money = (w) => (w >= 10000 ? `${+(w / 10000).toFixed(1)} 億` : `${w.toLocaleString('en-US')} 萬`);
+const TYRES = [[0, '原廠胎', '原本的輪胎'], [1, '半熱熔胎', '起步抓地 +8%'], [2, '直線加速胎', '起步抓地 +16%']];
+// 遊戲進度：錢（萬）、有哪些車、每台裝了哪些零件、輪胎（買過哪些、現在用哪個）、每個對手贏過幾次
+const GAME = { money: 0, owned: new Set(['gc8']), parts: {}, tyres: {}, wins: {} };
+const partsOf = (k) => (GAME.parts[k] ||= []);
+const tyresOf = (k) => (GAME.tyres[k] ||= { own: [], use: 0 });
+const tyreOf = (k) => GAME.tyres[k]?.use ?? 0;
+const hpOf = (k) => PERF[k].hp + PERF[k].parts.reduce((a, p) => a + (partsOf(k).includes(p[0]) ? p[3] : 0), 0);
+const money = (w) => (w >= 10000 ? `${+(w / 10000).toFixed(2)} 億` : `${w.toLocaleString('en-US')} 萬`);
 const byPrice = (keys) => [...keys].sort((a, b) => PERF[a].price - PERF[b].price); // 照價錢排（便宜的在前面）
-for (const [k, C] of Object.entries(CARS)) { C.state.engine ??= '0'; C.btn = [C.btn[0], `約 ${money(PERF[k].price)}`]; }
 const COMMON_OPTS = { wide: [['off', '原廠'], ['on', '寬體']], tint: [['light', '淺'], ['dark', '深']], studio: [['light', '亮'], ['dark', '暗']] };
 for (const C of Object.values(CARS)) C.state.wide ??= 'off'; // 寬體每台都有，預設不要
+// 每台車都多幾個顏色（那台車本來就有很像的顏色、或同名的就不重複加）
+const EXTRA_PAINTS = [['#ff5fa2', '粉紅'], ['#39a7ff', '天空藍'], ['#9bea1a', '螢光綠'], ['#c8a45d', '香檳金'], ['#ff7414', '橘'], ['#5b2d9e', '紫']];
+const rgbOf = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+const alike = (a, b) => { const x = rgbOf(a), y = rgbOf(b); return Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]) < 48; };
+for (const C of Object.values(CARS)) C.paints = [...C.paints, ...EXTRA_PAINTS.filter(([hex, name]) => !C.paints.some((p) => alike(p[0], hex) || p[1] === name))];
+for (const C of Object.values(CARS)) C.opts.livery = livOptions(C.opts.livery); // 通用拉花：火焰、賽車條紋、大便龍車隊（名字撞到車子自己的，用 'gen:' 開頭）
+const DEFAULT_LOOK = Object.fromEntries(Object.entries(CARS).map(([k, C]) => [k, { ...C.state }])); // 每台車原本的樣子（對手的車從這個改）
 const CALIPERS = [['#9da1a6', '銀'], ['#c8141e', '紅'], ['#f2b705', '黃'], ['#1f54c9', '藍'], ['#ff6a1f', '橘'], ['#9bd400', '螢光綠'], ['#17181b', '黑']];
 const RIMS = [['chrome', '鍍鉻', 'conic-gradient(#8a9099, #f4f6f8, #8a9099, #f4f6f8, #8a9099)'], ['gunmetal', '槍灰', '#4b4f55'], ['black', '黑', '#1a1c20'], ['gold', '金', '#c9a043'], ['white', '白', '#f2f3f5']];
 const RIM_LOOK = { chrome: [0xe8eaec, 1, 0.07], gunmetal: [0x4b4f55, 1, 0.3], black: [0x16171a, 0.5, 0.35], gold: [0xd2a646, 1, 0.18], white: [0xf0f0f0, 0, 0.3] };
-let studioKind = 'light', cur = 'sp3', rideY = 0;
+let studioKind = 'light', cur = 'gc8', rideY = 0;
 const SAVE_KEY = 'carid.tune';
-function save() {
+// 存在這支手機：v2 起多了錢、車、零件、輪胎、贏過誰（now＝馬上存，錢有變的時候用）
+function save(now) {
   clearTimeout(save.t);
-  save.t = setTimeout(() => {
-    try { localStorage.setItem(SAVE_KEY, JSON.stringify({ cur, studio: studioKind, cars: Object.fromEntries(Object.entries(CARS).map(([k, C]) => [k, C.state])) })); } catch { /* 不給存就算了 */ }
-  }, 300);
+  const write = () => {
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 2, cur, studio: studioKind, money: GAME.money, owned: [...GAME.owned], parts: GAME.parts, tyres: GAME.tyres, wins: GAME.wins,
+        cars: Object.fromEntries(Object.entries(CARS).map(([k, C]) => [k, C.state])) }));
+    } catch { /* 不給存就算了 */ }
+  };
+  if (now) write(); else save.t = setTimeout(write, 300);
 }
 function okValue(k, o, v) { // 存的值還是現在有的選項才用（改版後選項可能不一樣）
   const C = CARS[k], has = (list) => !!list && list.some((it) => it[0] === v);
   if (o === 'paint') return has(C.paints);
   if (o === 'rim') return has(RIMS);
   if (o === 'caliper') return has(CALIPERS);
-  if (o === 'engine') return ['0', '1', '2', '3'].includes(v);
   return has(C.opts[o] || COMMON_OPTS[o]);
 }
 (function restore() {
   let d = null;
   try { d = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); } catch { d = null; }
   if (!d || typeof d !== 'object') return;
-  for (const [k, st] of Object.entries(d.cars || {})) {
+  for (const [k, st] of Object.entries(d.cars || {})) { // 外觀
     if (!CARS[k] || !st) continue;
     for (const [o, v] of Object.entries(st)) if (o in CARS[k].state && okValue(k, o, v)) CARS[k].state[o] = v;
   }
+  if (d.v !== 2) return; // 舊版（內容 30）只存了外觀：錢、車、零件從頭開始，開局只有 GC8
+  GAME.money = Math.max(0, Math.floor(+d.money || 0));
+  for (const k of d.owned || []) if (CARS[k]) GAME.owned.add(k);
+  for (const [k, list] of Object.entries(d.parts || {})) if (PERF[k] && Array.isArray(list)) GAME.parts[k] = PERF[k].parts.map((p) => p[0]).filter((id) => list.includes(id));
+  for (const [k, t] of Object.entries(d.tyres || {})) {
+    if (!PERF[k] || !t) continue;
+    const own = [1, 2].filter((n) => (t.own || []).includes(n));
+    GAME.tyres[k] = { own, use: own.includes(t.use) ? t.use : 0 };
+  }
+  for (const [id, n] of Object.entries(d.wins || {})) GAME.wins[id] = Math.max(0, Math.floor(+n || 0));
   if (CARS[d.cur]) cur = d.cur;
   if (d.studio === 'light' || d.studio === 'dark') { studioKind = d.studio; setStudio(studioKind); }
 })();
@@ -3124,15 +3320,18 @@ function apply(S, key, v) {
 
 // 把一台車從畫面拿掉並釋放記憶體（網格、材質、貼圖）
 function dispose(key) {
-  const S = built[key]; if (!S) return;
-  scene.remove(S.car);
+  if (!built[key]) return;
+  disposeCar(built[key]);
+  delete built[key];
+}
+function disposeCar(S) {
+  S.car.removeFromParent();
   S.car.traverse((o) => {
     if (o.geometry) o.geometry.dispose();
     for (const m of o.material ? [].concat(o.material) : []) { for (const v of Object.values(m)) if (v && v.isTexture) v.dispose(); m.dispose(); }
   });
   const T = S.tex;
   for (const t of [T.side, T.rear, T.top, T.livR, T.livL, ...Object.values(T.fronts), ...Object.values(T.livFs)]) if (t && t.dispose) t.dispose();
-  delete built[key];
 }
 // 車身模型：右半邊的 glb，用 base64 文字存（artifact 只能放這種檔），載入後鏡射成整台
 async function fetchCar(C) {
@@ -3153,13 +3352,14 @@ async function fetchCar(C) {
   for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
   return buf.buffer;
 }
-async function loadCar(key) {
+// look：這台車要長什麼樣子（預設是你改的；對手的車用它自己的）
+async function loadCar(key, look = CARS[key].state) {
   const C = CARS[key];
   if (!glbs[key]) glbs[key] = await fetchCar(C);
   const gltf = await new GLTFLoader().parseAsync(glbs[key].slice(0), '');
   const car = buildCar(C.spec, carGeos(gltf.scene), { wide: WIDE[key] });
-  for (const [k, v] of Object.entries(C.state)) if (k !== 'height') apply(car, k, v);
-  car.body.position.y = +C.state.height;
+  for (const [k, v] of Object.entries(look)) if (k !== 'height') apply(car, k, v);
+  car.body.position.y = +look.height;
   return car;
 }
 
@@ -3195,10 +3395,19 @@ async function showCar(key) {
 for (const k of byPrice(Object.keys(CARS))) {
   const C = CARS[k], b = document.createElement('button');
   b.type = 'button'; b.dataset.car = k; b.setAttribute('aria-pressed', 'false');
-  const t = document.createElement('b'), s2 = document.createElement('span'); t.textContent = C.btn[0]; s2.textContent = C.btn[1];
+  const t = document.createElement('b'), s2 = document.createElement('span'); t.textContent = C.btn[0];
   b.append(t, s2); b.addEventListener('click', () => { if (k !== cur) showCar(k); });
   carsEl.append(b);
 }
+// 車子按鈕：你的車寫「你的車」，還沒買的寫價錢（鎖起來）
+function refreshCarBtns() {
+  carsEl.querySelectorAll('button').forEach((b) => {
+    const k = b.dataset.car, own = GAME.owned.has(k);
+    b.classList.toggle('locked', !own);
+    b.querySelector('span').textContent = own ? '你的車' : money(PERF[k].price);
+  });
+}
+refreshCarBtns();
 
 // 手指一碰就停止自動轉
 const spinBtn = document.getElementById('spin');
@@ -3227,7 +3436,7 @@ function chips(el, list, key) {
 function seg(el) {
   const key = el.dataset.opt, list = CARS[cur].opts[key] || COMMON_OPTS[key];
   const val = key === 'studio' ? studioKind : CARS[cur].state[key];
-  el.replaceChildren();
+  el.replaceChildren(); el.classList.toggle('pills', list.length > 4);
   for (const [v, label] of list) {
     const b = document.createElement('button');
     b.type = 'button'; b.dataset.v = v; b.textContent = label; b.setAttribute('aria-pressed', String(v === val));
@@ -3241,43 +3450,121 @@ function seg(el) {
     el.append(b);
   }
 }
-// 規格：價錢、馬力（含引擎改裝）、重量、驅動
+// 規格：價錢、馬力（含裝好的零件）、重量、驅動
 function specLine() {
   const P = PERF[cur], el = document.getElementById('carSpec'), em = document.createElement('em');
   em.textContent = `約 NT$ ${money(P.price)}`;
   el.replaceChildren(em, ` · ${hpOf(cur).toLocaleString('en-US')} 匹 · ${P.kg.toLocaleString('en-US')} 公斤 · ${P.awd ? '四驅' : '後驅'}`);
 }
-// 引擎：原廠＋三階改裝（照價錢從便宜到貴），比賽時馬力照這個算
-function engineOpts() {
-  const el = document.getElementById('engine'), P = PERF[cur], st = CARS[cur].state;
-  document.getElementById('engName').textContent = P.eng;
+// 錢
+const cashEl = document.getElementById('cash');
+function renderWallet() { cashEl.textContent = `NT$ ${money(GAME.money)}`; }
+// 車庫裡的提示（買了什麼、錢不夠）
+const gtoastEl = document.getElementById('gtoast');
+function gtoast(text, ms = 1400) {
+  gtoastEl.textContent = text; gtoastEl.classList.add('show');
+  clearTimeout(gtoast.t); gtoast.t = setTimeout(() => gtoastEl.classList.remove('show'), ms);
+}
+const short = (cost) => `還差 ${money(cost - GAME.money)}，去比賽贏錢`;
+// 引擎零件：每台車不一樣，買了就裝上（馬力加上去），比賽照這個算
+function partsOpts() {
+  const el = document.getElementById('parts'), P = PERF[cur], have = partsOf(cur);
+  document.getElementById('engName').textContent = `${P.eng} · 現在 ${hpOf(cur).toLocaleString('en-US')} 匹`;
   el.replaceChildren();
-  const rows = [['0', '原廠', P.hp, '原廠引擎', null], ...P.stages.map(([name, what, hp, cost], i) => [String(i + 1), name, hp, what, cost])];
-  for (const [v, name, hp, what, cost] of rows) {
-    const b = document.createElement('button'); b.type = 'button'; b.setAttribute('aria-pressed', String(st.engine === v));
-    const t = document.createElement('b'), h = document.createElement('span'), u = document.createElement('small'), d = document.createElement('span'), p = document.createElement('span');
-    t.textContent = name; h.className = 'hp'; h.textContent = String(hp); u.textContent = '匹'; h.append(u);
-    d.className = 'd'; d.textContent = what; p.className = 'p'; p.textContent = cost == null ? '—' : `約 ${money(cost)}`;
+  for (const [id, name, what, hp, cost] of P.parts) {
+    const on = have.includes(id), b = document.createElement('button');
+    b.type = 'button'; b.className = 'part ' + (on ? 'on' : GAME.money >= cost ? 'can' : 'cant'); b.setAttribute('aria-pressed', String(on));
+    const t = document.createElement('b'), d = document.createElement('span'), h = document.createElement('span'), p = document.createElement('span');
+    t.textContent = name; d.className = 'd'; d.textContent = what; h.className = 'hp'; h.textContent = `+${hp} 匹`;
+    p.className = 'p'; p.textContent = on ? '已裝' : money(cost);
     b.append(t, h, d, p);
-    b.addEventListener('click', () => { st.engine = v; save(); el.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); specLine(); });
+    b.addEventListener('click', () => {
+      if (have.includes(id)) { gtoast('這個已經裝好了'); return; }
+      if (GAME.money < cost) { gtoast(short(cost)); return; }
+      GAME.money -= cost; have.push(id); save(true);
+      renderWallet(); renderOptions(); gtoast(`裝好${name}，+${hp} 匹`);
+    });
     el.append(b);
   }
 }
+// 輪胎：原廠胎／半熱熔胎／直線加速胎，買過的可以隨時換
+function tyreOpts() {
+  const el = document.getElementById('tyres'), T = tyresOf(cur), prices = PERF[cur].tyres;
+  el.replaceChildren();
+  for (const [n, name, what] of TYRES) {
+    const own = n === 0 || T.own.includes(n), cost = n ? prices[n - 1] : 0, b = document.createElement('button');
+    b.type = 'button'; b.setAttribute('aria-pressed', String(T.use === n)); if (!own && GAME.money < cost) b.className = 'cant';
+    const t = document.createElement('b'), d = document.createElement('span'), p = document.createElement('span');
+    t.textContent = name; d.className = 'd'; d.textContent = what; p.className = 'p';
+    p.textContent = T.use === n ? '用這個' : own ? '換上' : money(cost);
+    b.append(t, d, p);
+    b.addEventListener('click', () => {
+      if (T.use === n) return;
+      if (!own) {
+        if (GAME.money < cost) { gtoast(short(cost)); return; }
+        GAME.money -= cost; T.own.push(n); renderWallet(); gtoast(`換上${name}`);
+      }
+      T.use = n; save(true); renderOptions();
+    });
+    el.append(b);
+  }
+}
+// 還沒買的車：看得到、可以轉，下面是「買這台」（按兩次才買，免得按錯）
+const buyBtn = document.getElementById('buyCar'), buyHead = document.getElementById('buyHead'), buyNote = document.getElementById('buyNote');
+function buyCta() {
+  const P = PERF[cur], lack = P.price - GAME.money;
+  clearTimeout(buyCta.t); buyBtn.classList.remove('armed');
+  buyBtn.disabled = lack > 0;
+  buyHead.textContent = lack > 0 ? `還差 ${money(lack)}` : `買這台 · NT$ ${money(P.price)}`;
+  buyNote.textContent = lack > 0 ? `這台要 NT$ ${money(P.price)}，去比賽贏錢` : `買了還剩 NT$ ${money(GAME.money - P.price)}`;
+}
+buyBtn.addEventListener('click', () => {
+  const P = PERF[cur];
+  if (GAME.owned.has(cur) || GAME.money < P.price) return;
+  if (!buyBtn.classList.contains('armed')) {
+    buyBtn.classList.add('armed'); buyHead.textContent = `確定要買 ${CARS[cur].btn[0]}？再按一次`;
+    clearTimeout(buyCta.t); buyCta.t = setTimeout(buyCta, 3500); return;
+  }
+  clearTimeout(buyCta.t);
+  GAME.money -= P.price; GAME.owned.add(cur); save(true);
+  renderWallet(); refreshCarBtns(); renderOptions(); gtoast(`買到 ${CARS[cur].btn[0]} 了！`, 1800);
+});
 function renderOptions() {
-  specLine(); engineOpts();
+  const own = GAME.owned.has(cur);
+  specLine();
+  document.getElementById('opts').hidden = !own; document.getElementById('lockNote').hidden = own;
+  document.getElementById('toRace').hidden = !own; buyBtn.hidden = own;
+  if (!own) { buyCta(); return; }
+  partsOpts(); tyreOpts();
   chips(document.getElementById('paints'), CARS[cur].paints, 'paint');
   chips(document.getElementById('rims'), RIMS, 'rim');
   chips(document.getElementById('calipers'), CALIPERS, 'caliper');
   document.querySelectorAll('.seg[data-opt]').forEach(seg);
 }
+// 重新開始：錢、車、零件、贏過的對手都歸零（按兩次）
+const restartBtn = document.getElementById('restart');
+restartBtn.addEventListener('click', () => {
+  if (!restartBtn.classList.contains('armed')) {
+    restartBtn.classList.add('armed'); restartBtn.textContent = '確定？再按一次';
+    clearTimeout(restartBtn.t); restartBtn.t = setTimeout(() => { restartBtn.classList.remove('armed'); restartBtn.textContent = '重新開始'; }, 3500); return;
+  }
+  clearTimeout(restartBtn.t); restartBtn.classList.remove('armed'); restartBtn.textContent = '重新開始';
+  Object.assign(GAME, { money: 0, owned: new Set(['gc8']), parts: {}, tyres: {}, wins: {} });
+  save(true); renderWallet(); refreshCarBtns();
+  if (cur === 'gc8') renderOptions(); else showCar('gc8');
+  carsEl.querySelector('[data-car="gc8"]').scrollIntoView({ inline: 'center', block: 'nearest' });
+  gtoast('重新開始：你有一台 GC8', 1800);
+});
+renderWallet();
 showCar(cur);
 carsEl.querySelector(`[data-car="${cur}"]`).scrollIntoView({ inline: 'center', block: 'nearest' });
 
 // ---- race.src.js ----
-// ---- 賽道：400 公尺直線加速賽（你開車庫裡現在這台，對手選一台）----
-// 物理：每台車的馬力、重量、驅動方式、紅線、極速大約照真車（PERF，在車庫那段；引擎改裝會改馬力），六速變速箱，起步的抓地力有上限（四驅比較好起步）
-// 車庫的選項也有一點影響：寬體、賽道套件、GT 大尾翼抓地力比較好，大尾翼、賽道套件風阻大一點
-// build-art.mjs 把這個檔案接在車庫頁的程式裡（用得到 renderer、scene、CARS、built、loadCar⋯）
+// ---- 賽道：400 公尺直線加速賽（你開車庫裡現在這台，對手是一個一個的人，各開各的車）----
+// 物理：每台車的馬力、重量、驅動方式、紅線、極速大約照真車（PERF，在車庫那段；裝了引擎零件馬力會加），六速變速箱，
+// 起步的抓地力有上限（四驅最好起步，引擎在中間的後驅次之），輪胎可以買更抓地的；外觀不影響速度
+// 贏了拿對手的獎金（GAME.money），第一次贏過一個對手，下一個才會出現
+// build-art.mjs 把這個檔案接在車庫頁的程式裡（用得到 renderer、scene、CARS、PERF、GAME、loadCar⋯）
 const RACE_M = 400, LANE = 2.4;
 const GEARS = [3.3, 2.2, 1.62, 1.28, 1.05, 0.86];
 const GREEN = [0.88, 0.985]; // 換檔的綠色區（轉速÷紅線）
@@ -3288,17 +3575,49 @@ const toastEl = $('toast'), clockEl = $('clock'), spdEl = $('spd'), tachEl = $('
 const pMe = $('pMe'), pOpp = $('pOpp');
 const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-function racer(key) {
-  const P = PERF[key], hp = hpOf(key), st = CARS[key].state, W = CARS[key].spec.wheels;
-  const r = W.RR ?? W.R, m = P.kg + 75, wr = (P.red * 2 * Math.PI) / 60;
-  const grip = 1.35 * (1 + (st.wide === 'on' ? 0.06 : 0) + (st.kit === 'track' ? 0.05 : 0) + (st.wing === 'gt' ? 0.02 : 0));
+const TYRE_GRIP = [0, 0.08, 0.16]; // 原廠胎、半熱熔胎、直線加速胎
+// s：{ key, hp, tyre }（你的車照車庫裝的零件和輪胎，對手的車寫在 OPPS）
+function racer(s) {
+  const P = PERF[s.key], W = CARS[s.key].spec.wheels;
+  const r = W.RR ?? W.R, m = P.kg + 75, wr = (P.red * 2 * Math.PI) / 60, grip = 1.35 * (1 + TYRE_GRIP[s.tyre || 0]);
   return {
-    key, P, m, r, wr, fd: (wr * r) / (GEARS[5] * (P.vmax / 3.6)), Tpk: (hp * 745.7) / (wr * 0.95 * torqueAt(0.95)),
-    tract: grip * m * 9.81 * (P.awd ? 0.9 : 0.74), cda: P.cda * (1 + (st.kit === 'track' ? 0.03 : 0) + (st.wing === 'gt' ? 0.04 : 0)),
+    key: s.key, P, m, r, wr, fd: (wr * r) / (GEARS[5] * (P.vmax / 3.6)), Tpk: (s.hp * 745.7) / (wr * 0.95 * torqueAt(0.95)),
+    tract: grip * m * 9.81 * (P.awd ? 0.9 : P.drive ?? 0.74), cda: P.cda,
     x: 0, v: 0, gear: 0, shiftT: 0, cut: 0, nitro: 0, nitroUsed: false, go: null, react: null, fin: null, trap: 0, rpm: 0.12, spin: 0,
   };
 }
+const mySetup = () => ({ key: cur, hp: hpOf(cur), tyre: tyreOf(cur) });
 const statLine = (key) => { const P = PERF[key]; return `${hpOf(key).toLocaleString('en-US')} 匹 · ${P.kg.toLocaleString('en-US')} 公斤 · ${P.awd ? '四驅' : '後驅'}`; };
+
+// ---- 對手：從隔壁同學到大魔王，越後面越快、獎金越多（萬）----
+// drv：開車的功力（反應秒數、幾轉換檔、幾秒放氮氣）；look：車子的樣子（沒寫的用那台車原本的）
+const DRIVERS = {
+  rookie: { react: [0.45, 0.7], shift: [0.78, 0.93], nitro: null },
+  ok: { react: [0.3, 0.5], shift: [0.84, 0.97], nitro: [2.5, 5] },
+  good: { react: [0.22, 0.38], shift: [0.87, 0.98], nitro: [1.5, 4] },
+  pro: { react: [0.17, 0.28], shift: [0.89, 0.975], nitro: [1.2, 2.5] },
+};
+const OPPS = [
+  { id: 'classmate', name: '隔壁同學', sub: '剛拿到駕照', key: 'gc8', hp: 280, tyre: 0, drv: 'rookie', prize: 5, look: { paint: '#f2f3f5', rim: 'chrome', wing: 'none', livery: 'none' } },
+  { id: 'uncle', name: '巷口阿伯', sub: '開 Yaris 去買菜', key: 'yaris', hp: 300, tyre: 0, drv: 'ok', prize: 12, look: { paint: '#0e0f11', rim: 'black', wing: 'stock', livery: 'none' } },
+  { id: 'courier', name: '送貨小哥', sub: '趕著送貨', key: 'gc8', hp: 400, tyre: 1, drv: 'good', prize: 25, look: { paint: '#c3c8ce', rim: 'gunmetal', livery: 'none' } },
+  { id: 'nightmarket', name: '夜市小霸王', sub: '車子整台都是紫的', key: 'supra', hp: 650, tyre: 1, drv: 'good', prize: 60, look: { paint: '#5b2d9e', rim: 'chrome', wing: 'gt', kit: 'bomex', livery: 'flames' } },
+  { id: 'shop', name: '修車廠老闆', sub: '自己改的 R34', key: 'gtr', hp: 750, tyre: 1, drv: 'good', prize: 150, look: { paint: '#141518', rim: 'gunmetal', wing: 'stock', kit: 'stock', livery: 'none' } },
+  { id: 'club', name: '超跑俱樂部會長', sub: '車庫停滿超跑', key: 'p918', hp: 887, tyre: 1, drv: 'good', prize: 800, look: { paint: '#c5c9ce', livery: 'none' } },
+  { id: 'touge', name: '山道之王', sub: '山路沒輸過', key: 'gtr', hp: 900, tyre: 2, drv: 'pro', prize: 1200, look: { paint: '#1d4fc9', wing: 'gt', kit: 'track', livery: 'ff' } },
+  { id: 'racer', name: '職業賽車手', sub: '每個週末都在比賽', key: 'sp3', hp: 1100, tyre: 2, drv: 'pro', prize: 2000, look: { livery: 'daytona' } },
+  { id: 'boss', name: '大魔王', sub: '最後一關', key: 'jesko', hp: 1920, tyre: 2, drv: 'good', prize: 3000, look: { paint: '#16171a', livery: 'red' } },
+];
+const unlocked = (i) => i === 0 || (GAME.wins[OPPS[i - 1].id] || 0) > 0;
+const oppById = (id) => OPPS.find((o) => o.id === id);
+// 對手的車長什麼樣子：那台車原本的樣子＋對手自己的（不合的選項不用）
+function oppLook(o) {
+  const look = { ...DEFAULT_LOOK[o.key] };
+  for (const [k, v] of Object.entries(o.look || {})) if (k in look && okValue(o.key, k, v)) look[k] = v;
+  return look;
+}
+const mean = (r) => (r[0] + r[1]) / 2;
+const PLAYER_SIM = { react: 0.3, shift: 0.93, nitro: 2 }; // 試算你的秒數：普通玩家大概這樣開
 
 // ---- 賽道場景（第一次上賽道才做）----
 function canvasTex(w, h, draw, rep) {
@@ -3439,7 +3758,7 @@ function buildTrack() {
 }
 
 // ---- 比賽狀態 ----
-let TR = null, race = null, rcam = null, raceOpp = null, oppFor = null, lastT = 0, orbitA = 0;
+let TR = null, race = null, rcam = null, raceOpp = null, oppFor = null, lastT = 0, orbitA = 0, oppCar = null;
 const RACE = { on: false, frame: raceFrame };
 function carSize(Sx) { const b = new THREE.Box3().setFromObject(Sx.body); return { nose: b.max.x, len: b.max.x - b.min.x, tail: b.min.x }; }
 function putCar(Sx, c, z, info) {
@@ -3449,16 +3768,51 @@ function setWheels(Sx, c) {
   const W = Sx.spec.wheels;
   Sx.wheels.forEach((wh, i) => { const R = i < 2 ? W.RF ?? W.R : W.RR ?? W.R; wh.rotation.z = (i % 2 === 0 ? 1 : -1) * (c.spin / R); });
 }
-// 對手：還沒組好就載入（最多留 3 台，現在這台和對手不會被釋放）
-async function getCar(key) {
-  if (built[key]) return built[key];
-  status.hidden = false; msg.textContent = `${CARS[key].btn[0]} 開進賽道中⋯`; prog.parentElement.hidden = false; prog.style.width = glbs[key] ? '100%' : '0%';
-  const car = await loadCar(key);
-  built[key] = car; scene.add(car.car); car.car.visible = false;
-  recent.push(key);
-  while (recent.length > 3) { const i = recent.findIndex((k) => k !== cur && k !== key); if (i < 0) break; dispose(recent.splice(i, 1)[0]); }
-  status.hidden = true;
-  return car;
+// 對手的車：另外組一台（跟你開同一款也沒關係），換對手或離開賽道就釋放
+// 載入要一點時間：等的時候又換了對手，舊的那台做好就直接丟掉（'stale'）
+let oppLoading = null;
+function getOppCar(o) {
+  if (oppCar && oppCar.id === o.id) return Promise.resolve(oppCar.S);
+  if (oppLoading && oppLoading.id === o.id) return oppLoading.p;
+  dropOppCar();
+  status.hidden = false; msg.textContent = `${o.name}開著 ${CARS[o.key].btn[0]} 來了⋯`; prog.parentElement.hidden = false; prog.style.width = glbs[o.key] ? '100%' : '0%';
+  const job = { id: o.id };
+  job.p = loadCar(o.key, oppLook(o)).then((S2) => {
+    if (oppLoading !== job) { disposeCar(S2); throw new Error('stale'); }
+    oppLoading = null; oppCar = { id: o.id, S: S2 }; status.hidden = true;
+    return S2;
+  }, (e) => { if (oppLoading === job) oppLoading = null; throw e; });
+  oppLoading = job;
+  return job.p;
+}
+function dropOppCar() {
+  oppLoading = null;
+  if (!oppCar) return;
+  disposeCar(oppCar.S); oppCar = null;
+}
+// 挑好的對手先開到旁邊車道等你（比完換對手就兩台都回起跑線）
+async function showOpp() {
+  if (!race) return;
+  if (race.phase === 'done') lineUp();
+  if (race.phase !== 'idle') return;
+  const o = oppById(raceOpp), p = getOppCar(o);
+  if (race.oppS && race.oppS !== oppCar?.S) race.oppS = null; // 換了對手：上一台已經釋放了
+  let O;
+  try { O = await p; } catch (e) {
+    if (e.message !== 'stale') { status.hidden = false; msg.textContent = '對手沒載入成功，按「開始比賽」再試一次'; prog.parentElement.hidden = true; }
+    return;
+  }
+  if (!RACE.on || !race || race.phase !== 'idle' || raceOpp !== o.id) return;
+  race.oppS = O; race.oppInfo = carSize(O); race.park = { x: 0, spin: 0, nitro: 0, fin: null };
+  TR.scene.add(O.car); O.car.visible = true; O.body.position.y = +oppLook(o).height;
+  putCar(O, race.park, -LANE, race.oppInfo); setWheels(O, race.park);
+}
+// 回到起跑線等下一場
+function lineUp() {
+  Object.assign(race, { phase: 'idle', t: 0, me: racer(mySetup()), opp: null, green: null, snap: true });
+  race.me.spin = 0; putCar(S, race.me, LANE, race.meInfo); setWheels(S, race.me);
+  lights(0, false, false); hudIdle(); for (const f of TR.flames) f.visible = false;
+  $('raceGo').textContent = '開始比賽'; resultEl.hidden = true; // 上一場的結果收起來（換了對手）
 }
 function toast(text, ms = 900) {
   toastEl.textContent = text; toastEl.classList.add('show');
@@ -3466,24 +3820,30 @@ function toast(text, ms = 900) {
 }
 function oppChoices() {
   oppsEl.replaceChildren();
-  if (oppFor !== cur || !raceOpp || raceOpp === cur) { // 換了車就重選預設對手：比你慢一點點、最接近的那台（開得好就贏得了）；沒有比你慢的就選最接近的
-    const et = {}; for (const k of Object.keys(CARS)) et[k] = simET(k);
-    const gap = (k) => et[k] - et[cur], others = Object.keys(CARS).filter((k) => k !== cur);
-    const slower = others.filter((k) => gap(k) >= -0.05).sort((a, b) => gap(a) - gap(b)); // 差不到 0.05 秒算一樣快
-    raceOpp = slower[0] || others.sort((a, b) => Math.abs(gap(a)) - Math.abs(gap(b)))[0];
-    oppFor = cur;
+  const sig = `${cur}|${hpOf(cur)}|${tyreOf(cur)}|${OPPS.filter((o, i) => unlocked(i)).length}`;
+  if (oppFor !== sig || !raceOpp) { // 換車、裝了零件、多了對手就重選預設：你開得普通就贏得了的裡面，獎金最多的那個；都贏不了就選最慢的
+    const mine = simET(mySetup(), PLAYER_SIM), open = OPPS.filter((o, i) => unlocked(i)), et = new Map(open.map((o) => [o, oppET(o)]));
+    const can = open.filter((o) => et.get(o) >= mine + 0.05);
+    raceOpp = (can.length ? can.reduce((a, b) => (b.prize > a.prize ? b : a)) : open.reduce((a, b) => (et.get(b) > et.get(a) ? b : a))).id;
+    oppFor = sig;
   }
-  for (const k of byPrice(Object.keys(CARS))) { // 照價錢排
-    const C = CARS[k];
-    if (k === cur) continue;
-    const b = document.createElement('button'); b.type = 'button'; b.setAttribute('aria-pressed', String(k === raceOpp));
-    const t = document.createElement('b'), s2 = document.createElement('span'); t.textContent = C.btn[0]; s2.textContent = `${hpOf(k).toLocaleString('en-US')} 匹 · ${PERF[k].awd ? '四驅' : '後驅'}`;
-    b.append(t, s2);
-    b.addEventListener('click', () => { if (race && ['intro', 'stage', 'run'].includes(race.phase)) return; raceOpp = k; oppsEl.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); });
+  OPPS.forEach((o, i) => {
+    const open = unlocked(i), b = document.createElement('button');
+    b.type = 'button'; b.disabled = !open; b.setAttribute('aria-pressed', String(o.id === raceOpp));
+    if (GAME.wins[o.id]) b.classList.add('beaten');
+    const t = document.createElement('b'), s2 = document.createElement('span'), s3 = document.createElement('small');
+    if (open) { t.textContent = o.name; s2.textContent = `${CARS[o.key].btn[0]} · ${o.hp.toLocaleString('en-US')} 匹`; s3.textContent = `獎金 ${money(o.prize)}`; }
+    else { t.textContent = '？？？'; s2.textContent = unlocked(i - 1) ? `先贏${OPPS[i - 1].name}` : '還沒出現'; }
+    b.append(t, s2, s3);
+    b.addEventListener('click', () => {
+      if (race && ['intro', 'stage', 'run'].includes(race.phase)) return;
+      raceOpp = o.id; oppsEl.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+      showOpp();
+    });
     oppsEl.append(b);
-    if (k === raceOpp) requestAnimationFrame(() => { oppsEl.scrollLeft = b.offsetLeft - (oppsEl.clientWidth - b.offsetWidth) / 2; }); // 預設的對手捲到看得到
-  }
-  $('meStat').textContent = `你開 ${CARS[cur].btn[0]}（${statLine(cur)}）`;
+    if (o.id === raceOpp) requestAnimationFrame(() => { oppsEl.scrollLeft = b.offsetLeft - (oppsEl.clientWidth - b.offsetWidth) / 2; }); // 預設的對手捲到看得到
+  });
+  $('meStat').textContent = `你開 ${CARS[cur].btn[0]}（${statLine(cur)}${tyreOf(cur) ? ` · ${TYRES[tyreOf(cur)][1]}` : ''}）`;
 }
 async function enterRace() {
   if (!S || RACE.on || enterRace.busy) return;
@@ -3500,11 +3860,12 @@ async function enterRace() {
   raceEl.hidden = false; hudEl.hidden = false; resultEl.hidden = true;
   $('raceGo').textContent = '開始比賽';
   oppChoices();
-  race = { phase: 'idle', t: 0, me: racer(cur), opp: null, meS: S, oppS: null, green: null, snap: true };
+  race = { phase: 'idle', t: 0, me: racer(mySetup()), opp: null, meS: S, oppS: null, green: null, snap: true };
   race.meInfo = carSize(S);
   TR.scene.add(S.car); S.car.visible = true; S.body.position.y = +CARS[cur].state.height;
   putCar(S, race.me, LANE, race.meInfo);
   hudIdle();
+  showOpp();
   lastT = performance.now();
   stage.scrollIntoView({ block: 'nearest', behavior: calm ? 'auto' : 'smooth' });
 }
@@ -3513,26 +3874,33 @@ function exitRace() {
   RACE.on = false; controls.enabled = true;
   document.body.classList.remove('racing');
   raceEl.hidden = true; hudEl.hidden = true;
-  for (const Sx of [race.meS, race.oppS]) {
+  for (const Sx of [race.meS]) {
     if (!Sx || !Object.values(built).includes(Sx)) continue;
     scene.add(Sx.car); Sx.car.position.set(0, 0, 0); Sx.car.visible = Sx === S; Sx.wheels.forEach((w) => (w.rotation.z = 0));
   }
+  dropOppCar();
   for (const f of TR.flames) f.visible = false;
   race = null;
+  renderOptions(); refreshCarBtns(); // 錢可能變多了：零件、車子買不買得起要重畫
 }
 async function startRace() {
   if (!race || ['intro', 'stage', 'run'].includes(race.phase)) return;
-  const key = raceOpp;
-  if (race.oppS && race.oppS !== built[key]) { scene.add(race.oppS.car); race.oppS.car.visible = false; race.oppS.car.position.set(0, 0, 0); race.oppS = null; }
+  const o = oppById(raceOpp);
+  if (race.oppS && (!oppCar || race.oppS !== oppCar.S || oppCar.id !== o.id)) race.oppS = null; // 換了對手：舊的那台 getOppCar 會釋放
   $('raceGo').disabled = true;
   let O;
-  try { O = await getCar(key); } catch (e) { status.hidden = false; msg.textContent = '對手沒載入成功，再按一次'; prog.parentElement.hidden = true; $('raceGo').disabled = false; return; }
+  try { O = await getOppCar(o); } catch (e) {
+    $('raceGo').disabled = false;
+    if (e.message !== 'stale') { status.hidden = false; msg.textContent = '對手沒載入成功，再按一次'; prog.parentElement.hidden = true; }
+    return;
+  }
   $('raceGo').disabled = false;
-  if (!RACE.on) return;
-  race.me = racer(cur); race.opp = racer(key); race.oppS = O; race.oppInfo = carSize(O);
-  race.phase = 'intro'; race.t = 0; race.green = null; race.greenAt = null; race.foul = false; race.doneT = null;
-  race.ai = { react: 0.18 + Math.random() * 0.22, shiftAt: 0.87 + Math.random() * 0.105, nitroAt: 1.8 + Math.random() * 3 };
-  TR.scene.add(O.car); O.car.visible = true; O.body.position.y = +CARS[key].state.height;
+  if (!RACE.on || !race) { dropOppCar(); return; }
+  race.me = racer(mySetup()); race.opp = racer(o); race.oppDef = o; race.oppS = O; race.oppInfo = carSize(O);
+  race.phase = 'intro'; race.t = 0; race.green = null; race.greenAt = null; race.foul = false; race.doneT = null; race.paid = false;
+  const d = DRIVERS[o.drv], U = (r) => r[0] + Math.random() * (r[1] - r[0]);
+  race.ai = { d, react: U(d.react), shiftAt: U(d.shift), nitroAt: d.nitro ? U(d.nitro) : null };
+  TR.scene.add(O.car); O.car.visible = true; O.body.position.y = +oppLook(o).height;
   putCar(S, race.me, LANE, race.meInfo); putCar(O, race.opp, -LANE, race.oppInfo);
   race.me.spin = 0; race.opp.spin = 0; setWheels(S, race.me); setWheels(O, race.opp);
   resultEl.hidden = true; nitroBtn.disabled = false; goBtn.textContent = '起步'; goBtn.disabled = false;
@@ -3583,17 +3951,22 @@ function stepRacer(c, dt, R) {
   c.rpm += (Math.min(1.03, target) - c.rpm) * Math.min(1, dt * (c.shiftT > 0 ? 14 : 30));
   if (c.fin == null && c.x >= RACE_M) { c.fin = R.ts - R.green - (c.x - RACE_M) / Math.max(c.v, 1); c.trap = c.v; }
 }
-// 試算一台車（照現在的選項）開得還不錯的 400 公尺秒數：反應 0.25 秒、轉速 0.94 換檔、不用氮氣
-function simET(key) {
-  const R = { phase: 'run', t: 0, ts: 0, green: 0 }, c = racer(key), h = 1 / 240;
-  c.go = 0; c.react = 0;
+// 試算一場（不隨機）：d＝{ react, shift, nitro }（秒、轉速、起步後幾秒放氮氣，null＝不放），回傳從綠燈到過終點幾秒
+function simET(s, d) {
+  const R = { phase: 'run', t: 0, ts: 0, green: 0 }, c = racer(s), h = 1 / 240;
+  c.rpm = 0.6;
   while (c.fin == null && R.t < 40) {
     R.t += h; R.ts = R.t;
-    if (c.rpm >= 0.94 && c.shiftT <= 0 && c.gear < 5) shift(c);
+    if (c.go == null && R.t >= d.react) { c.go = R.t; c.react = d.react; }
+    if (c.go != null) {
+      if (c.rpm >= d.shift && c.shiftT <= 0 && c.gear < 5) shift(c);
+      if (d.nitro != null && !c.nitroUsed && R.t - c.go > d.nitro) useNitro(c);
+    }
     stepRacer(c, h, R);
   }
   return c.fin ?? 99;
 }
+const oppET = (o) => { const d = DRIVERS[o.drv]; return simET(o, { react: mean(d.react), shift: mean(d.shift), nitro: d.nitro && mean(d.nitro) }); };
 function finishRace() {
   race.phase = 'done'; race.doneT = race.t;
   const me = race.me, op = race.opp;
@@ -3607,12 +3980,30 @@ function finishRace() {
   resultEl.replaceChildren();
   const h = document.createElement('p'); h.className = 'res-head' + (win ? ' win' : ''); h.textContent = head; resultEl.append(h);
   $('raceGo').textContent = '再比一次'; goBtn.disabled = true; nitroBtn.disabled = true;
-  if (race.foul) {
-    const p = document.createElement('p'); p.className = 'res-note'; p.textContent = '綠燈還沒亮就按了起步。等三個黃燈亮完、綠燈一亮再按。';
-    resultEl.append(p); resultEl.hidden = false; lights(0, false, true); showResult(); return;
+  // 獎金：贏了才有；第一次贏過這個對手，下一個就出現
+  const o = race.oppDef, i = OPPS.indexOf(o), note = document.createElement('p');
+  if (win && !race.paid) {
+    race.paid = true;
+    const first = !GAME.wins[o.id];
+    GAME.wins[o.id] = (GAME.wins[o.id] || 0) + 1; GAME.money += o.prize; save(true); renderWallet();
+    note.className = 'res-prize';
+    const a = document.createElement('b'); a.textContent = `獎金 +${money(o.prize)}`;
+    note.append(a, `　你現在有 NT$ ${money(GAME.money)}`);
+    resultEl.append(note);
+    if (first) {
+      const nx = document.createElement('p'); nx.className = 'res-note';
+      nx.textContent = OPPS[i + 1] ? `新對手出現了：${OPPS[i + 1].name}（開 ${CARS[OPPS[i + 1].key].btn[0]}，獎金 ${money(OPPS[i + 1].prize)}）` : '你打敗大魔王了！所有對手都贏過了。';
+      resultEl.append(nx);
+    }
+    oppChoices();
+  } else if (!win) {
+    note.className = 'res-note';
+    note.textContent = race.foul ? '綠燈還沒亮就按了起步。等三個黃燈亮完、綠燈一亮再按。' : '沒拿到獎金。回車庫裝零件、換輪胎，或先挑一個慢一點的對手賺錢。';
+    resultEl.append(note);
   }
+  if (race.foul) { resultEl.hidden = false; lights(0, false, true); showResult(); return; }
   const tb = document.createElement('table');
-  const rows = [['', `你 · ${CARS[me.key].btn[0]}`, `對手 · ${CARS[op.key].btn[0]}`],
+  const rows = [['', `你 · ${CARS[me.key].btn[0]}`, `${o.name} · ${CARS[op.key].btn[0]}`],
     ['反應時間', `${f(me.react)} 秒`, `${f(op.react)} 秒`], ['400 公尺', `${f(et(me), 2)} 秒`, `${f(et(op), 2)} 秒`],
     ['過終點（含反應）', `${f(me.fin, 2)} 秒`, `${f(op.fin, 2)} 秒`], ['尾速', `${me.fin == null ? '—' : Math.round(me.trap * 3.6)} km/h`, `${op.fin == null ? '—' : Math.round(op.trap * 3.6)} km/h`]];
   rows.forEach((r, i) => { const tr = document.createElement('tr'); r.forEach((v, j) => { const td = document.createElement(i === 0 || j === 0 ? 'th' : 'td'); td.textContent = v; tr.append(td); }); tb.append(tr); });
@@ -3644,7 +4035,8 @@ function drawTach(x, gear) {
   g.strokeStyle = 'rgba(255,255,255,0.5)'; g.lineWidth = 1.5;
   for (let i = 0; i <= 10; i++) { const a = ang(i / 10); g.beginPath(); g.moveTo(cx + Math.cos(a) * (R - 9), cy + Math.sin(a) * (R - 9)); g.lineTo(cx + Math.cos(a) * (R - 14), cy + Math.sin(a) * (R - 14)); g.stroke(); }
   const a = ang(x);
-  g.strokeStyle = drawTach.ac ||= getComputedStyle(hudEl).getPropertyValue('--accent').trim() || '#FF6A1F'; g.lineWidth = 3; // 指針用主色 g.lineCap = 'round'; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(a) * (R - 4), cy + Math.sin(a) * (R - 4)); g.stroke();
+  // 指針用主色
+  g.strokeStyle = drawTach.ac ||= getComputedStyle(hudEl).getPropertyValue('--accent').trim() || '#FF6A1F'; g.lineWidth = 3; g.lineCap = 'round'; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(a) * (R - 4), cy + Math.sin(a) * (R - 4)); g.stroke();
   g.fillStyle = '#F2F3F5'; g.font = '700 24px "Barlow Condensed", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillText(String(gear), cx, cy - 6);
 }
 function raceFrame(now) {
@@ -3666,8 +4058,8 @@ function raceFrame(now) {
       const ai = R.ai;
       if (op.go == null && R.t - R.green >= ai.react) launch(op);
       if (op.go != null && op.fin == null) {
-        if (op.shiftT <= 0 && op.gear < 5 && op.rpm >= ai.shiftAt) { shift(op); ai.shiftAt = 0.87 + Math.random() * 0.105; }
-        if (!op.nitroUsed && R.t - op.go > ai.nitroAt) useNitro(op);
+        if (op.shiftT <= 0 && op.gear < 5 && op.rpm >= ai.shiftAt) { shift(op); ai.shiftAt = ai.d.shift[0] + Math.random() * (ai.d.shift[1] - ai.d.shift[0]); }
+        if (ai.nitroAt != null && !op.nitroUsed && R.t - op.go > ai.nitroAt) useNitro(op);
       }
     }
     const steps = Math.max(1, Math.ceil(dt / (1 / 240))), hs = dt / steps;
@@ -3676,7 +4068,7 @@ function raceFrame(now) {
     if (R.phase === 'run' && me.go == null && op.fin != null && R.t - R.green > op.fin + 2) finishRace();
   }
   // 車子位置、輪子、影子、氮氣火焰
-  const pairs = [[R.meS, me, LANE, R.meInfo], [R.oppS, op, -LANE, R.oppInfo]];
+  const pairs = [[R.meS, me, LANE, R.meInfo], [R.oppS, op || R.park, -LANE, R.oppInfo]];
   pairs.forEach(([Sx, c, z, info], k) => {
     if (!Sx || !c) { TR.shadows[k].visible = false; TR.flames[k].visible = false; return; }
     putCar(Sx, c, z, info); setWheels(Sx, c);
