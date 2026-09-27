@@ -166,9 +166,9 @@ $("prefsBtn").addEventListener("click", () => setPrefs(prefsSheetEl.hidden));
 
 /* ================= 版本 ================= */
 
-/* 網頁內容的版號，跟 sw.js 的 CACHE、index.html 和 mc.html 裡的 ?v= 一起加
+/* 網頁內容的版號，跟 sw.js 的 CACHE、index.html、mc.html 和 tune.html 裡的 ?v= 一起加
    （account.js 也用這個版號載入） */
-const WEB_BUILD = 29;
+const WEB_BUILD = 30;
 
 function appBuild() {
   const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");

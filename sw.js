@@ -1,11 +1,11 @@
 // 大便龍的萬能軟體 — Service Worker
 // 只快取 App 本身（殼），辨識一定要連網，API 的請求永遠不進快取。
 
-const CACHE = "carid-v29";
+const CACHE = "carid-v30";
 
 /* 跟 index.html 裡 styles.css / app.js 後面的 ?v= 一樣。
    換版就換網址，任何一層快取（瀏覽器、CDN、這裡）都不可能給到舊檔。 */
-const V = "29";
+const V = "30";
 
 const SHELL = [
   "./",
@@ -16,6 +16,9 @@ const SHELL = [
   "./mc.html",
   "./mc.css?v=" + V,
   "./mc.js?v=" + V,
+  "./tune.html",
+  "./tune.css?v=" + V,
+  "./tune.js?v=" + V,
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
@@ -46,6 +49,13 @@ self.addEventListener("activate", (event) => {
       .then(() => self.clients.claim())
   );
 });
+
+// 三個頁面各存各的（汽車、麥塊、改車），不然開過改車頁，離線時汽車那頁會變成改車
+function pageKey(url) {
+  if (url.pathname.endsWith("/mc.html")) return "./mc.html";
+  if (url.pathname.endsWith("/tune.html")) return "./tune.html";
+  return "./index.html";
+}
 
 self.addEventListener("fetch", (event) => {
   const req = event.request;
@@ -85,12 +95,10 @@ self.addEventListener("fetch", (event) => {
       fetch(req, { cache: "no-store" })
         .then((res) => {
           const copy = res.clone();
-          const key = url.pathname.endsWith("/mc.html") ? "./mc.html" : "./index.html";
-          caches.open(CACHE).then((c) => c.put(key, copy));
+          caches.open(CACHE).then((c) => c.put(pageKey(url), copy));
           return res;
         })
-        .catch(() => caches.match(url.pathname.endsWith("/mc.html") ? "./mc.html" : "./index.html")
-          .then((r) => r || Response.error()))
+        .catch(() => caches.match(pageKey(url)).then((r) => r || Response.error()))
     );
     return;
   }

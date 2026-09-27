@@ -17,7 +17,11 @@
 
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap">
-<link rel="stylesheet" href="./styles.css?v=29">
+<script>
+/* 從麥塊按「汽車」回來（網址沒有 #）而上次看的是改車：直接回改車那頁 */
+try { if (!location.hash && sessionStorage.getItem("carid.tab") === "tune") location.replace("./tune.html"); } catch (e) { /* 不給用就算了 */ }
+</script>
+<link rel="stylesheet" href="./styles.css?v=30">
 </head>
 <body data-view="car">
 
@@ -78,6 +82,7 @@
       <a href="#car" data-seg="car">辨車</a>
       <a href="#history" data-seg="history">紀錄</a>
       <a href="#news" data-seg="news">車訊<span class="sdot" id="segNewsDot" hidden></span></a>
+      <a href="./tune.html" data-seg="tune">改車</a>
     </nav>
   </div>
 
@@ -251,6 +256,6 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=29"></script>
+<script type="module" src="./app.js?v=30"></script>
 </body>
 </html>
