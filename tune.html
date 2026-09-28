@@ -31,7 +31,7 @@
 </script>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap">
-<link rel="stylesheet" href="./tune.css?v=32">
+<link rel="stylesheet" href="./tune.css?v=33">
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/"}}</script>
 </head>
 <body>
@@ -73,7 +73,6 @@
         <div class="toast" id="toast" role="status" aria-live="polite"></div>
       </div>
       <div class="toast gtoast" id="gtoast" role="status" aria-live="polite"></div>
-      <div class="dcard" id="dcard" hidden role="dialog" aria-labelledby="dcardT"><b id="dcardT"></b><p id="dcardP"></p><div class="btns" id="dcardB"></div></div>
     </div>
     <section class="race" id="race" hidden aria-label="賽道">
       <div class="result" id="result" hidden></div>
@@ -84,9 +83,9 @@
       <p class="how">綠燈一亮就按「起步」；指針進到綠色區按「換檔」，太早太晚都會慢；「氮氣」一場只能用一次。綠燈前按起步算偷跑，輸了、偷跑都沒有獎金。電腦可以用空白鍵起步和換檔、N 鍵放氮氣。</p>
     </section>
     <section class="drivebar" id="drivebar" hidden aria-label="開車">
-      <div class="dests" id="dests" role="group" aria-label="要去哪裡"><button type="button" data-d="shop" aria-pressed="false">去改車廠</button><button type="button" data-d="track" aria-pressed="false">去賽道</button><button type="button" data-d="garage" aria-pressed="false">回車庫</button></div>
+      <div class="dests" id="dests" role="group" aria-label="要去哪裡"><button type="button" data-d="shop" aria-pressed="false">去改車廠</button><button type="button" data-d="dealer" aria-pressed="false">去車店</button><button type="button" data-d="track" aria-pressed="false">去賽道</button><button type="button" data-d="highway" aria-pressed="false">去快速道路</button><button type="button" data-d="garage" aria-pressed="false">回車庫</button></div>
       <div class="minirow"><button type="button" class="ghost snd" id="dSndBtn" aria-pressed="true" aria-label="引擎聲音"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path class="on" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path class="off" d="M16.5 9.5l5 5m0-5l-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button><button type="button" class="ghost" id="driveHome">直接回車庫</button></div>
-      <p class="how">左下角 ◀ ▶ 轉彎，右下角「油門」「煞車」（停住了按著煞車會倒車）。跟著左上角的箭頭、右上角小地圖的橘色路線開；地圖下面的鈕換成坐在駕駛座看。電腦可以用方向鍵開，空白鍵煞車，C 換視角。</p>
+      <p class="how">左下角 ◀ ▶ 轉彎，右下角「油門」「煞車」（停住了按著煞車會倒車）。跟著左上角的箭頭、右上角小地圖的橘色路線開；地圖下面的鈕換成坐在駕駛座看。改車廠、車店要自己開進去停好；回到車庫按「開鐵捲門」開進去停在中間。電腦可以用方向鍵開，空白鍵煞車，C 換視角，E 按畫面上的大按鈕。</p>
     </section>
     <section class="shop" id="shop" hidden aria-label="改車廠">
       <div class="shop-head"><div class="who"><b id="shopName">改車廠</b><span>引擎零件、輪胎都在這裡買，裝了就變快</span></div><button type="button" class="primary" id="shopGo">開走</button></div>
@@ -96,9 +95,17 @@
       <div class="group"><h2>輪胎<small>起步比較不會打滑</small></h2><div class="eng tyres" id="shopTyres" role="group" aria-label="輪胎"></div></div>
       <div class="minirow"><button type="button" class="ghost" id="shopHome">直接回車庫</button><span>不用開，一下就回到車庫</span></div>
     </section>
+    <section class="shop dealer" id="dealer" hidden aria-label="車店">
+      <div class="shop-head"><div class="who"><b id="dealerName">車店</b><span>還沒買的車都擺在這裡，買了自己開回家</span></div><button type="button" class="primary" id="dealerGo">開走</button></div>
+      <div class="shop-cash"><span>你的錢</span><b id="dealerCash">NT$ 0 萬</b></div>
+      <p class="shop-msg" id="dealerMsg" role="status" aria-live="polite"></p>
+      <div class="group"><h2>展示中的車<small>按一下看那台車</small></h2><div class="parts lot" id="dealerCars" role="group" aria-label="展示中的車"></div></div>
+      <button type="button" class="cta buy" id="dealerBuy" hidden><b id="dealerBuyHead">買這台</b><span id="dealerBuyNote"></span></button>
+      <div class="minirow"><button type="button" class="ghost" id="dealerHome">直接回車庫</button><span>不用開，一下就回到車庫</span></div>
+    </section>
     <div class="name"><b id="carName">Toyota Supra</b><span id="carSub">玩命關頭那台 · 3D 試做版</span></div>
     <p class="spec" id="carSpec"></p>
-    <button type="button" class="cta" id="driveOut"><b>開車出門</b><span>開去改車廠買零件，或開去賽道比賽</span></button>
+    <button type="button" class="cta" id="driveOut"><b>開車出門</b><span>開鐵捲門開出去：改車廠、車店、賽道、快速道路</span></button>
     <button type="button" class="cta buy" id="buyCar" hidden><b id="buyHead">買這台</b><span id="buyNote"></span></button>
     <p class="locknote" id="lockNote" hidden>這台還不是你的：買了才能改裝、開車出門。</p>
     <div class="opts" id="opts">
@@ -120,7 +127,7 @@
       <div class="group"><h2>隔熱紙</h2><div class="seg" data-opt="tint"></div></div>
       <div class="group wide"><h2>場景</h2><div class="seg" data-opt="studio"></div></div>
     </div>
-    <p class="note" id="garageNote">一開始只有 GC8、身上沒錢：按「開車出門」開去村子裡的賽道比賽，贏了才有獎金；引擎零件、輪胎在改車廠買，新車在車庫買。車子是照你給的照片用程式捏出來的 3D 模型，哪裡不像直接跟我說。價錢是大概的行情（二手車看車況差很多），零件的價錢和馬力也是估的。</p>
+    <p class="note" id="garageNote">一開始只有 GC8、身上沒錢：按「開車出門」開去村子裡的賽道比賽，贏了才有獎金；引擎零件、輪胎在改車廠買，新車開去車店買（買了自己開回家，停進車庫）。車子是照你給的照片用程式捏出來的 3D 模型，哪裡不像直接跟我說。價錢是大概的行情（二手車看車況差很多），零件的價錢和馬力也是估的。</p>
     <div class="restart"><button type="button" class="ghost" id="restart">重新開始</button><span id="restartTip">錢、車、零件都歸零，外觀留著</span></div>
   </main>
 
@@ -130,6 +137,6 @@
   </nav>
 </div>
 
-<script type="module" src="./tune.js?v=32"></script>
+<script type="module" src="./tune.js?v=33"></script>
 </body>
 </html>

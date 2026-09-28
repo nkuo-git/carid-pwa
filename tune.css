@@ -458,8 +458,9 @@ body.driving .stage { max-height: 72vh; }
 /* 在改車廠裡：畫面矮一點，停好的車和下面的零件一起看得到 */
 body.driving.shopping .stage { aspect-ratio: 16 / 9; height: auto; max-height: 40vh; }
 .drivebar, .shop { display: flex; flex-direction: column; gap: 12px; }
-.dests { display: flex; gap: 8px; }
-.dests button { flex: 1 1 0; min-width: 0; height: 48px; border-radius: 12px; border: 1px solid var(--line); background: var(--surf); color: var(--soft); font: 700 15px var(--sans); cursor: pointer; }
+.dests { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; } /* 五個目的地：上面三個、下面兩個 */
+.dests button { grid-column: span 2; min-width: 0; height: 48px; border-radius: 12px; border: 1px solid var(--line); background: var(--surf); color: var(--soft); font: 700 15px var(--sans); cursor: pointer; }
+.dests button:nth-child(n+4) { grid-column: span 3; }
 .dests button[aria-pressed="true"] { border-color: var(--accent); background: var(--sel); color: var(--accent); }
 /* 小的一排：聲音開關、直接回車庫 */
 .minirow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -468,15 +469,6 @@ body.driving.shopping .stage { aspect-ratio: 16 / 9; height: auto; max-height: 4
 .minirow .snd svg { width: 22px; height: 22px; }
 .minirow span { font-size: 12px; color: var(--soft); }
 .drivebar .how { margin: 0; font-size: 12px; line-height: 1.65; color: var(--soft); max-width: 62ch; }
-/* 到了改車廠、回到車庫：畫面中間的卡片（字固定用淺色，底是半透明的黑） */
-.dcard { position: absolute; left: 50%; top: 54%; transform: translate(-50%, -50%); z-index: 5; width: min(300px, calc(100% - 32px)); padding: 16px 16px 14px; border-radius: 18px;
-  background: rgba(14,15,18,0.88); color: #F2F3F5; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.35); }
-.dcard b { display: block; font-size: 22px; line-height: 1.3; }
-.dcard p { margin: 6px 0 14px; font-size: 14px; line-height: 1.5; color: #C6CAD1; }
-.dcard .btns { display: flex; gap: 8px; }
-.dcard button { flex: 1 1 0; min-width: 0; height: 48px; border-radius: 14px; border: 0; background: #2B2E35; color: #F2F3F5; font: 700 16px var(--sans); cursor: pointer; }
-.dcard button.go { background: var(--accent); color: var(--on-accent); box-shadow: 0 4px 0 color-mix(in srgb, var(--accent) 62%, #000); }
-.dcard button:active { transform: translateY(2px); box-shadow: none; }
 /* 改車廠：店名、你的錢、老闆說的話、零件、輪胎、開走 */
 .shop-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .shop-head .who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -491,3 +483,8 @@ body.driving.shopping .stage { aspect-ratio: 16 / 9; height: auto; max-height: 4
 /* 按了一次（再按一次才買） */
 .part.armed, .eng button.armed { border-color: var(--ink); }
 .part.armed .p, .eng button.armed .p { color: var(--ink); }
+
+/* 車店：展示中的車（跟改車廠的零件同一種按鈕），選到的那台框起來；買不起的價錢變灰 */
+.lot .part.sel { border-color: var(--accent); background: var(--sel); }
+.lot .part .d { color: var(--soft); }
+body.driving.shopping #dealer .cta { margin-top: -2px; }
