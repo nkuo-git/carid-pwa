@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.ClipData;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
@@ -17,6 +18,9 @@ import android.webkit.WebViewClient;
 import android.widget.Toast;
 
 import androidx.core.content.FileProvider;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 
 import org.json.JSONObject;
 
@@ -44,6 +48,9 @@ public class MainActivity extends Activity {
   /** 從瀏覽器跳回來的登入連結，先收著，等網頁準備好再交給它。 */
   private volatile String pendingLink;
 
+  /** 網頁要全螢幕（改車頁開車、比賽的時候，CaridApp.setFullscreen(true)）：狀態列、導覽列藏起來。 */
+  private volatile boolean fullscreen;
+
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
@@ -63,6 +70,15 @@ public class MainActivity extends Activity {
     web.addJavascriptInterface(new Bridge(), "CaridApp");
 
     web.setWebViewClient(new WebViewClient() {
+      @Override
+      public void onPageStarted(WebView view, String url, Bitmap favicon) {
+        // 換頁、重新整理：新的頁面還沒說要全螢幕，狀態列、導覽列先放回來
+        if (fullscreen) {
+          fullscreen = false;
+          applyFullscreen();
+        }
+      }
+
       @Override
       public void onPageFinished(WebView view, String url) {
         // 網頁通常會自己說 ready()，這裡是保險：載好了還有沒交出去的登入連結就交出去
@@ -167,6 +183,18 @@ public class MainActivity extends Activity {
       runOnUiThread(MainActivity.this::deliverLink);
     }
 
+    /**
+     * 改車頁開車、比賽的時候 true（全螢幕）、回到車庫頁 false。
+     * 舊版 APK 沒有這個，網頁會先看有沒有（typeof CaridApp.setFullscreen）才叫，沒有就只有網頁裡的全螢幕。
+     */
+    @JavascriptInterface
+    public void setFullscreen(boolean on) {
+      runOnUiThread(() -> {
+        fullscreen = on;
+        applyFullscreen();
+      });
+    }
+
     /** 打開手機的信箱 App（通常是 Gmail），找不到就回 false。 */
     @JavascriptInterface
     public boolean openMail() {
@@ -179,6 +207,34 @@ public class MainActivity extends Activity {
         return false;
       }
     }
+  }
+
+  /**
+   * 照 fullscreen 藏起／放回上面的狀態列和下面的導覽列。藏起來的時候從螢幕邊邊滑一下會暫時跑出來（蓋在畫面上），
+   * 過一下又自己收回去，不會把網頁擠來擠去。
+   */
+  private void applyFullscreen() {
+    WindowInsetsControllerCompat bars = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+    if (fullscreen) {
+      bars.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+      bars.hide(WindowInsetsCompat.Type.systemBars());
+    } else {
+      bars.show(WindowInsetsCompat.Type.systemBars());
+    }
+  }
+
+  @Override
+  protected void onResume() {
+    super.onResume();
+    // 切到別的 App 再回來：狀態列、導覽列會跑出來，還在全螢幕就再藏一次
+    if (fullscreen) applyFullscreen();
+  }
+
+  @Override
+  public void onWindowFocusChanged(boolean hasFocus) {
+    super.onWindowFocusChanged(hasFocus);
+    // 拉下通知欄、跳出對話框再回來也一樣
+    if (hasFocus && fullscreen) applyFullscreen();
   }
 
   /** 這個 APK 的版號，對應 GitHub Release 的 apk-N。 */
@@ -251,6 +307,13 @@ public class MainActivity extends Activity {
 
   @Override
   public void onBackPressed() {
+    if (fullscreen && web != null) {
+      // 全螢幕玩的時候：返回鍵先離開全螢幕（跟按畫面右上角那個鈕一樣），不要一下就離開改車頁
+      fullscreen = false;
+      applyFullscreen();
+      web.evaluateJavascript("window.caridExitFullscreen&&window.caridExitFullscreen()", null);
+      return;
+    }
     if (web != null && web.canGoBack()) web.goBack();
     else super.onBackPressed();
   }

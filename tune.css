@@ -276,6 +276,8 @@ a { color: var(--accent); }
 /* 比賽、開車出門時標題列收起來，畫面大一點 */
 body.racing .appbar, body.driving .appbar { display: none; }
 
+/* 全螢幕（開車、比賽；garage.css 的 body.fs）：辨車／紀錄／車訊／改車、底下的汽車／麥塊也收起來，畫面蓋滿整個螢幕 */
+body.fs .appbar, body.fs .segbar, body.fs .tabbar { display: none; }
 /* 3D 車庫＋賽道的元件樣式：車庫試做頁（garage.src.html）和 App 的改車頁（tune.html）共用
    用到的變數：--bg --surf --line --ink --soft --accent --sel（選到的底色）--on-accent（橘底上的字）--cond（窄體字）--sans */
 .stage { position: relative; width: 100%; aspect-ratio: 4 / 3; max-height: 60vh; border-radius: 16px; overflow: hidden; background: #dcdcdc; border: 1px solid var(--line); touch-action: none; }
@@ -460,8 +462,9 @@ body.driving.shopping .stage { aspect-ratio: 16 / 9; height: auto; max-height: 4
 .drivebar, .shop { display: flex; flex-direction: column; gap: 12px; }
 .dests { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; } /* 五個目的地：上面三個、下面兩個 */
 .dests button { grid-column: span 2; min-width: 0; height: 48px; border-radius: 12px; border: 1px solid var(--line); background: var(--surf); color: var(--soft); font: 700 15px var(--sans); cursor: pointer; }
-.dests button:nth-child(n+4) { grid-column: span 3; }
+.dests button:nth-child(4):nth-last-child(2), .dests button:nth-child(5):nth-last-child(1) { grid-column: span 3; } /* 五個：下面兩個比較寬；第 4 批多了越野車場＝六個：上下各三個 */
 .dests button[aria-pressed="true"] { border-color: var(--accent); background: var(--sel); color: var(--accent); }
+body.orracing #drivebar #dests { display: none; } /* 第 4 批：越野賽比賽中「去哪裡」收起來（跟著檢查點開；town.src.js 的 orStart／orEnd）；比全螢幕的 body.fs #dests 優先 */
 /* 小的一排：聲音開關、直接回車庫 */
 .minirow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .minirow .ghost { height: 40px; padding: 0 14px; font-size: 14px; }
@@ -488,3 +491,101 @@ body.driving.shopping .stage { aspect-ratio: 16 / 9; height: auto; max-height: 4
 .lot .part.sel { border-color: var(--accent); background: var(--sel); }
 .lot .part .d { color: var(--soft); }
 body.driving.shopping #dealer .cta { margin-top: -2px; }
+
+/* ---- 全螢幕（Nick 2026-09-28：「可以全螢幕」）----
+   開車（在村子裡開；改車廠、車店打開的時候照舊，可以往下捲看零件）、比賽的時候畫面蓋滿整個螢幕，頁面不捲
+   body.fs／html.fs 是程式加的（garage.src.html 的 fsSync：開車或比賽，而且全螢幕是開的 → carid.tune.full）
+   上面的東西（App 的標題、切換、底下的分頁；試做頁的標題）收起來；畫面下面那排（去哪裡、聲音、直接回車庫）變成疊在畫面左下角的小按鈕；
+   比賽的「開始比賽／選對手／成績」變成從下面拉上來的一片（跑的時候收起來，起步、換檔、氮氣才按得到）
+   按鈕離螢幕邊邊至少 6～10 px；有瀏海、圓角、手勢列的手機照 safe-area 再往內 */
+/* 右上的鈕：離開／回到全螢幕（開車時在小地圖下面、換視角的左邊，同一排；比賽時在計時下面）
+   排成一排不往下疊：手機橫拿、畫面矮的時候才不會碰到油門 */
+.fsbtn { display: none; position: absolute; z-index: 4; top: 142px; right: 62px; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; place-items: center;
+  background: rgba(14,15,18,0.62); color: #F2F3F5; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.fsbtn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.fsbtn[aria-pressed="true"] .off, .fsbtn[aria-pressed="false"] .on { display: none; }
+body.driving:not(.shopping) .fsbtn, body.racing .fsbtn { display: grid; }
+body.racing .fsbtn { top: 94px; right: 10px; }
+@media (max-height: 560px) { body.driving:not(.fs):not(.racing) .fsbtn { top: 10px; right: 142px; } } /* 沒全螢幕又矮（手機橫拿）：畫面只剩一點點高，放小地圖左邊，才不會壓到油門 */
+@media (max-height: 400px) { body.racing:not(.fs) .fsbtn { top: 52px; right: auto; left: 56px; } } /* 比賽也一樣：放左上紅綠燈的右邊，才不會壓到起步、氮氣 */
+html.fs, html.fs body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+body.fs { --fs-t: max(6px, env(safe-area-inset-top, 0px)); --fs-r: max(6px, env(safe-area-inset-right, 0px)); --fs-b: max(10px, env(safe-area-inset-bottom, 0px)); --fs-l: max(6px, env(safe-area-inset-left, 0px)); }
+body.fs #stage { position: fixed; z-index: 50; top: 0; left: 0; right: 0; bottom: auto; width: auto; height: 100vh; height: 100dvh; max-height: none; aspect-ratio: auto; margin: 0; border: 0; border-radius: 0; }
+/* 畫面裡的按鈕（開車 drive.js 的 .dv、比賽的 .hud）：整組往內縮到 safe-area 裡面 */
+body.fs #stage .dv, body.fs #stage .hud { inset: var(--fs-t) var(--fs-r) var(--fs-b) var(--fs-l); }
+body.fs #stage .fsbtn { top: calc(var(--fs-t) + 142px); right: calc(var(--fs-r) + 62px); }
+body.fs.racing #stage .fsbtn { top: calc(var(--fs-t) + 94px); right: calc(var(--fs-r) + 10px); }
+body.fs #stage .hud > .toast { top: 32%; } /* 比完拉上來的成績不要蓋到「你贏了！」 */
+/* 開車：去哪裡、直接回車庫 → 左下角方向鍵上面一排小按鈕（跟畫面裡的按鈕同一種：半透明黑底、選到的主色底），窄窄的不會擋到車子
+   直接回車庫放在最上面（離方向鍵遠一點，按錯不會一下就回車庫）；聲音開關是圓的，放右上小地圖下面、全螢幕鈕的左邊（跟全螢幕、換視角同一排） */
+body.fs #drivebar { position: fixed; z-index: 51; left: calc(var(--fs-l) + 10px); bottom: calc(var(--fs-b) + 98px); width: max-content; gap: 6px; align-items: flex-start; }
+body.fs #drivebar, body.fs #drivebar * { pointer-events: none; }
+body.fs #drivebar button { pointer-events: auto; }
+body.fs #drivebar .how { display: none; }
+body.fs #dests { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+body.fs #dests button, body.fs #drivebar .minirow .ghost { flex: none; grid-column: auto; width: auto; height: 34px; padding: 0 13px; border: 0; border-radius: 999px; background: rgba(14,15,18,0.62); color: #F2F3F5;
+  font: 500 13px/1 var(--sans); cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+body.fs #dests button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); font-weight: 700; }
+body.fs #drivebar .minirow { order: -1; margin-bottom: 8px; }
+body.fs #drivebar .minirow .snd { position: fixed; top: calc(var(--fs-t) + 142px); right: calc(var(--fs-r) + 114px); width: 44px; height: 44px; padding: 0; border-radius: 50%; }
+body.fs #drivebar .minirow .snd svg { width: 22px; height: 22px; }
+body.fs #drivebar .minirow .snd[aria-pressed="false"] { color: #9AA1AC; }
+/* 矮的畫面（手機橫拿、小視窗）：去哪裡固定排兩排、往右排過去（以後多了目的地也一樣高），才不會高到碰到上面的按鈕 */
+@media (max-height: 560px) { body.fs #dests { display: grid; grid-template-columns: none; grid-template-rows: repeat(2, auto); grid-auto-flow: column; grid-auto-columns: auto; justify-items: start; } }
+/* 比賽：下面拉上來的一片（成績、開始比賽、選對手）；跑的時候（body.race-live，race.src.js）收起來 */
+body.fs #race { position: fixed; z-index: 51; left: 0; right: 0; bottom: 0; max-width: 560px; margin: 0 auto; max-height: min(60vh, 620px); max-height: min(60dvh, 620px); overflow-y: auto; overscroll-behavior: contain;
+  padding: 16px calc(var(--fs-r) + 10px) calc(var(--fs-b) + 8px) calc(var(--fs-l) + 10px); gap: 12px; border-radius: 20px 20px 0 0;
+  background: var(--bg); background: color-mix(in srgb, var(--bg) 94%, transparent); box-shadow: 0 -10px 30px rgba(0,0,0,0.35); touch-action: pan-x pan-y; }
+body.fs.race-live #race { display: none; }
+body.fs #race .cars { scroll-padding-inline: 16px; } /* 選對手：捲到頭的時候第一個不要貼齊邊邊 */
+body.fs.racing:not(.race-live) #hud .gauge, body.fs.racing:not(.race-live) #hud .pedals { visibility: hidden; } /* 被那片蓋住（還沒開始、比完都按不了） */
+
+/* ---- 走路（第 2 批：walk.js 的 .wk，在你家、村子裡走；body.walking 是 town.src.js 加的）＋全螢幕 ----
+   畫面裡的東西跟開車的一樣往內縮到 safe-area 裡面；左下角是搖桿（放開的時候停在左下角，中心離左邊 84、離下面 96），
+   去哪裡那一排放到搖桿上面；矮的畫面（手機橫拿）去哪裡排兩排、放到搖桿右邊貼著下面 */
+body.fs #stage .wk { inset: var(--fs-t) var(--fs-r) var(--fs-b) var(--fs-l); }
+body.fs.walking #drivebar { bottom: calc(var(--fs-b) + 172px); }
+@media (max-height: 560px) { body.fs.walking #drivebar { left: calc(var(--fs-l) + 164px); bottom: calc(var(--fs-b) + 8px); } }
+/* 開車停住了右邊多的「下車」（drive.js 的 .dv-act2，平常在換視角下面）：矮的畫面（手機橫拿）會壓到油門、煞車 →
+   放到全螢幕鈕、聲音那一排的左邊（跟換視角同一排） */
+@media (max-height: 560px) { #stage .dv-act2 { top: 142px; right: 166px; } }
+/* 速度表（drive.js 的 .dv-spd）：寬度算到外框。App 的 tune.css 全部都是 border-box（58 寬），網頁版沒有 → 多了左右 padding 變 74 寬，
+   全螢幕 390 寬的時候壓到右轉鍵和煞車；兩邊一樣寬 */
+#stage .dv-spd { box-sizing: border-box; }
+
+/* ---- 自訂角色（第 2 批：lookpanel.js）：蓋滿整個畫面；上面 3D 預覽（人在轉盤上轉）、下面選項；寬的畫面（手機橫拿、電腦）預覽在左邊 ----
+   車庫頁的「自訂角色」、小房子衣櫃前面的「換衣服」打開；跟車庫頁一樣的深色、主色（App 換了亮色、主色也跟著） */
+html.lk-open, html.lk-open body { overflow: hidden; }
+.lookp:focus { outline: none; }
+.lookp { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; background: var(--bg); color: var(--ink); font-family: var(--sans);
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px); }
+.lk-head { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--surf); }
+.lk-title { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.lk-title b { font: 700 17px/1.2 var(--sans); white-space: nowrap; }
+.lk-title span { font-size: 12px; color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lk-head .ghost { height: 40px; padding: 0 12px; font-size: 14px; }
+.lk-head .primary { flex: 0 0 auto; height: 40px; padding: 0 38px 0 16px; font-size: 15px; }
+.lk-head .primary::after { width: 30px; }
+.lk-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.lk-view { position: relative; flex: 0 0 auto; height: clamp(210px, 42vh, 460px); overflow: hidden; border-bottom: 1px solid var(--line);
+  background: radial-gradient(120% 90% at 50% 36%, var(--surf) 0%, var(--bg) 72%); }
+.lk-view canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+.lk-view canvas:active { cursor: grabbing; }
+.lk-hint { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); font-size: 12px; color: var(--soft); pointer-events: none; white-space: nowrap; }
+.lk-wait { position: absolute; inset: 0; display: grid; place-items: center; font-size: 14px; color: var(--soft); pointer-events: none; }
+.lk-opts { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; gap: 14px;
+  padding: 14px 16px calc(28px + env(safe-area-inset-bottom, 0px)); }
+.lk-opts .optsub { margin: 4px 0 -4px; }
+.lk-range { display: flex; align-items: center; gap: 12px; max-width: 460px; }
+.lk-range input { flex: 1 1 auto; min-width: 0; height: 28px; margin: 0; accent-color: var(--accent); }
+.lk-range b { flex: 0 0 auto; min-width: 76px; text-align: right; font: 700 19px/1 var(--cond); letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+.lk-presets button { height: 30px; padding: 0 12px; font-size: 13px; }
+@media (orientation: landscape) and (min-width: 720px), (orientation: landscape) and (max-height: 560px) {
+  .lk-body { flex-direction: row; }
+  .lk-view { height: auto; flex: 1 1 46%; border-bottom: 0; border-right: 1px solid var(--line); }
+  .lk-opts { flex: 1 1 54%; max-width: 640px; }
+}
+/* 車庫頁的「自訂角色」：出門下面、不搶「出門」的主色 */
+.cta.alt { min-height: 52px; background: var(--surf); color: var(--ink); border: 1px solid var(--line); }
+.cta.alt::after { display: none; }
+.cta.alt span { color: var(--soft); opacity: 1; }
