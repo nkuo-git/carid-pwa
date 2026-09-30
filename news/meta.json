@@ -1,6 +1,12 @@
 {
  "used": [
   {
+   "kind": "lux",
+   "k": "Ferrari F40",
+   "t": "F40",
+   "d": "2026-09-30"
+  },
+  {
    "kind": "how",
    "k": "Turbocharger",
    "t": "渦輪增壓：怎麼把廢氣變成馬力",

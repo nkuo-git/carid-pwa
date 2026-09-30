@@ -2,6 +2,63 @@
  "v": 1,
  "items": [
   {
+   "id": "2026-09-30-lux",
+   "date": "2026-09-30",
+   "kind": "lux",
+   "title": "F40",
+   "lede": "Ferrari F40 是為了慶祝品牌 40 週年而生的傳奇超跑，也是創辦人恩佐·法拉利生前親自批准的最後一款車型。",
+   "sections": [
+    {
+     "h": "為什麼值得認識",
+     "p": [
+      "這款車由 Nicola Materazzi 工程設計，Pininfarina 負責造型設計，是作為 288 GTO 的後繼車而開發的。在推出當時，它是 Ferrari 旗下售價最高、馬力最大且速度最快的量產車。車輛強調極致的性能與斯巴達式的純粹駕駛體驗，完全不受當時日漸嚴格的舒適配備影響。",
+      "F40 的開發過程非常緊湊，從 1986 年 6 月立項到 1987 年 7 月發表，僅花費了短短十幾個月的時間。它搭载了 2,936 cc 的 V8 雙渦輪增壓引擎，並具備強大的競技血統與賽車版本的衍生車型。"
+     ]
+    },
+    {
+     "h": "在路上怎麼認出它",
+     "p": [
+      "這款車的車身全數採用 Rosso Corsa 紅色塗裝與左駕設定。車身外觀採用了由 Kevlar、碳纖維和鋁合金製成的面板來追求輕量化，並具備聚碳酸酯塑料擋風玻璃與車窗。內裝極度競技化，沒有音響、手套箱、地毯或門板，早期的車型甚至配備滑動式車窗與拉索式車門。"
+     ]
+    }
+   ],
+   "make": "Ferrari",
+   "specs": [
+    [
+     "引擎",
+     "2.9升 V8 雙渦輪增壓引擎"
+    ],
+    [
+     "馬力",
+     "478 PS"
+    ],
+    [
+     "扭力",
+     "577 N·m"
+    ],
+    [
+     "生產年份",
+     "1987年至1993年"
+    ],
+    [
+     "產量",
+     "1,311 至 1,315 輛"
+    ]
+   ],
+   "sources": [
+    {
+     "name": "維基百科：Ferrari F40",
+     "url": "https://en.wikipedia.org/wiki/Ferrari_F40"
+    },
+    {
+     "name": "中文維基百科",
+     "url": "https://zh.wikipedia.org/zh-tw/%E6%B3%95%E6%8B%89%E5%88%A9F40"
+    }
+   ],
+   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/cb/F40_Ferrari_20090509.jpg/1280px-F40_Ferrari_20090509.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "imgCredit": "Will ainsworth／CC BY-SA 3.0，Wikimedia Commons"
+  },
+  {
    "id": "2026-09-27-how",
    "date": "2026-09-27",
    "kind": "how",
@@ -119,5 +176,5 @@
    "imgCredit": "Mr.choppers／CC BY-SA 3.0，Wikimedia Commons"
   }
  ],
- "updated": "2026-09-27T00:35:47.518Z"
+ "updated": "2026-09-30T01:18:54.621Z"
 }
