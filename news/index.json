@@ -2,6 +2,28 @@
  "v": 1,
  "items": [
   {
+   "id": "2026-10-03-new",
+   "date": "2026-10-03",
+   "kind": "new",
+   "title": "BMW iX3新車速報 入門245萬起接單破2000張",
+   "lede": "BMW iX3在台正式發表，接單突破2,000張，並追加入門車型。",
+   "sections": [
+    {
+     "h": "",
+     "p": [
+      "BMW iX3這週在台灣正式發表，並公布接單已經突破2,000張的亮眼成績。這次發表除了原有的車型，還特別追加入門車型，讓售價壓在245萬元起，提供消費者更多元的選擇。",
+      "對於關注這款純電休旅的朋友來說，豐富的接單量顯示出市場的高度期待。想要入主BMW純電休旅的朋友，現在有了更親民的入手門檻可以考慮。"
+     ]
+    }
+   ],
+   "sources": [
+    {
+     "name": "Yahoo - 汽機車",
+     "url": "https://news.google.com/rss/articles/CBMiggNBVV95cUxPaUlOSW1KQkZHWi1EQ2VnbXVEc0I1V0lsc0dBUTNNRVM5R2E0T19PbjR1WUg4ODgwekQxbDZ6NjdOb1M0RGRfM05vNHdSeVp1VzlCMnJpSU0yVTZDQW5ZczF3Q3UtaUJ4cE9nUmdxU1ktaXBURVNvRUNSNEExSzRTb2JQTDhKQTAzSUdjazIyXzhaQXh6YkhXb081S2t3aXRTN01CRXNhUGhjUFdZbG8xci00SHBiNVJFOF9OSHY4bVNFNjYyWndsZTNobkY1RldqTldfa0ZKblJrbHZ4MU1XRlVGeE1rdXJNQVRLY1pRY0l5d0hub1dmeGhBOUZzZEswWkFUbk1kU0xxQTJCVDNJOHdZTXduZDFIWlNlSzNUMWM4VU9BY1lPSXdSNDNmV2d2ZVBRUUIxZnJ1ZVZ5d2E2YmdsdkNLRmpIb0V3STRnYjFzSi1CazJFYmJvSFhaZFVmZUpMWkR1RG52YmwzNnpMUjR5Yl95MExfNEtsb2ZVcFlXUQ?oc=5"
+    }
+   ]
+  },
+  {
    "id": "2026-09-30-lux",
    "date": "2026-09-30",
    "kind": "lux",
@@ -176,5 +198,5 @@
    "imgCredit": "Mr.choppers／CC BY-SA 3.0，Wikimedia Commons"
   }
  ],
- "updated": "2026-09-30T01:18:54.621Z"
+ "updated": "2026-10-03T01:12:30.528Z"
 }
