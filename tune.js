@@ -4417,6 +4417,8 @@ void main() { if (roomPitXZ(vLoc.xz)) discard; vec3 a, e; float r, m, ao; roomFl
 //   audio.crash({ strength, glass, pan })   撞車的聲音（damage.js 撞的時候叫）：strength 0–1（多大力：0.1 輕輕擦到、1 高速撞牆），
 //                         glass 0–1（有沒有玻璃、燈碎掉：叮叮噹噹）、pan −1–1；金屬擠壓＋悶響、玻璃是合成的（resume() 之後在背景先算好，4 種大小＋玻璃）
 //   audio.hiss(level)     水箱漏水的嘶嘶聲（0＝關、1 最大；車況很差的時候 damage.js 叫）
+//   audio.skid(level, pitch, dirt)   第 3 批（甩尾）：輪胎叫（drive.js 照甩多少叫：level 0＝淡掉、1 最大；pitch 0–1 高一點低一點；dirt＝泥土、草地：沙沙聲）
+//                         雜訊 → 兩個很窄的帶通「吱——」＋一點點顫動；只有一組節點，有變才送（drive.js 一秒最多 20 次）；跟引擎聲同一條總輸出（音量、靜音一樣）
 //   audio.dispose()       全部收掉
 //   audio.context、audio.input   第 2 批：AudioContext、總輸出的入口（別的聲音接到這裡就跟著音量、靜音；resume() 以前是 null）
 //   const h = audio.lift({ gain: 1, max: 20 })   第 2 批：車庫升降機的馬達聲。「喀」開鎖 → 低低的電動馬達嗡嗡聲（一直響到 stop）
@@ -5388,6 +5390,39 @@ function createEngineAudio(opt = {}) {
       hs.g.gain.setTargetAtTime(lv * 0.22, t, 0.2);
     } catch (e) { warn(e); }
   }
+  // ---- 第 3 批（甩尾）：輪胎叫（雜訊 → 兩個很窄的帶通＋半個音高的鋸齒波（9 Hz 顫一顫：FM＋音量）；泥土：低通的沙沙）；level 0 就淡出、1 秒後拔掉 ----
+  const sk = { n: null, off: 0, live: false };
+  function skid(level, pitch, dirt) {
+    try {
+      if (S.gone || !S.ctx || !S.inp) return;
+      const ctx = S.ctx, lv = Math.max(0, Math.min(1, num(level, 0))), p = Math.max(0, Math.min(1, num(pitch, 0.5))), t = ctx.currentTime;
+      clearTimeout(sk.off);
+      if (lv <= 0) {
+        if (sk.n) {
+          const N = sk.n; N.g.gain.setTargetAtTime(0, t, 0.08);
+          sk.off = setTimeout(() => { try { for (const x of N.src) x.stop(); for (const x of N.all) x.disconnect(); } catch { /* 算了 */ } if (sk.n === N) sk.n = null; if (sk.live && S.rec) { sk.live = false; S.rec.n = Math.max(0, S.rec.n - 1); idleCheck(); } }, 1000);
+        }
+        return;
+      }
+      if (!sk.n) {
+        const src = ctx.createBufferSource(), b1 = ctx.createBiquadFilter(), b2 = ctx.createBiquadFilter(), g1 = ctx.createGain(), g2 = ctx.createGain(), sq = ctx.createGain(), trem = ctx.createGain(), g = ctx.createGain();
+        const osc = ctx.createOscillator(), ob = ctx.createBiquadFilter(), og = ctx.createGain(), lfo = ctx.createOscillator(), lg = ctx.createGain(), tl = ctx.createGain(), dl = ctx.createBiquadFilter(), dg = ctx.createGain();
+        src.buffer = noiseBuf(ctx); src.loop = true; b1.type = b2.type = ob.type = 'bandpass'; b1.Q.value = 18; b2.Q.value = 12; ob.Q.value = 4; g1.gain.value = 3; g2.gain.value = 1.5; og.gain.value = 0.035;
+        osc.type = 'sawtooth'; lfo.frequency.value = 9; lg.gain.value = 22; tl.gain.value = 0.15; trem.gain.value = 0.85; dl.type = 'lowpass'; dl.frequency.value = 700; dg.gain.value = 0; g.gain.value = 0;
+        lfo.connect(lg); lg.connect(osc.frequency); lfo.connect(tl); tl.connect(trem.gain);
+        src.connect(b1); src.connect(b2); b1.connect(g1); b2.connect(g2); g1.connect(sq); g2.connect(sq); osc.connect(ob); ob.connect(og); og.connect(sq);
+        sq.connect(trem); trem.connect(g); src.connect(dl); dl.connect(dg); dg.connect(g); g.connect(S.inp);
+        src.start(); osc.start(); lfo.start();
+        sk.n = { g, b1, b2, osc, ob, sq, dg, src: [src, osc, lfo], all: [src, b1, b2, g1, g2, osc, ob, og, lfo, lg, tl, trem, dl, dg, sq, g] };
+        if (S.rec && !sk.live) { sk.live = true; S.rec.n++; }
+        wake();
+      }
+      const N = sk.n, f = 950 + 450 * p;
+      N.b1.frequency.setTargetAtTime(f, t, 0.05); N.b2.frequency.setTargetAtTime(f * 1.87, t, 0.05); N.osc.frequency.setTargetAtTime(f * 0.5, t, 0.05); N.ob.frequency.setTargetAtTime(f, t, 0.05);
+      N.sq.gain.setTargetAtTime(dirt ? 0.15 : 1, t, 0.1); N.dg.gain.setTargetAtTime(dirt ? 0.5 : 0, t, 0.1);
+      N.g.gain.setTargetAtTime(0.32 * lv * (0.4 + 0.6 * lv), t, 0.04);
+    } catch (e) { warn(e); }
+  }
   function setMuted(m) {
     try {
       S.muted = !!m;
@@ -5405,7 +5440,7 @@ function createEngineAudio(opt = {}) {
     try {
       if (S.gone) return;
       for (const v of [...S.voices]) kill(v);
-      hiss(0); for (const c of crashes.splice(0)) { try { c.stop(); } catch { /* 算了 */ } }
+      hiss(0); skid(0); for (const c of crashes.splice(0)) { try { c.stop(); } catch { /* 算了 */ } }
       S.gone = true;
       const nodes = S.nodes;
       S.nodes = [];
@@ -5413,7 +5448,7 @@ function createEngineAudio(opt = {}) {
     } catch (e) { warn(e); }
   }
   return {
-    resume, voice, lift, crash, hiss, setMuted, setVolume, dispose,
+    resume, voice, lift, crash, hiss, skid, setMuted, setVolume, dispose, // skid：第 3 批
     get muted() { return S.muted; },
     get volume() { return S.vol; },
     get mode() { return S.mode; }, // 'worklet'｜'script'｜'off'
@@ -7841,7 +7876,7 @@ const inRect = (r, x, z) => { const dx = x - r.x, dz = z - r.z, c = Math.cos(r.r
 // 賽道（buildTrack）那邊的碰撞：兩邊護欄、看台、路燈、燈樹、終點門柱
 function stripColliders() {
   const out = [];
-  for (const s of [1, -1]) out.push({ t: 'box', x: 350, z: s * 6.3, hx: 410, hz: 0.2, rot: 0, h: 0.9 });
+  out.push({ t: 'box', x: 350, z: 6.3, hx: 410, hz: 0.2, rot: 0, h: 0.9 }, { t: 'box', x: -58.75, z: -6.3, hx: 1.25, hz: 0.2, rot: 0, h: 0.9 }, { t: 'box', x: 361.5, z: -6.3, hx: 398.5, hz: 0.2, rot: 0, h: 0.9 }); // 北邊的牆在 x −57.5…−37 開一個口（往北去賽車場：circuit.js）
   out.push({ t: 'box', x: 30, z: -13.4, hx: 65, hz: 3.3, rot: 0, h: 4.2 });
   for (let k = 0; k < 14; k++) for (const s of [1, -1]) out.push({ t: 'circle', x: -30 + 60 * k, z: s * 8, r: 0.22, h: 9 });
   out.push({ t: 'circle', x: 3.2, z: 0, r: 0.35, h: 2.6 });
@@ -11564,8 +11599,9 @@ return { createRide, RIDE: { CLS, SURF } };
 //                                  ox, oz（撞到的東西的中心）, h（它多高） }，全部是車子座標（+x 車頭、+z 右邊，原點＝車子原點）
 //     eye: CABIN_VIEW[key],   駕駛座視角 { eye: [x, y, z], look: [x, y, z], fov }（車身座標）；沒給就用估的
 //     maxKmh,                 限速（可省略：省略＝這台車的極速 perf.vmax）；草地 50、稻田 16 另外限
-//     keyboard: true（方向鍵／WASD、空白鍵煞車、C 換視角、E 按 HUD 的大按鈕）；camButton: true（HUD 上的換視角鈕）
+//     keyboard: true（方向鍵／WASD、空白鍵手煞車、C 換視角、E 按 HUD 的大按鈕）；camButton: true（HUD 上的換視角鈕）
 //     mapLayer,               小地圖的底圖 { c, ms, x0, z0 }（可省略：自己畫一張，最多 16 MB）；走路（walk.js）的 walker.mapLayer 同一張，給了就不用再畫
+//     audio,                  第 3 批（甩尾）：createEngineAudio() 回傳的（可省略）：輪胎叫 audio.skid(level, pitch, dirt)（跟引擎聲同一條總輸出：音量、靜音一樣）
 //   });
 //   每一幀 drive.update(dt 秒)，再 renderer.render(scene, camera)
 //   drive.telemetry() → { x, z, heading, v（m/s，倒車是負的）, kmh, rpm（轉速÷紅線 0–1.02，怠速 0.13）, gear（1–6，倒車 −1）,
@@ -11573,6 +11609,9 @@ return { createRide, RIDE: { CLS, SURF } };
 //                         brake, steer（−1 左～1 右）, surface（0 大路、1 草地、2 稻田、3 小路、4 快速道路）, cap（現在的限速 km/h）, reversing,
 //                         bumps, shifts, zone, dest, destDist（沿著路線還有幾公尺，每一幀跟著車子算）, auto（自動停車中）, paused }
 //                         第 4 批（有地形才有）：y, air, pitch, roll, wheels, belly, lands, land, pen, rideOn, cls（terrain.js 的 ride.tele()）
+//                         第 3 批（甩尾）：slip（甩的角度，弧度：車頭在走的方向右邊＝正）, travel（走的方向，跟 heading 一樣的角度）, drift（0 抓地～1 甩尾）,
+//                         drifting（正在甩：10° 以上）, drifts（甩了幾次）, loose（後輪多鬆 0–1）, skid（輪胎叫多大聲 0–1）, handbrake（0／1）, marks（地上幾段胎痕）, smoke（幾團煙還在飄）
+//                         （v 是沿著走的方向的速度；甩尾的時候 heading（車頭）跟 travel 不一樣）
 //     引擎聲（sound.js）：voice.set({ rpm: t.rpm, throttle: t.load, speed: Math.abs(t.v) })；onShift 裡 voice.shift()
 //   drive.setDestination(name | null)   world.places 裡的任何一個（garage 回車庫、shop 去改車廠、track 去賽道、dealer 去車店、highway 去快速道路⋯）：
 //                          左上角「去賽道 230 m」＋箭頭、小地圖的橘色路線、那裡一根光柱；world.route 不認得的地方就指直線
@@ -11582,6 +11621,8 @@ return { createRide, RIDE: { CLS, SURF } };
 //                          沒有大按鈕的時候鍵盤 E 按這顆；icon 預設 'walk'（走路的人）；drive.action2＝現在的字
 //   drive.addColliders(list, tag) / drive.removeColliders(tag)   會變的碰撞物（鐵捲門關著才擋、停著的車），格式跟 world.colliders 一樣；
 //                          同一個 tag 可以加很多次，removeColliders(tag) 一次全部拿掉；回傳加了／拿掉幾個
+//   drive.setMarkers(list | null)   小地圖上多畫的點（警車⋯）：[{ x, z, fill, ring, r（半徑 px，預設 5）, on（false＝這幀不畫） }]；
+//                          只記住陣列本身，每一幀照裡面現在的值畫（陣列可以一直改，不用再叫）；地圖外面的貼在邊上；null＝不畫
 //   drive.setCameraMode('chase' | 'eye' | 'none', view?)   追車／駕駛座／不管鏡頭；drive.cameraMode 是現在的
 //   drive.teleport({ x, z, heading }, { intro })   把車放到那裡停好（不叫 onZone）；intro：鏡頭從車前面繞到後面（出門的時候）
 //   drive.parkAt(pose, onDone)   自己開到 pose（{ x, z, heading }，或 { noseX, z, heading }＝車頭對齊 noseX）停好再叫 onDone
@@ -11600,6 +11641,13 @@ return { createRide, RIDE: { CLS, SURF } };
 //   撞到：每一步最多走 0.25 公尺（300 km/h 也不會穿過細柱子、護欄）；撞進去的速度吃掉（最多彈回 2 m/s），沿著牆的速度照摩擦掉一些，
 //         車頭往沿著牆的方向轉一點（一次最多 20°，擦過去就貼著牆滑），正面撞照撞到的點轉一點點；頂住了還踩油門＋轉方向＝原地轉出來（不會卡住）
 //   鏡頭：越快越往後拉、放低一點、視角變廣（有速度感，有上限）；200 km/h 以上、撞到東西會晃（減少動態效果的設定：晃小一點）
+//   甩尾（第 3 批，Nick 2026-10-04「可以甩尾」）：快的時候（30 km/h 以上）轉彎拉「手煞車」、後驅大馬力油門到底＋方向打滿（30～100 km/h）、用力煞車馬上把方向打滿、
+//         很快過彎（推頭）突然放油門 → 車尾甩出去：走的方向跟車頭分開（甩的角度 slip），車頭轉得比走的方向多
+//         街機的幫忙（只有按鈕也甩得好）：往甩的方向按＝撐住（角度最大：後驅 35°～45°、四驅 23°～30°、越野車 17°；快的時候小一點）、放開方向＝慢慢抓回來、
+//         反方向按＝很快拉直；超過最大的角度自動反打（不會打轉）；前輪自己朝走的方向（看得到反打）
+//         踩著油門撐得住（後驅大馬力撐最久，四驅慢慢抓回來）；放開油門、方向擺正就抓回來（慢慢的，不會一下彈回去）；甩的時候速度掉一點；草地、稻田、泥土更好甩
+//         慢的時候（22 km/h 以下）一點都不會甩：停車、車庫、改車廠、自動停車跟以前一模一樣；沒在甩的時候算法跟以前完全一樣
+//         看得到聽得到：輪胎冒煙、地上的胎痕（慢慢淡掉）、輪胎叫（跟著滑多少）、鏡頭往走的方向轉一點、畫面上「甩尾 35°」
 
 // 打包時全部接在同一個 script 裡：只露出 createDrive
 const { createDrive } = (() => {
@@ -11614,6 +11662,8 @@ const smooth01 = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
 const inRect = (r, x, z, m = 0) => { const dx = x - r.x, dz = z - r.z, c = Math.cos(r.rot || 0), s = Math.sin(r.rot || 0); return Math.abs(dx * c - dz * s) <= r.hx + m && Math.abs(dx * s + dz * c) <= r.hz + m; };
 // 路面（world.surfaceAt）：0 大路、1 草地、2 稻田、3 村子的小路、4 快速道路；cap＝限速 m/s、drag＝多的阻力 m/s²、over＝比限速快的時候怎麼慢下來 [每 m/s, 最多 m/s²]
 const SURF = [{ cap: Infinity, drag: 0 }, { cap: 50 / 3.6, drag: 1, over: [1.6, 6] }, { cap: 16 / 3.6, drag: 2.2, over: [3, 9] }, { cap: Infinity, drag: 0 }, { cap: Infinity, drag: 0 }];
+// 第 3 批（甩尾）：路面多好甩（0 大路…8 石頭：草地、稻田、泥土、泥巴、沙比較滑）；sat：軟軟的飽和（輪胎的側向力）
+const SLIDE = [1, 1.5, 1.7, 1, 1, 1.4, 1.6, 1.5, 1.1], sat = (x) => x / Math.sqrt(1 + x * x);
 const DEST = {
   garage: { label: '回車庫', icon: '家', bg: '#1d1f23', fg: '#FF6A1F' }, shop: { label: '去改車廠', icon: '改', bg: '#2F6FD6', fg: '#FFFFFF' },
   track: { label: '去賽道', icon: '賽', bg: '#FF6A1F', fg: '#1A0F07' }, dealer: { label: '去車店', icon: '車', bg: '#F2C230', fg: '#1A0F07' },
@@ -11671,6 +11721,16 @@ const CSS = `
 .dv-brk{width:62px;height:70px;background:#2B2E35;color:#F2F3F5;font-size:18px;box-shadow:0 5px 0 #111216}
 .dv-brk.rev{background:#F2F3F5;color:#0E0F12;box-shadow:0 5px 0 #8F949B}
 .dv-ped b.on{transform:translateY(4px);box-shadow:none}
+/* 第 3 批（甩尾）：手煞車（油門上面；矮的畫面放煞車左邊；更矮的（沒全螢幕的手機橫拿）再往左，不壓到「下車」）、速度表上面的「甩尾 35°」 */
+.dv{container-type:size}
+.dv-hb{right:10px;bottom:124px;width:74px;height:46px;display:grid;place-items:center;border-radius:16px;background:#2B2E35;color:#FF6A1F;font-size:17px;font-weight:700;letter-spacing:.04em;box-shadow:0 5px 0 #111216;pointer-events:auto;touch-action:none;cursor:pointer}
+.dv-hb.on{background:#FF6A1F;color:#1A0F07;transform:translateY(4px);box-shadow:none}
+@media (max-height:560px){.dv-hb{right:166px;bottom:12px;width:62px;height:70px;border-radius:18px}}
+@container (max-height:290px){.dv-hb{right:288px}}
+/* 第 3 批（b3-int）：App 沒全螢幕、螢幕又高又寬（平板、電腦）：畫面只是中間一小塊（426×320），手煞車（油門上面）會壓到換視角、全螢幕鈕 → 放到全螢幕鈕左邊（同一排）；通緝中跟著往下推 */
+@media (min-height:561px){@container (max-height:409px){.dv-hb{top:142px;right:114px;bottom:auto;height:44px}.pw-host.pw-on .dv-hb{margin-top:46px}}}
+.dv-spd i{position:absolute;bottom:calc(100% + 24px);left:50%;transform:translateX(-50%);padding:5px 13px;border-radius:999px;background:#FF6A1F;color:#1A0F07;font:700 17px/1 ${SANS};font-style:normal;letter-spacing:.04em;white-space:nowrap;box-shadow:0 3px 0 #9E4213}
+.dv-spd i span{font:700 19px/1 ${COND};color:inherit;margin:0 0 0 5px;letter-spacing:0}
 .dv-toast{top:34%;left:50%;width:max-content;max-width:calc(100% - 32px);box-sizing:border-box;padding:9px 20px;border-radius:22px;background:rgba(14,15,18,0.78);font-size:20px;font-weight:700;line-height:1.3;text-align:center;text-wrap:balance;opacity:0;transform:translate(-50%,-50%) scale(.92);transition:opacity .15s,transform .15s}
 .dv-toast.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
 @media (prefers-reduced-motion:reduce){.dv-toast,.dv-chip svg{transition:none}.dv-act::after{animation:none}}
@@ -11729,6 +11789,92 @@ function colGrid() {
   return { add, remove, near, clear: () => { for (const t of [...tags.keys()]) remove(t); } };
 }
 
+// ---- 第 3 批（甩尾）：地上的胎痕、輪胎的煙：同一個場景共用一套（換車、下車再上車，地上的胎痕還在）；全部先配好，每幀不 new 東西 ----
+// 胎痕：640 段（一段＝一個四邊形），環狀：滿了蓋掉最舊的；慢慢淡掉（shader 照「畫上去的時間」算，不用每幀改）；這一幀寫的那幾段才上傳
+// 煙：96 團（一個 draw call：instanced 的四邊形永遠面向鏡頭），自己往上飄、變大、淡掉（shader 算）；沒有胎痕、沒有煙的時候整個藏起來（0 個 draw call）
+const SKID = { NS: 640, NP: 96, life: 18, kind: [0, 1, 2, 0, 0, 2, 2, 3, 0], // 路面 → 樣子
+  look: [ // 胎痕的顏色（線性 rgb＋不透明度）、煙的顏色、煙多大
+    { m: [0.03, 0.03, 0.034, 0.55], s: [0.8, 0.8, 0.84, 0.34], z: 1 }, // 柏油：黑黑的胎痕、白煙
+    { m: [0.05, 0.08, 0.02, 0.5], s: [0.42, 0.38, 0.26, 0.24], z: 0.85 }, // 草地：深綠的痕、一點點土
+    { m: [0.12, 0.075, 0.03, 0.55], s: [0.46, 0.33, 0.2, 0.4], z: 1.15 }, // 稻田、泥土、泥巴：咖啡色的痕、黃土煙
+    { m: [0.3, 0.22, 0.12, 0.42], s: [0.66, 0.55, 0.38, 0.38], z: 1.25 }, // 沙
+  ] };
+const SKID_FX = new WeakMap();
+function skidFx(scene) {
+  let F = SKID_FX.get(scene); if (F) return F;
+  const { NS, NP } = SKID, U = { now: { value: 0 }, life: { value: SKID.life } };
+  const dyn = (a) => a.setUsage(THREE.DynamicDrawUsage), tex = (n, f) => { const d = new Uint8Array(n * n * 4); for (let i = 0; i < n * n; i++) d.fill(f(i % n, (i / n) | 0), i * 4, i * 4 + 4); const t = new THREE.DataTexture(d, n, n); t.magFilter = t.minFilter = THREE.LinearFilter; t.needsUpdate = true; return t; };
+  // 胎痕：一段 4 個點（起點左右、終點左右）；aT＝畫上去的時間；uv.x 橫過去（邊軟軟的、有一點點胎紋）
+  const mg = new THREE.BufferGeometry(), mp = new Float32Array(NS * 12), mc = new Float32Array(NS * 16), mt = new Float32Array(NS * 4).fill(-1e4), muv = new Float32Array(NS * 8), mi = new Uint16Array(NS * 6);
+  for (let i = 0; i < NS; i++) { const v = i * 4, j = i * 6; muv[i * 8 + 2] = muv[i * 8 + 6] = muv[i * 8 + 5] = muv[i * 8 + 7] = 1; mi[j] = v; mi[j + 1] = mi[j + 4] = v + 2; mi[j + 2] = mi[j + 3] = v + 1; mi[j + 5] = v + 3; }
+  mg.setAttribute('position', dyn(new THREE.BufferAttribute(mp, 3))); mg.setAttribute('color', dyn(new THREE.BufferAttribute(mc, 4))); mg.setAttribute('aT', dyn(new THREE.BufferAttribute(mt, 1)));
+  mg.setAttribute('uv', new THREE.BufferAttribute(muv, 2)); mg.setIndex(new THREE.BufferAttribute(mi, 1)); mg.setDrawRange(0, 0);
+  const mm = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -5,
+    alphaMap: tex(32, (x) => Math.round(255 * clamp((1 - Math.abs((x / 31) * 2 - 1)) / 0.4, 0, 1) * (0.82 + 0.18 * Math.cos(x * 2.2)))) });
+  mm.onBeforeCompile = (sh) => {
+    sh.uniforms.uNow = U.now; sh.uniforms.uLife = U.life;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float aT;\nuniform float uNow, uLife;')
+      .replace('#include <color_vertex>', '#include <color_vertex>\nvColor.a *= 1.0 - smoothstep(uLife * 0.35, uLife, uNow - aT);');
+  };
+  const marks = new THREE.Mesh(mg, mm); marks.name = 'drive-skidmarks'; marks.frustumCulled = false; marks.renderOrder = 0.5; marks.matrixAutoUpdate = false; marks.visible = false;
+  // 煙：aP＝出生的位置＋時間、aV＝飄的速度＋活多久、aS＝一開始多大、長多大、轉的角度、轉多快、color＝顏色＋不透明度
+  const sg = new THREE.InstancedBufferGeometry(), ia = (n) => dyn(new THREE.InstancedBufferAttribute(new Float32Array(NP * n), n));
+  sg.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-0.5, -0.5, 0, 0.5, -0.5, 0, -0.5, 0.5, 0, 0.5, 0.5, 0]), 3));
+  sg.setAttribute('uv', new THREE.BufferAttribute(new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), 2)); sg.setIndex([0, 1, 2, 2, 1, 3]);
+  const sP = ia(4), sV = ia(4), sS = ia(4), sC = ia(4); for (let i = 0; i < NP; i++) { sP.array[i * 4 + 3] = -1e4; sV.array[i * 4 + 3] = 1; }
+  sg.setAttribute('aP', sP); sg.setAttribute('aV', sV); sg.setAttribute('aS', sS); sg.setAttribute('color', sC); sg.instanceCount = NP;
+  const sm = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false,
+    map: tex(32, (x, y) => { const r = Math.hypot(x - 15.5, y - 15.5) / 15.5, a = clamp(1 - r, 0, 1); return Math.round(255 * a * a * (0.85 + 0.15 * Math.sin(x * 1.3 + y * 0.7))); }) });
+  sm.map.colorSpace = THREE.NoColorSpace;
+  sm.onBeforeCompile = (sh) => { // 貼圖只用 alpha（DataTexture 四個通道一樣：rgb 也是那個值 → 換成 1，顏色照 color）
+    sh.uniforms.uNow = U.now;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec4 aP, aV, aS;\nuniform float uNow;')
+      .replace('#include <color_vertex>', '#include <color_vertex>\nfloat age = uNow - aP.w, k = clamp(age / aV.w, 0.0, 1.0);\nvColor.a *= smoothstep(0.0, 0.12, age) * (1.0 - k) * (1.0 - k);')
+      .replace('#include <project_vertex>', 'float sz = (aS.x + aS.y * sqrt(k)) * step(0.0, age) * step(age, aV.w), an = aS.z + aS.w * age;\n'
+        + 'vec4 mvPosition = viewMatrix * vec4(aP.xyz + aV.xyz * (1.0 - exp(-1.8 * age)) / 1.8 + vec3(0.0, 0.45 * age, 0.0), 1.0);\n'
+        + 'mvPosition.xy += mat2(cos(an), sin(an), -sin(an), cos(an)) * position.xy * sz;\ngl_Position = projectionMatrix * mvPosition;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', '#include <map_fragment>\ndiffuseColor.rgb = vec3(1.0);');
+  };
+  const smoke = new THREE.Mesh(sg, sm); smoke.name = 'drive-smoke'; smoke.frustumCulled = false; smoke.renderOrder = 5; smoke.matrixAutoUpdate = false; smoke.visible = false;
+  const rg = () => ({ start: 0, count: 0 });
+  F = { U, marks, smoke, mp, mc, mt, sP, sV, sS, sC, n: 0, np: 0, d0: -1, dn: 0, pd: false, lastM: -1e9, lastP: -1e9, warm: 2, cT: -1, cm: 0, cp: 0, rg: [rg(), rg(), rg()],
+    seg(ax, az, ay, bx, bz, by, cx, cz, cy, dx, dz, dy, a0, a1, col) { // 一段胎痕：a＝起點左、b＝起點右、c＝終點左、d＝終點右
+      const i = F.n % NS, p = i * 12, c = i * 16, t = i * 4, now = U.now.value; F.n++;
+      mp[p] = ax; mp[p + 1] = ay; mp[p + 2] = az; mp[p + 3] = bx; mp[p + 4] = by; mp[p + 5] = bz; mp[p + 6] = cx; mp[p + 7] = cy; mp[p + 8] = cz; mp[p + 9] = dx; mp[p + 10] = dy; mp[p + 11] = dz;
+      for (let k = 0; k < 4; k++) { mc[c + k * 4] = col[0]; mc[c + k * 4 + 1] = col[1]; mc[c + k * 4 + 2] = col[2]; mc[c + k * 4 + 3] = col[3] * (k < 2 ? a0 : a1); mt[t + k] = now; }
+      if (F.d0 < 0) F.d0 = i; F.dn++; F.lastM = now;
+    },
+    puff(x, y, z, vx, vy, vz, life, s0, grow, col, a) { // 一團煙
+      const i = (F.np++ % NP) * 4, now = U.now.value;
+      sP.array[i] = x; sP.array[i + 1] = y; sP.array[i + 2] = z; sP.array[i + 3] = now;
+      sV.array[i] = vx; sV.array[i + 1] = vy; sV.array[i + 2] = vz; sV.array[i + 3] = life;
+      sS.array[i] = s0; sS.array[i + 1] = grow; sS.array[i + 2] = Math.random() * TAU; sS.array[i + 3] = (Math.random() - 0.5) * 1.4;
+      sC.array[i] = col[0]; sC.array[i + 1] = col[1]; sC.array[i + 2] = col[2]; sC.array[i + 3] = a;
+      F.pd = true; F.lastP = now;
+    },
+    flush() { // 這一幀寫的上傳（胎痕只傳寫到的那幾段；繞回頭的那一次全部傳）、要不要畫
+      if (F.dn > 0) {
+        const one = F.d0 + F.dn <= NS, s = one ? F.d0 : 0, n = one ? F.dn : NS, A = mg.attributes;
+        F.rg[0].start = s * 12; F.rg[0].count = n * 12; A.position.updateRanges.length = 0; A.position.updateRanges.push(F.rg[0]); A.position.needsUpdate = true;
+        F.rg[1].start = s * 16; F.rg[1].count = n * 16; A.color.updateRanges.length = 0; A.color.updateRanges.push(F.rg[1]); A.color.needsUpdate = true;
+        F.rg[2].start = s * 4; F.rg[2].count = n * 4; A.aT.updateRanges.length = 0; A.aT.updateRanges.push(F.rg[2]); A.aT.needsUpdate = true;
+        mg.setDrawRange(0, Math.min(F.n, NS) * 6); F.d0 = -1; F.dn = 0;
+      }
+      if (F.pd) { sP.needsUpdate = sV.needsUpdate = sS.needsUpdate = sC.needsUpdate = true; F.pd = false; }
+      const now = U.now.value, w = F.warm > 0; if (w) F.warm--; // 一開始畫兩幀（先把 shader 編好，第一次甩的時候不會卡一下）
+      marks.visible = w || (F.n > 0 && now - F.lastM < SKID.life + 0.5); smoke.visible = w || now - F.lastP < 3.6;
+    },
+    count() { F.cnt(); return F.cm; }, alive() { F.cnt(); return F.cp; }, // telemetry 用：還看得到幾段胎痕、幾團煙（一幀只數一次）
+    cnt() {
+      const now = U.now.value; if (F.cT === now) return; F.cT = now; F.cm = F.cp = 0;
+      for (let i = 0, e = Math.min(F.n, NS); i < e; i++) if (now - mt[i * 4] < SKID.life) F.cm++;
+      for (let i = 0; i < NP; i++) { const a = now - sP.array[i * 4 + 3]; if (a >= 0 && a < sV.array[i * 4 + 3]) F.cp++; }
+    },
+  };
+  scene.add(marks, smoke); SKID_FX.set(scene, F);
+  return F;
+}
+
 function createDrive(o) {
   const S = o.car, car = S.car, body = S.body, W = S.spec.wheels, P = o.perf || { hp: 250, kg: 1300, red: 7500, vmax: 240, cda: 0.65 };
   const world = o.world || {}, places = world.places || {}, scene = o.scene, camera = o.camera;
@@ -11751,13 +11897,21 @@ function createDrive(o) {
   const GR = Array.isArray(P.gears) && P.gears.length === 6 ? P.gears : GEARS; // 第 4 批：自己的齒比（怪獸卡車）
   const fd = (wr * RR) / (GR[5] * vrl), Tpk = (P.hp * 745.7) / (wr * 0.95 * torqueAt(0.95)), tract = 1.35 * m * 9.81 * (P.awd ? 0.9 : P.drive ?? 0.74);
   const xOf = (u, g) => (Math.abs(u) * GR[g]) / (GR[5] * vrl), kGeo0 = Math.tan(0.6) / L; let kGeo = kGeo0; // 第 4 批：kGeo 四輪轉向會變 // 轉速÷紅線；方向盤打死的曲率
+  // ---- 第 3 批（甩尾）：這台車的個性：後驅大馬力最好甩（角度大、踩油門撐得久）、四驅穩一點（角度小、自己慢慢抓回來）、越野車最穩（只有手煞車甩得動）----
+  // amax＝最大的角度（弧度）、sus＝踩油門撐住多少、pow＝油門甩得出來嗎、dec＝放開以後多快抓回來、bias＝後輪出力的比例、cg＝甩的時候繞哪裡轉（重心附近，車子座標 x）
+  const pwk = (P.hp || 250) / (P.kg || 1300), rwd = !P.awd, ofr = !!P.offroad;
+  const DR = { rwd, ofr, bias: rwd ? 1 : 0.42, amax: ofr ? 0.3 : rwd ? clamp(0.6 + 0.3 * (pwk - 0.3), 0.6, 0.78) : clamp(0.4 + 0.25 * (pwk - 0.2), 0.4, 0.52),
+    sus: ofr ? 0.06 : rwd ? clamp(0.5 + (pwk - 0.3), 0.5, 1) : clamp(0.3 + 0.5 * (pwk - 0.2), 0.25, 0.5), pow: ofr ? 0 : rwd ? 1 : 0.4, dec: rwd ? 1.15 : 1.5, cg: W.xr + 0.47 * (W.xf - W.xr) };
 
   const st = { x: car.position.x, z: car.position.z, th: car.rotation.y, v: 0, steer: 0, thr: 0, brk: 0, hb: 0, thrEff: 0, load: 0, cutLoad: 0, gear: 0, rev: false, hold: 0, cut: 0, rpm: 0.13, spin: 0,
     surf: 0, cap: vtop, bumps: 0, shifts: 0, touch: 0, blocked: 0, roll: 0, rollV: 0, pitch: 0, pitchV: 0, alat: 0, along: 0, kap: 0, scrub: 0, push: 0, jit: 0, jitT: 0, hitW: 0, hitT: -9, impT: -9, impW: 0 };
+  // 第 3 批（甩尾）：slip＝甩的角度（走的方向＝th＋slip）、slipV＝它變多快、loose＝後輪多鬆（0–1）、dm＝甩了多少（0 抓地～1 甩）、skid＝輪胎叫、skidM＝胎痕／煙
+  Object.assign(st, { slip: 0, slipV: 0, loose: 0, dm: 0, skid: 0, skidM: 0, flick: 0, sPrev: 0, thrMem: 0, pwT: 0, kick: 0, kickT: 0, dT: 0, drifts: 0, dShow: 0 });
   const dmgP = { power: 1, top: 1, maxKmh: Infinity, steerPull: 0 }; // 撞壞了（setDamage）
   let imp = null; // 這一幀最大的一下（onImpact）
-  const human = { thr: 0, brk: 0, steer: 0, kb: {} };
+  const human = { thr: 0, brk: 0, steer: 0, hb: 0, kb: {} };
   let forced = null, paused = false, auto = null, alive = true, dest = null, mode = 'chase', view = null, intro = null, now = 0, action = null, action2 = null;
+  let marks = null; // 第 3 批（b3-int）別的模組給的小地圖點（setMarkers）：[{ x, z, fill, ring, r, on }]
   const zoneIn = {}, events = []; let zoneNow = null, routeData = null, routeT = 0, routeS = 0;
   // ==== 第 4 批：地形（越野車場）：world 有高度才有；一般的車沒開進越野車場 ride.on＝false（照舊）；越野車（perf.offroad）一直開著 ====
   const ride = typeof createRide === 'function' && (world.heightAt || P.offroad) ? createRide({ S, st, info: { ...info, CX }, perf: P, world, events }) : null;
@@ -11815,6 +11969,8 @@ function createDrive(o) {
       imp = { speed: w, px: lx, pz: lz, nx: nx * f[0] + nz * f[1], nz: nx * r[0] + nz * r[1], r: rr, ox: c ? dx * f[0] + dz * f[1] : lx, oz: c ? dx * r[0] + dz * r[1] : lz, h: c ? c.h ?? 9 : 3 };
     }
   }
+  // 第 3 批：甩尾撞到東西：用力撞到就不甩了（角度剩一點點、慢慢抓回來），擦到鬆一點
+  const hitSlide = (w) => { if (w > 1.5) { st.loose = 0; st.slip *= 0.3; st.slipV = 0; } else { st.loose *= 0.8; st.slipV *= 0.5; } };
   function collide() {
     let hit = 0;
     for (let it = 0; it < 3; it++) {
@@ -11825,8 +11981,8 @@ function createDrive(o) {
         const p = c.t === 'box' ? hitBox(cx, cz, f, r, c) : hitCircle(cx, cz, f, r, c);
         if (!p) continue;
         st.x += p[0]; st.z += p[1]; cx += p[0]; cz += p[1]; moved = true; hit++; st.touch = 0.2;
-        const fn = f[0] * p[2] + f[1] * p[3], w = -st.v * fn;
-        if (w > 0.05) impact(w, fn, p[2], p[3], p[4], p[5], f, c);
+        const fn = st.slip !== 0 ? Math.cos(st.th + st.slip) * p[2] - Math.sin(st.th + st.slip) * p[3] : f[0] * p[2] + f[1] * p[3], w = -st.v * fn; // 第 3 批：甩尾的時候照「走的方向」算撞進去多快
+        if (w > 0.05) { impact(w, fn, p[2], p[3], p[4], p[5], f, c); if (st.slip !== 0) hitSlide(w); }
         else { const pen = Math.hypot(p[0], p[1]), cr = p[5] * p[2] - p[4] * p[3]; st.th = wrapA(st.th + clamp((2 * cr * pen) / (p[4] * p[4] + p[5] * p[5] + 0.5), -0.04, 0.04)); } // 慢慢頂著：照碰到的點轉一點（滑開）
       }
       if (!moved) break;
@@ -11835,9 +11991,10 @@ function createDrive(o) {
   }
   // 鏡頭到車子中間有沒有被房子擋住：回傳 0–1（1＝沒擋到）
   const tall = (c) => (c.h ?? 9) >= 2.4 && (c.t === 'box' || c.r >= 0.6);
+  const camBlock = (c) => c.police === true || tall(c); // 第 3 批（b3-int）：緊跟在後面的警車也擋鏡頭（拉近到它前面，不要從它的警示燈上面看）
   function rayHit(x0, z0, x1, z1) {
     let best = 1; const dx = x1 - x0, dz = z1 - z0;
-    for (const c of cw.near(Math.min(x0, x1) - 1, Math.min(z0, z1) - 1, Math.max(x0, x1) + 1, Math.max(z0, z1) + 1, tall)) {
+    for (const c of cw.near(Math.min(x0, x1) - 1, Math.min(z0, z1) - 1, Math.max(x0, x1) + 1, Math.max(z0, z1) + 1, camBlock)) {
       let t;
       if (c.t === 'box') {
         const ox = x0 - c.x, oz = z0 - c.z, pp = [ox * c.u[0] + oz * c.u[1], ox * c.w[0] + oz * c.w[1]], dd = [dx * c.u[0] + dz * c.u[1], dx * c.w[0] + dz * c.w[1]], ee = [c.hx, c.hz];
@@ -11867,7 +12024,7 @@ function createDrive(o) {
     const vab0 = Math.abs(st.v), back = Math.abs(inp.steer) < Math.abs(st.steer) || inp.steer * st.steer < 0;
     st.steer = toward(st.steer, inp.steer, h * (back ? 6 : 4 - 2 * Math.min(1, vab0 / 70)));
     st.thr = toward(st.thr, inp.thr, h * (inp.thr > st.thr ? 3.2 : 8)); st.brk = toward(st.brk, inp.brk, h * (inp.brk > st.brk ? 7 : 10)); st.hb = inp.hb || 0;
-    const sg = st.rev ? -1 : 1, go = st.rev ? st.brk : st.thr, stop = Math.max(st.rev ? st.thr : st.brk, st.hb), u = st.v * sg, v0 = st.v;
+    const sg = st.rev ? -1 : 1, go = st.rev ? st.brk : st.thr, stop = Math.max(st.rev ? st.thr : st.brk, st.hb * (1 - 0.65 * clamp((vab0 - 6) / 6, 0, 1))), u = st.v * sg, v0 = st.v; // 第 3 批：手煞車快的時候只煞三分之一（後輪鎖住、甩出去）
     const vdm = Math.min(vtop * dmgP.top, dmgP.maxKmh / 3.6), sf = (R && R.sf(st.surf)) || SURF[st.surf] || SURF[0], capS = st.rev ? 4.5 : Math.min(vdm, sf.cap), soft = !st.rev && sf.cap < vdm; st.cap = capS; // 撞壞了極速變低
     // 轉彎：方向盤→想要的曲率（低速＝打死 tan 0.6，快的時候＝打滿要側向 aF）；快到抓地 aG 就推頭：實際轉得少一點、多的那份（scrub）把速度吃掉
     // aF：100 km/h 以下＝抓地 ×1.35、200 km/h ×1.25、320 km/h ×0.95（很穩）；推頭吃掉速度的比例 kS：100 km/h 以下 1.3（村子的彎抱著方向盤自己慢下來）、
@@ -11880,14 +12037,16 @@ function createDrive(o) {
     const pk = clamp((st.push - 0.35) / 0.8, 0, 1), kS = 1.3 - 0.5 * clamp((vab0 - 28) / 28, 0, 1) + 0.8 * pk;
     st.kap = ac > 1e-9 ? kc * (aa / ac) : kc; st.scrub = (ac - aa) * kS;
     if (R && R.air) { st.kap = 0; st.scrub = 0; st.push = 0; } // 第 4 批：飛在空中轉不了彎
+    if (st.dm > 0) st.scrub *= 1 - st.dm; // 第 3 批：甩尾的時候不算推頭（速度另外掉）
     // 引擎：快到限速油門自己收（定速）；推頭的時候也收（像循跡控制）；load＝給引擎聲的（踩著就大聲）
-    const gov = clamp((capS + (capS >= vmx ? 0.3 : 0) - u) / 0.5, 0, 1), lim = gov * (1 - Math.min(0.95, st.scrub / 7 + 0.7 * pk)); // 定速在限速上（極速多 0.3 m/s：錶上看得到 250）
+    const gov = clamp((capS + (capS >= vmx ? 0.3 : 0) - u) / 0.5, 0, 1), lim = gov * (1 - Math.min(0.95, st.scrub / 7 + 0.7 * pk * (1 - st.dm))); // 定速在限速上（極速多 0.3 m/s：錶上看得到 250）
     st.thrEff = go * lim;
     let a = 0;
     if (st.rev) a = 2.8 * st.thrEff * Math.max(0.6, dmgP.power);
     else if (st.cut <= 0) { const x = xOf(u, st.gear); if (x < 1) a = (Math.min(R ? tract * R.k.trac : tract, (st.thrEff * Tpk * torqueAt(clamp(x, st.gear === 0 ? 0.6 : 0.2, 1)) * GR[st.gear] * fd * 0.88) / RR) / m) * dmgP.power; } // 撞到紅線斷油；撞壞了出力變小
+    const D = slide(h, inp, R, u, go, gov, a, aG, ac); if (st.dm > 0) { a *= 1 + (D.fwd - 1) * st.dm; a += (Math.min(a, D.cap) - a) * st.dm; } // 第 3 批：甩尾（後輪空轉：往前推的少一點；抓地大部分拿去側滑了）
     const ov = u - capS - 0.5, over = ov > 0 ? (soft ? Math.min(sf.over[1], ov * sf.over[0]) : Math.min(8, ov * 2.5)) : 0; // 比限速快（開進草地、限速變低）：慢下來
-    const res = stop * (9.5 + 2.5 * Math.min(1, (u * u) / 4900)) + (go < 0.05 ? (st.rev ? 1.2 : 1.4) : 0) + sf.drag + 0.147 + (AERO * 0.6 * P.cda * u * u) / m + over + (st.rev ? 0 : Math.min(9, st.scrub));
+    const res = stop * (9.5 + 2.5 * Math.min(1, (u * u) / 4900)) + (go < 0.05 ? (st.rev ? 1.2 : 1.4) : 0) + sf.drag + 0.147 + (AERO * 0.6 * P.cda * u * u) / m + over + (st.rev ? 0 : Math.min(9, st.scrub)) + D.bleed;
     let un;
     if (u > 1e-4) { un = u + (a - res) * h; if (un < 0) un = 0; }
     else if (u < -1e-4) { un = u + (a + res) * h; if (un > 0) un = a > 0 ? Math.min(un, a * h) : 0; }
@@ -11904,7 +12063,7 @@ function createDrive(o) {
     } else st.cut = 0;
     const xr = st.rev ? 0.14 + Math.min(1, Math.abs(un) / 4.5) * 0.3 : Math.max(0.13, xOf(un, st.gear));
     const slip = st.rev ? 0.1 * go : st.gear === 0 ? 0.34 * go * clamp(1 - xr / 0.5, 0, 1) : 0; // 起步半離合：一踩轉速就起來（聲音馬上出來）
-    st.rpm += (Math.min(1.02, xr + slip) - st.rpm) * (1 - Math.exp(-h * 12));
+    st.rpm += (Math.min(1.02, xr + slip + D.rev) - st.rpm) * (1 - Math.exp(-h * 12));
     st.load = st.cut > 0 ? st.cutLoad : go > 0.02 ? go * (0.65 + 0.35 * lim) : 0;
     // 走：後軸沿著車頭方向走、繞後軸轉（腳踏車模型）
     const vab = Math.abs(st.v);
@@ -11913,9 +12072,76 @@ function createDrive(o) {
     st.blocked = st.touch > 0 && vab < 1 && go > 0.3 ? Math.min(1, st.blocked + h) : Math.max(0, st.blocked - 2 * h);
     const vT = st.blocked > 0.3 ? sg * Math.max(vab, 1.5 * go) : st.v, kT = st.blocked > 0.3 ? st.steer * kGeo : st.kap;
     const f0x = Math.cos(st.th), f0z = -Math.sin(st.th), pvx = R ? R.k.pivot : info.xr, rx = st.x + f0x * pvx + f0x * st.v * h, rz = st.z + f0z * pvx + f0z * st.v * h;
-    st.th = wrapA(st.th - vT * kT * h);
-    st.x = rx - Math.cos(st.th) * pvx; st.z = rz + Math.sin(st.th) * pvx;
-    st.spin += st.v * h; st.alat = st.v * st.v * st.kap; st.along = (st.v - v0) / h;
+    if (st.slip !== 0 || st.slipV !== 0) { // 第 3 批：甩尾：沿著「走的方向」（th＋slip）走、車頭自己轉（slipV）；繞的點從後軸慢慢移到重心
+      const dm = st.dm, pv = pvx + (DR.cg - pvx) * dm, ph = st.th + st.slip, wv = -vT * kT * (1 - dm) + D.wD * dm;
+      const qx = st.x + f0x * pv + Math.cos(ph) * st.v * h, qz = st.z + f0z * pv - Math.sin(ph) * st.v * h;
+      st.th = wrapA(st.th + (wv - st.slipV) * h);
+      st.x = qx - Math.cos(st.th) * pv; st.z = qz + Math.sin(st.th) * pv; st.alat = -st.v * wv;
+    } else {
+      st.th = wrapA(st.th - vT * kT * h);
+      st.x = rx - Math.cos(st.th) * pvx; st.z = rz + Math.sin(st.th) * pvx; st.alat = st.v * st.v * st.kap;
+    }
+    st.spin += st.v * h; st.along = (st.v - v0) / h;
+    // 第 3 批：輪胎叫、胎痕、煙：照甩的角度；手煞車鎖住後輪也會；推頭只有一點點叫聲（不畫胎痕）
+    const sqM = R && R.air ? 0 : Math.max(smooth01((Math.abs(st.slip) - 0.07) / 0.3) * clamp(u / 9, 0, 1), st.hb * 0.8 * clamp((u - 3) / 7, 0, 1));
+    st.skidM += (sqM - st.skidM) * (1 - Math.exp(-h * (sqM > st.skidM ? 18 : 6)));
+    const sqA = Math.max(st.skidM, R && R.air ? 0 : Math.min(0.3, st.scrub * 0.06) * clamp(u / 10, 0, 1));
+    st.skid += (sqA - st.skid) * (1 - Math.exp(-h * (sqA > st.skid ? 18 : 6)));
+  }
+  // ---- 第 3 批：甩尾（每一步 physics 叫）：L＝後輪多鬆（手煞車、油門、煞車甩一下、放油門）→ 想要的角度 → 角度像彈簧追過去 ----
+  // 回傳給 physics 的（同一個物件，不 new）：wD＝走的方向轉多快（後輪、前輪的側向力、油門的側向分量）、bleed＝甩的時候多掉的速度、fwd＝往前推剩多少、cap＝往前推最多多少、rev＝空轉的轉速
+  const DRO = { wD: 0, bleed: 0, fwd: 1, rev: 0, cap: 99 };
+  function slide(h, inp, R, u, go, gov, a, aG, ac) {
+    DRO.wD = 0; DRO.bleed = 0; DRO.fwd = 1; DRO.rev = 0; DRO.cap = 99;
+    if (st.rev || u < 1.5 || st.blocked > 0.3) { st.slip = st.slipV = st.loose = st.dm = 0; st.flick = st.thrMem = st.kickT = st.pwT = 0; return DRO; } // 倒車、停下來、頂著東西：不甩
+    const sfc = SLIDE[st.surf] || 1, vg = smooth01((u - 6.2) / 4), air = !!(R && R.air), sA = Math.abs(st.steer); // vg：22 km/h 以下 0（一點都不甩）、36 km/h 以上 1
+    let Lt = 0;
+    if (!air) {
+      if (st.hb > 0) Lt = vg; // 1) 手煞車
+      st.pwT = go > 0.85 && sA > 0.7 ? st.pwT + h : 0; // 2) 油門到底＋方向打滿（按住 0.25 秒以上，點一下不算）：輪子出力比抓地大（後驅：一半的抓地；四驅要很大的馬力）
+      if (DR.pow > 0 && st.pwT > 0.25) {
+        const aE = ((go * gov * Tpk * torqueAt(clamp(xOf(u, st.gear), 0.2, 1)) * GR[st.gear] * fd * 0.88) / RR / m) * dmgP.power, lat = ac / aG;
+        const e = DR.rwd ? ((aE * sfc) / (0.5 * aG) - 0.85) * 1.5 + (lat - 1) * 0.8 : ((aE * sfc) / aG - 0.75) * 1.5 + (lat - 1.1) * 0.5;
+        if (e > 0) Lt = Math.max(Lt, Math.min(1, e) * DR.pow * vg);
+      }
+      if (!DR.ofr) {
+        st.flick = inp.brk > 0.8 && u > 13 ? 0.6 : Math.max(0, st.flick - h); // 3) 用力煞車（或剛放開）馬上把方向打滿：甩一下
+        if (st.flick > 0 && sA > 0.85 && st.sPrev <= 0.85 && u > 12) { st.kick = (DR.rwd ? 0.75 : 0.6) * Math.min(1.3, sfc) * vg; st.kickT = 0.35; st.flick = 0; }
+        st.thrMem = inp.thr > 0.75 ? 0.3 : Math.max(0, st.thrMem - h); // 4) 很快過彎（推頭）突然放油門：後輪變輕
+        if (st.thrMem > 0 && inp.thr < 0.1 && inp.brk < 0.1 && u > 22 && st.push > 0.2 && sA > 0.7) { st.kick = (DR.rwd ? 0.6 : 0.42) * Math.min(1.3, sfc); st.kickT = 0.35; st.thrMem = 0; }
+      }
+      st.sPrev = sA;
+      if (st.kickT > 0) { Lt = Math.max(Lt, st.kick); st.kickT -= h; } // 甩一下、放油門：鬆 0.35 秒
+    }
+    // 方向：已經在甩＝甩的那邊；還沒＝方向盤那邊；s：往甩的方向按（1，撐住）、放開（0，慢慢抓回來）、反方向（−1，很快拉直）
+    const d0 = st.slip > 0.05 ? 1 : st.slip < -0.05 ? -1 : 0, d = d0 || (sA > 0.15 ? Math.sign(st.steer) : 0), s = st.steer * d;
+    let L = st.loose;
+    if (!air) {
+      const Ls = d0 ? go * DR.sus * Math.min(1.4, sfc) * clamp(s, 0, 1) * vg : 0, tg = Math.max(Ls, Lt); // 踩著油門撐住
+      if (Lt > L) L = toward(L, Lt, h * (st.hb > 0 || st.kickT > 0 ? 9 : 2.5));
+      else if (L > tg) L = toward(L, tg, ((h * DR.dec) / Math.sqrt(sfc)) * (s < -0.3 ? 2 : 1) * (1 + 3 * (1 - vg)));
+      st.loose = L;
+    }
+    // 想要的角度：最大的角度（滑的路面大一點、很快的時候小一點、拉著手煞車大一點）× 多鬆 × 方向盤
+    const am = DR.amax * (1 + 0.3 * (Math.min(1.7, sfc) - 1)) * (1 - 0.45 * clamp((u - 22) / 30, 0, 1)) * (1 + 0.4 * st.hb * vg);
+    const bT = d * Math.min(am, am * L * (s >= 0 ? 0.3 + 0.7 * s : 0.3 * (1 + s)) * (DR.rwd ? 0.8 + 0.25 * go : 0.92 + 0.08 * go));
+    if (air) st.slipV = 0; // 飛在空中：角度不變
+    else {
+      const wn = 6.5 - 2.8 * L + (s < -0.3 ? 2 : 0), ze = 0.9 - 0.35 * L, ex = Math.abs(st.slip) - am;
+      st.slipV += (wn * wn * (bT - st.slip) - 2 * ze * wn * st.slipV) * h;
+      if (ex > 0 && st.slip * st.slipV > 0) st.slipV *= Math.exp(-h * (12 + 120 * ex)); // 超過最大的角度：自動反打（不會打轉）
+      st.slip += st.slipV * h;
+      if (Math.abs(st.slip) > am + 0.45) { st.slip = Math.sign(st.slip) * (am + 0.45); st.slipV = 0; }
+      if (L === 0 && Math.abs(st.slip) < 0.004 && Math.abs(st.slipV) < 0.02) st.slip = st.slipV = 0; // 抓回來了：完全回到原本的算法
+    }
+    const dm = (st.dm = smooth01(Math.abs(st.slip) / 0.14));
+    if (dm > 0 && !air) {
+      const fr = 0.5 * aG * (1 - 0.35 * L) * sat(st.slip / 0.1), dR = st.steer * 0.32, ff = 0.5 * aG * sat(dR / 0.15), aD = a * (1 - 0.3 * L * DR.bias);
+      DRO.wD = -(fr + ff + aD * Math.sin(st.slip)) / Math.max(3, u);
+      DRO.bleed = 0.55 * (Math.abs(fr * Math.sin(st.slip)) + Math.abs(ff * Math.sin(dR))) * dm; DRO.cap = (DR.rwd ? 0.32 : 0.26) * aG * Math.cos(st.slip);
+      DRO.fwd = Math.cos(st.slip) * (1 - 0.3 * L * DR.bias); DRO.rev = 0.12 * go * L * DR.bias;
+    }
+    return DRO;
   }
   function springs(h) { // 車身：轉彎往外傾、加速抬頭、煞車點頭（彈簧）；草地、稻田抖一抖
     st.jitT -= h; if (st.jitT <= 0) { st.jitT = 0.09 + Math.random() * 0.06; st.jit = st.surf === 1 || st.surf === 2 ? (Math.random() - 0.5) * 0.014 * Math.min(1, Math.abs(st.v) / 3) : 0; }
@@ -11949,12 +12175,13 @@ function createDrive(o) {
     car.position.set(st.x, 0, st.z); car.rotation.set(0, st.th, 0);
     S.wheels.forEach((wh, i) => { wh.rotation.z = (i % 2 === 0 ? 1 : -1) * (st.spin / (i < 2 ? RF : RR)); });
     const d = Math.atan(st.kap * L), vis = (st.steer < 0 ? -1 : 1) * Math.max(Math.abs(d), Math.abs(st.steer) * (0.2 - 0.12 * Math.min(1, Math.abs(st.v) / 60))); // 右轉（steer > 0）前輪朝 +z；快的時候看起來轉少一點
-    hubs[0].rotation.y = hub0[0] - vis; hubs[1].rotation.y = hub0[1] - vis;
+    const vd = st.dm > 0 ? vis + (clamp(st.steer * 0.32 - st.slip, -0.62, 0.62) - vis) * st.dm : vis; // 第 3 批：甩尾的時候前輪朝走的方向（看得到反打）
+    hubs[0].rotation.y = hub0[0] - vd; hubs[1].rotation.y = hub0[1] - vd;
     body.rotation.x = st.roll; body.rotation.z = st.pitch;
     body.position.z = base.bz - 0.45 * Math.sin(st.roll); body.position.x = base.bx + 0.45 * Math.sin(st.pitch); // 繞離地 0.45 公尺那點轉（不動 y：y 是車高）
     const cx = st.x + Math.cos(st.th) * CX, cz = st.z - Math.sin(st.th) * CX;
     fx.shadow.position.set(cx, 0.06, cz); fx.shadow.rotation.y = st.th;
-    if (ride && ride.on) ride.pose(vis, fx.shadow, cx, cz); // 第 4 批：高度、傾斜、懸吊、四輪轉向、影子貼地
+    if (ride && ride.on) ride.pose(vd, fx.shadow, cx, cz); // 第 4 批：高度、傾斜、懸吊、四輪轉向、影子貼地
   }
   function zones(silent) { // 每一步都算（300 km/h 一幀走 1.4 公尺，窄的範圍也不會跳過去）
     const cx = st.x + Math.cos(st.th) * CX, cz = st.z - Math.sin(st.th) * CX; let cur = null;
@@ -12025,7 +12252,8 @@ function createDrive(o) {
   // ---- 鏡頭 ----
   // 追車：越快越往後拉、放低一點、看遠一點、視角變廣（速度感，最多 +12°）；位置跟著車子「相對」平滑（不然 300 km/h 鏡頭會落後 8 公尺）
   // 晃：撞到（shake，照撞的力道）＋200 km/h 以上路面的小震動（幾個不同頻率的正弦，不是每幀亂跳）
-  const cam = { yaw: st.th, ox: 0, oy: 0, oz: 0, d: 6.5, ok: false, shake: 0, spd: 0, acc: 0, t: 0 }, V1 = new THREE.Vector3(), V2 = new THREE.Vector3();
+  const isCop = (c) => c.police === true && c.t === 'box'; // 第 3 批（b3-int）：警車的碰撞物（鏡頭抬高用）
+  const cam = { yaw: st.th, ox: 0, oy: 0, oz: 0, d: 6.5, ok: false, shake: 0, spd: 0, acc: 0, t: 0, cop: 0 }, V1 = new THREE.Vector3(), V2 = new THREE.Vector3();
   const defEye = { eye: [CX - 0.3, 1.12, S.spec.interior?.wheelZ ?? 0.37], look: [CX + 9, 0.95, S.spec.interior?.wheelZ ?? 0.37], fov: 72 };
   const wob = (t, a) => Math.sin(t * 71 + a) * 0.5 + Math.sin(t * 113 + 2 * a + 1.7) * 0.3 + Math.sin(t * 163 + 3 * a + 4.1) * 0.2;
   const setFov = (f) => { if (Math.abs(f - camera.fov) > 0.05) { camera.fov = f; camera.updateProjectionMatrix(); } };
@@ -12043,7 +12271,7 @@ function createDrive(o) {
       setFov((v.fov || 72) + 7 * q);
       return;
     }
-    cam.yaw += wrapA(st.th - cam.yaw) * (1 - Math.exp(-dt * (2.4 + sp * 0.1)));
+    cam.yaw += wrapA(st.th + st.slip * 0.6 - cam.yaw) * (1 - Math.exp(-dt * (2.4 + sp * 0.1))); // 第 3 批：甩尾的時候往走的方向轉一點
     let D = 6.4 + 1.8 * q + clamp(cam.acc * 0.05, -0.3, 0.45), H = 2.35 - 0.4 * q, yaw = cam.yaw; // 用力加速鏡頭落後一點、煞車靠近一點
     const rc = ride && ride.on ? ride.cam(dt) : null; if (rc) { D *= rc.d; H += rc.dh; } // 第 4 批：大車拉遠拉高
     if (intro) { // 出門：鏡頭從車前面繞到後面
@@ -12058,6 +12286,11 @@ function createDrive(o) {
     if (!cam.ok) { cam.ox = ox; cam.oy = oy; cam.oz = oz; cam.ok = true; }
     const k2 = 1 - Math.exp(-dt * 10); cam.ox += (ox - cam.ox) * k2; cam.oy += (oy - cam.oy) * k2; cam.oz += (oz - cam.oz) * k2;
     camera.position.set(px + cam.ox + sx, cam.oy + sy * 0.7, pz + cam.oz + sz);
+    { // 第 3 批（b3-int）：鏡頭在警車（police: true 的碰撞物）上面或旁邊就抬高（慢慢的），不要穿過車頂的警示燈
+      const X = camera.position.x, Z = camera.position.z; let want = 0;
+      for (const c of cw.near(X - 1.5, Z - 1.5, X + 1.5, Z + 1.5, isCop)) { const ox = X - c.x, oz = Z - c.z; if (Math.abs(ox * c.u[0] + oz * c.u[1]) < c.hx + 1.1 && Math.abs(ox * c.w[0] + oz * c.w[1]) < c.hz + 1.1) want = Math.max(want, (c.h || 1.6) + 0.9); }
+      cam.cop += (want - cam.cop) * (1 - Math.exp(-dt * (want > cam.cop ? 12 : 3))); if (cam.cop > camera.position.y) camera.position.y = cam.cop;
+    }
     const la = 3 + 5 * q; camera.lookAt(px + fx2 * la, 1.0 - 0.1 * q, pz + fz2 * la);
     if (rc) { camera.position.y = Math.max(camera.position.y + rc.y, rc.floor(camera.position.x, camera.position.z)); camera.lookAt(px + fx2 * la, 1.0 - 0.1 * q + rc.look + rc.y, pz + fz2 * la); } // 第 4 批：跟著車子的高度、不鑽到地底下
     // 直的長畫面（手機全螢幕，寬÷高 0.6 以下）：上下多看一點（412×915 大約 86°），車子才不會大到擋住路、左右也看得到；0.6 以上照舊
@@ -12080,14 +12313,16 @@ function createDrive(o) {
     if (!document.getElementById('dv-style')) { const s = document.createElement('style'); s.id = 'dv-style'; s.textContent = CSS; document.head.append(s); }
     const root = document.createElement('div'); root.className = 'dv';
     root.innerHTML = `<div class="dv-chip" hidden><i>${ICON.up}</i><b></b><small></small></div><button type="button" class="dv-act" hidden><i></i><span></span><kbd>E</kbd></button><div class="dv-map"><canvas></canvas></div>`
-      + `<b class="dv-cam" role="button" aria-label="換視角" aria-pressed="false">${ICON.cam}</b><button type="button" class="dv-act2" hidden><i></i><span></span></button><div class="dv-spd"><b>0</b><span>KM/H</span><em>1</em></div>`
+      + `<b class="dv-cam" role="button" aria-label="換視角" aria-pressed="false">${ICON.cam}</b><button type="button" class="dv-act2" hidden><i></i><span></span></button><div class="dv-spd"><b>0</b><span>KM/H</span><em>1</em><i hidden>甩尾<span></span></i></div>`
       + `<div class="dv-steer"><b role="button" aria-label="左轉">${ICON.L}</b><b role="button" aria-label="右轉">${ICON.R}</b></div>`
-      + `<div class="dv-ped"><b class="dv-brk" role="button" aria-label="煞車">煞車</b><b class="dv-gas" role="button" aria-label="油門">油門</b></div><div class="dv-toast" role="status"></div>`;
+      + `<div class="dv-ped"><b class="dv-brk" role="button" aria-label="煞車">煞車</b><b class="dv-gas" role="button" aria-label="油門">油門</b></div><div class="dv-toast" role="status"></div>`
+      + `<b class="dv-hb" role="button" aria-label="手煞車">手煞車</b>`; // 第 3 批（甩尾）
     o.hudParent.append(root);
     const q = (s) => root.querySelector(s), H = { root, chip: q('.dv-chip'), arrow: q('.dv-chip svg'), name: q('.dv-chip b'), dist: q('.dv-chip small'), map: q('.dv-map canvas'), cam: q('.dv-cam'),
       act: q('.dv-act'), actIcon: q('.dv-act i'), actText: q('.dv-act span'), act2: q('.dv-act2'), act2Icon: q('.dv-act2 i'), act2Text: q('.dv-act2 span'),
       spd: q('.dv-spd b'), gear: q('.dv-spd em'), steer: q('.dv-steer'), steerB: [...root.querySelectorAll('.dv-steer b')], gas: q('.dv-gas'), brk: q('.dv-brk'), toast: q('.dv-toast'), off: [] };
     if (o.camButton === false) H.cam.hidden = true;
+    H.hb = q('.dv-hb'); H.drift = q('.dv-spd i'); H.driftA = q('.dv-spd i span'); // 第 3 批
     const on = (el, t, f, opt) => { el.addEventListener(t, f, opt); H.off.push(() => el.removeEventListener(t, f, opt)); };
     on(root, 'contextmenu', (e) => e.preventDefault());
     // 按住：手指按下去就抓住（滑出去也算按著），放開才放
@@ -12098,6 +12333,7 @@ function createDrive(o) {
     };
     hold(H.gas, () => { human.thr = 1; H.gas.classList.add('on'); }, () => { human.thr = 0; H.gas.classList.remove('on'); });
     hold(H.brk, () => { human.brk = 1; H.brk.classList.add('on'); }, () => { human.brk = 0; H.brk.classList.remove('on'); });
+    hold(H.hb, () => { human.hb = 1; H.hb.classList.add('on'); }, () => { human.hb = 0; H.hb.classList.remove('on'); }); // 第 3 批：手煞車（另一隻手指按著油門、方向也按得到）
     const fingers = new Map(), steerNow = () => { let s = 0; for (const v of fingers.values()) s = v; human.steer = s; H.steerB[0].classList.toggle('on', s < 0); H.steerB[1].classList.toggle('on', s > 0); };
     hold(H.steer, (e) => { const r = H.steer.getBoundingClientRect(); fingers.delete(e.pointerId); fingers.set(e.pointerId, e.clientX < r.left + r.width / 2 ? -1 : 1); steerNow(); }, (e) => { fingers.delete(e.pointerId); steerNow(); });
     on(H.cam, 'click', () => setCameraMode(mode === 'eye' ? 'chase' : 'eye'));
@@ -12160,6 +12396,14 @@ function createDrive(o) {
       g.beginPath(); g.arc(s / 2 + sx, s / 2 + sy, r, 0, TAU); g.fillStyle = d.bg; g.fill(); g.lineWidth = 2 * H.dpr; g.strokeStyle = key === dest ? '#FF6A1F' : 'rgba(242,243,245,0.85)'; g.stroke();
       g.fillStyle = d.fg; g.font = `700 ${Math.round(r * 1.15)}px ${SANS}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(d.icon, s / 2 + sx, s / 2 + sy + 0.5 * H.dpr);
     }
+    // 第 3 批（b3-int）：別的模組給的點（警車⋯）：小圓點；地圖外面的貼在邊上；on: false 的不畫
+    if (marks) for (let i = 0; i < marks.length; i++) {
+      const m = marks[i]; if (!m || m.on === false) continue;
+      const wx = m.x - cx, wz = m.z - cz; let sx = (wx * cs - wz * sn) * k, sy = (wx * sn + wz * cs) * k + oy; const l = Math.max(Math.abs(sx), Math.abs(sy));
+      if (l > R) { sx *= R / l; sy *= R / l; }
+      g.beginPath(); g.arc(s / 2 + sx, s / 2 + sy, (m.r || 5) * H.dpr, 0, TAU); g.fillStyle = m.fill || '#FF3B30'; g.fill();
+      if (m.ring) { g.lineWidth = 1.5 * H.dpr; g.strokeStyle = m.ring; g.stroke(); }
+    }
     // 你：中間偏下的箭頭（永遠朝上）
     const u = H.dpr; g.translate(s / 2, s / 2 + oy); g.beginPath(); g.moveTo(0, -9 * u); g.lineTo(7 * u, 7 * u); g.lineTo(0, 3.5 * u); g.lineTo(-7 * u, 7 * u); g.closePath();
     g.fillStyle = '#F2F3F5'; g.fill(); g.lineWidth = 2 * u; g.strokeStyle = '#FF6A1F'; g.stroke(); g.setTransform(1, 0, 0, 1, 0, 0);
@@ -12177,6 +12421,10 @@ function createDrive(o) {
       set('dist', here ? '到了！' : left < 25 ? '就在前面' : left >= 995 ? `${(left / 1000).toFixed(1)} km` : `${Math.round(left / 10) * 10} m`, (v) => (H.dist.textContent = v));
     }
     H.mapT -= dt; if (H.mapT <= 0) { drawMap(1 / 30 - H.mapT); H.mapT = 1 / 30; }
+    // 第 3 批：「甩尾 35°」：甩超過 0.25 秒才出來、抓回來 0.6 秒以後才收（角度一秒最多換 10 次、5° 一格）
+    if (st.dT >= 0.25) st.dShow = 0.6; else st.dShow = Math.max(0, st.dShow - dt);
+    set('drift', st.dShow > 0, (v) => (H.drift.hidden = !v));
+    if (st.dT >= 0.25) { H.dA = (H.dA || 0) - dt; if (H.dA <= 0) { H.dA = 0.1; set('dA', Math.max(10, Math.round((Math.abs(st.slip) * 180) / Math.PI / 5) * 5), (v) => (H.driftA.textContent = v + '°')); } }
   }
   let toastT = 0;
   function toast(text, ms = 1600) { if (!hud) return; hud.toast.textContent = text; hud.toast.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => hud && hud.toast.classList.remove('show'), ms); }
@@ -12221,8 +12469,54 @@ function createDrive(o) {
   if (useKeys) { window.addEventListener('keydown', onKey); window.addEventListener('keyup', onKey); window.addEventListener('blur', onBlur); }
   const input = () => {
     if (forced) return forced;
-    const k = human.kb; return { thr: Math.max(k.U ? 1 : 0, human.thr), brk: Math.max(k.D ? 1 : 0, human.brk), hb: k.B ? 1 : 0, steer: clamp((k.R ? 1 : 0) - (k.L ? 1 : 0) + human.steer, -1, 1) };
+    const k = human.kb; return { thr: Math.max(k.U ? 1 : 0, human.thr), brk: Math.max(k.D ? 1 : 0, human.brk), hb: Math.max(k.B ? 1 : 0, human.hb), steer: clamp((k.R ? 1 : 0) - (k.L ? 1 : 0) + human.steer, -1, 1) };
   };
+
+  // ---- 第 3 批（甩尾）：胎痕、輪胎的煙（場景共用的 skidFx）、輪胎叫（audio.skid）：每幀 ----
+  // 四個輪子：在地上的位置一直跟著，夠鬆就每 0.35 公尺畫一段（後輪；甩很大前輪也畫）；後輪冒煙；輪胎叫一秒最多送 20 次、有變才送
+  const SK = scene ? skidFx(scene) : null, SKW = [[W.xf, W.trackF, W.wF], [W.xf, -W.trackF, W.wF], [W.xr, W.trackR, W.wR], [W.xr, -W.trackR, W.wR]]
+    .map(([x, z, w]) => ({ x, z: z || 0.75 * Math.sign(z || 1), hw: (w || 0.24) * 0.45, on: false, e: false, px: 0, pz: 0, lx: 0, lz: 0, ly: 0, rx: 0, rz: 0, ry: 0, a: 0, acc: 0 }));
+  const sndK = { t: 0, l: 0, p: 0 }, gy = (x, z) => (ride && ride.on ? ride.ground(x, z) + 0.04 : 0.04); // 胎痕的高度：村子的路面上面一點點（地上的標線、油漬再上面）；地形照地面
+  // 第 3 批（b3-int）：0.045 → 0.04：賽車場的柏油 0.03、白線／路肩 0.045（circuit.js 的 Y），胎痕夾在中間（跟白線同高會閃）
+  function fxTick(dt) {
+    if (SK) {
+      const F = SK; F.U.now.value += dt; if (F.marks.parent !== scene) scene.add(F.marks, F.smoke);
+      const lv = paused ? 0 : st.skidM, c = Math.cos(st.th), s = Math.sin(st.th), look = SKID.look[SKID.kind[st.surf] || 0], big = smooth01((Math.abs(st.slip) - 0.3) / 0.3);
+      const ph = st.th + st.slip, vx = Math.cos(ph) * st.v, vz = -Math.sin(ph) * st.v;
+      for (let i = 0; i < 4; i++) {
+        const w = SKW[i], k = i < 2 ? lv * big * 0.8 : lv, x = st.x + c * w.x + s * w.z, z = st.z - s * w.x + c * w.z;
+        if (k < 0.08) { w.on = false; w.acc = 0; continue; }
+        if (!w.on) { w.on = true; w.e = false; w.px = x; w.pz = z; continue; }
+        const dx = x - w.px, dz = z - w.pz, d2 = dx * dx + dz * dz;
+        if (d2 > 4) { w.e = false; w.px = x; w.pz = z; continue; } // 一下跳很遠（傳送）：重新開始
+        if (d2 >= 0.1225) {
+          const dl = Math.sqrt(d2), nx = (-dz / dl) * w.hw, nz = (dx / dl) * w.hw, lx = x + nx, lz = z + nz, rx = x - nx, rz = z - nz;
+          if (!w.e) { w.lx = w.px + nx; w.lz = w.pz + nz; w.rx = w.px - nx; w.rz = w.pz - nz; w.ly = gy(w.lx, w.lz); w.ry = gy(w.rx, w.rz); w.a = 0; }
+          const ly = gy(lx, lz), ry = gy(rx, rz);
+          F.seg(w.lx, w.lz, w.ly, w.rx, w.rz, w.ry, lx, lz, ly, rx, rz, ry, w.a, k, look.m);
+          w.lx = lx; w.lz = lz; w.ly = ly; w.rx = rx; w.rz = rz; w.ry = ry; w.e = true; w.a = k; w.px = x; w.pz = z;
+        }
+        if (i >= 2 && k > 0.2 && Math.abs(st.v) > 2) { // 煙：後輪
+          w.acc += dt * 24 * k * look.z;
+          while (w.acc >= 1) {
+            w.acc -= 1; const r1 = Math.random();
+            F.puff(x + (Math.random() - 0.5) * 0.3, gy(x, z) + 0.2, z + (Math.random() - 0.5) * 0.3, vx * 0.25 + (Math.random() - 0.5) * 1.2, 0.15 + 0.3 * r1, vz * 0.25 + (Math.random() - 0.5) * 1.2,
+              (1.5 + 0.9 * Math.random()) * (0.8 + 0.4 * k), 0.5 * look.z, (1.4 + 1.4 * k) * look.z, look.s, look.s[3] * (0.55 + 0.45 * k));
+          }
+        }
+      }
+      F.flush();
+    }
+    const au = o.audio;
+    if (au && typeof au.skid === 'function') {
+      sndK.t -= dt; const lv = paused ? 0 : Math.round(st.skid * 20) / 20, pi = clamp(Math.abs(st.slip) / 0.8 + Math.abs(st.v) / 90, 0, 1);
+      if (sndK.t <= 0 && (Math.abs(lv - sndK.l) > 0.04 || (lv > 0 && Math.abs(pi - sndK.p) > 0.08) || (lv === 0 && sndK.l !== 0))) { sndK.t = 0.05; sndK.l = lv; sndK.p = pi; try { au.skid(lv, pi, SKID.kind[st.surf] > 0); } catch { /* 算了 */ } }
+    }
+  }
+  function fxOff() { // 停下來（下車、暫停）：煙藏起來、輪胎不叫（胎痕留在地上）
+    if (SK) SK.smoke.visible = false; for (const w of SKW) { w.on = false; w.acc = 0; }
+    if (sndK.l !== 0 && o.audio && typeof o.audio.skid === 'function') { try { o.audio.skid(0); } catch { /* 算了 */ } } sndK.l = 0;
+  }
 
   // ---- 每一幀 ----
   function update(dt) {
@@ -12236,11 +12530,13 @@ function createDrive(o) {
       const inp = input(), n = Math.max(1, Math.ceil(dt * HZ - 1e-6), Math.ceil(((Math.abs(st.v) + 15 * dt) * dt) / STEP)), h = dt / n;
       for (let i = 0; i < n; i++) { physics(h, inp); collide(); springs(h); if (ride) ride.step(h); zones(false); }
     }
+    if (Math.abs(st.slip) > 0.175) { if (st.dT < 0.25 && st.dT + dt >= 0.25) st.drifts++; st.dT += dt; } else st.dT = 0; // 第 3 批：甩 10° 以上超過 0.25 秒＝甩了一次
     // 撞到：這一幀最大的一下（0.25 秒內只算一次）→ 鏡頭晃、onBump
     if (st.hitW > 1.2 && now - st.hitT > 0.25) { st.bumps++; st.hitT = now; cam.shake = Math.max(cam.shake, Math.min(0.32, st.hitW * 0.012)); events.push(['bump', st.hitW]); }
     st.hitW = 0;
     if (imp) { if (now - st.impT > 0.2 || imp.speed > st.impW * 1.5 + 1) { st.impT = now; st.impW = imp.speed; events.push(['impact', imp]); } imp = null; }
     pose(); routeTick(dt); beaconTick(); camTick(dt); hudTick(dt);
+    fxTick(dt); // 第 3 批：胎痕、煙、輪胎叫
     // 事件最後才叫（叫的時候車子、鏡頭都已經是這一幀的樣子）
     const ev = events.splice(0);
     for (const e of ev) {
@@ -12253,6 +12549,7 @@ function createDrive(o) {
     }
   }
   function neutral() {
+    st.slip = st.slipV = st.loose = st.dm = st.skid = st.skidM = st.flick = st.thrMem = st.kickT = st.pwT = st.dT = st.dShow = st.hb = 0; // 第 3 批：不甩
     st.roll = st.rollV = st.pitch = st.pitchV = st.kap = st.steer = st.v = st.scrub = st.push = 0; st.thr = st.brk = st.thrEff = st.load = 0; st.rpm = 0.13; st.hitW = st.touch = st.blocked = 0;
     body.rotation.x = 0; body.rotation.z = 0; body.position.x = base.bx; body.position.z = base.bz; hubs.forEach((hb, i) => (hb.rotation.y = hub0[i]));
   }
@@ -12271,8 +12568,9 @@ function createDrive(o) {
     const dx = x1 - st.x, dz = z1 - st.z, dist = Math.hypot(dx, dz);
     auto = { t: 0, T: clamp(dist / 4.5 + 0.5, 0.6, 3.2), x0: st.x, z0: st.z, th0: st.th, x1, z1, th1, k: dist, f0, f1, onDone, curve: dist > 0.5 && dx * f0[0] + dz * f0[1] > 0 && f0[0] * f1[0] + f0[1] * f1[1] > 0.3 };
     st.rev = false; st.gear = 0; st.hold = 0;
+    st.slip = st.slipV = st.loose = st.dm = 0; // 第 3 批：自動停車不甩
   }
-  function pause() { paused = true; auto = null; events.length = 0; neutral(); setHidden(true); human.thr = human.brk = human.steer = 0; human.kb = {}; if (hud) { hud.act.classList.remove('on'); hud.act2.classList.remove('on'); } }
+  function pause() { paused = true; auto = null; events.length = 0; neutral(); setHidden(true); human.thr = human.brk = human.steer = human.hb = 0; human.kb = {}; fxOff(); if (hud) hud.hb.classList.remove('on'); /* 第 3 批 */ if (hud) { hud.act.classList.remove('on'); hud.act2.classList.remove('on'); } }
   function resume() { if (!alive) return; paused = false; setHidden(false); cam.ok = false; }
   function release() { pause(); if (ride) ride.release(); st.spin = 0; car.position.set(0, 0, 0); car.rotation.set(0, 0, 0); S.wheels.forEach((w) => (w.rotation.z = 0)); car.updateMatrixWorld(true); }
   function setDestination(name) { dest = name && places[name] ? name : null; routeT = 0; routeTick(0, true); if (hud) hud.last.here = undefined; }
@@ -12286,12 +12584,15 @@ function createDrive(o) {
     fx.beacon.removeFromParent(); fx.texs.forEach((t) => t.dispose());
   }
   const telemetry = () => ({ x: st.x, z: st.z, heading: st.th, v: st.v, kmh: Math.abs(st.v) * 3.6, rpm: st.rpm, gear: st.rev ? -1 : st.gear + 1, throttle: st.cut > 0 ? 0 : st.thrEff, load: paused ? 0 : st.load,
-    brake: Math.max(st.rev ? st.thr : st.brk, st.hb), steer: st.steer, surface: st.surf, cap: Math.min(999, Math.round(st.cap * 36) / 10), reversing: st.rev, bumps: st.bumps, shifts: st.shifts, zone: zoneNow, dest, destDist: routeData ? Math.max(0, routeData.len - routeS) : null, auto: !!auto, paused, ...(ride ? ride.tele() : null) });
+    brake: Math.max(st.rev ? st.thr : st.brk, st.hb), steer: st.steer, surface: st.surf, cap: Math.min(999, Math.round(st.cap * 36) / 10), reversing: st.rev, bumps: st.bumps, shifts: st.shifts, zone: zoneNow, dest, destDist: routeData ? Math.max(0, routeData.len - routeS) : null, auto: !!auto, paused,
+    slip: st.slip, travel: wrapA(st.th + st.slip), drift: st.dm, drifting: Math.abs(st.slip) > 0.175, drifts: st.drifts, loose: st.loose, skid: st.skid, handbrake: st.hb > 0 ? 1 : 0, // 第 3 批（甩尾）
+    marks: SK ? SK.count() : 0, smoke: SK ? SK.alive() : 0, ...(ride ? ride.tele() : null) });
 
   const api = {
     update, telemetry, setDestination, setCameraMode, teleport, parkAt, pause, resume, release, dispose, toast, setAction, setAction2,
     addColliders: (list, tag) => cw.add(Array.isArray(list) ? list : [list], tag ?? null),
     removeColliders: (tag) => cw.remove(tag),
+    setMarkers: (list) => { marks = Array.isArray(list) ? list : null; }, // 第 3 批（b3-int）
     setDamage: (p) => { dmgP.power = p && p.power > 0 ? Math.min(1, p.power) : 1; dmgP.top = p && p.top > 0 ? Math.min(1, p.top) : 1; dmgP.maxKmh = p && p.maxKmh > 0 ? p.maxKmh : Infinity; dmgP.steerPull = p ? clamp(+p.steerPull || 0, -1, 1) : 0; },
     setInput: (i) => { forced = i ? { thr: +i.throttle || 0, brk: +i.brake || 0, hb: +i.handbrake || 0, steer: clamp(+i.steer || 0, -1, 1) } : null; },
     get cameraMode() { return mode; }, get route() { return routeData; }, get action() { return action ? action.label : null; }, get action2() { return action2 ? action2.label : null; },
@@ -13659,6 +13960,935 @@ function createOffroadRace(o) {
 }
 
 return { buildOffroad, offroadFonts, OFFROAD_TEXT, OFFROAD_RACES, OFFROAD_SOUND, OFFROAD_EYE, createOffroadRace, makeOffroadRacer };
+})();
+
+// ---- circuit.js ----
+// ---- 賽車場（大便龍賽車場）：直線加速賽道北邊一條 3.7 公里的封閉賽道，一圈一圈跟對手比 ----
+// Nick 2026-10-04「賽道要很長不要只是直線」
+// 位置：直線加速賽道（x −60…760、z ±6）北邊的草地：x 230…1150、z −160…−740（從上面看逆時針：主直線在南邊往東開）
+//   從村子自己開過去：直線加速賽道入口（x −51、z 0）北邊的護欄開一個口 → 新的柏油路往北再往東 → 維修區後面的停車場 → 維修道 → 開上賽道
+//   村子、直線加速賽道、快速道路、越野車場都沒有動（只有 race.src.js 北邊的三座遠山往北移、樹不種在新路上，village.js／race.src.js 北邊的護欄開一個口）
+// 一圈：主直線（起終點、起跑格、維修道、看台）→ 第 1 彎（重煞車，外面碎石）→ 兩個高速彎 → 中速彎 → 後直線（減速彎）→ 髮夾彎 → 下坡的長彎 →
+//   中速彎、S 彎 → 最後一個彎回到主直線
+// 世界座標跟 village.js、drive.js 一樣：x 往東、y 往上、z 往南；heading＝rotation.y（0 朝東、π/2 朝北）
+// 【API】
+//   await circuitFonts();                    招牌的中文字（跟 villageFonts 一起等）
+//   const P = buildCircuit(V, { renderer });  V＝buildVillage() 回傳的（buildOffroad 之後）；賽車場加進 V（V.group、V.places、V.colliders、V.roads、V.bounds、V.info.circuit）
+//     V.surfaceAt、V.route 包一層：賽車場裡照這裡算（柏油 0、草地 1、碎石 2），外面完全照舊
+//     V.places.circuit：維修區的報名處 { name, pos, zone（開進來慢一點就停好、選對手）, park（停好的位置）, spawn }
+//   P.course：賽道中線（一圈 len 公尺、n 點、每 ds 公尺一點；s＝0 在起終點線，往東開）
+//     { len, n, ds, x, z, tx, tz, k（曲率，左轉 +）, wl, wr（左右到護欄多遠）, line（跑線：往右 +）, at(s, out) → { x, z, tx, tz, k }, project(x, z, hint) → { s, d（往右 +）, i, dist } }
+//   P.gates：檢查點 [{ s, x, z, tx, tz, hw }] × 12（最後一個＝起終點）；P.grid(k) → 第 k 個起跑格的 { x, z, heading }（車子中心）
+//   P.inside(x, z)：在賽車場的護欄裡面（含維修區、停車場、聯外道路）；P.zoneAt(x, z) → 'track' | 'pad' | 'access' | null
+//   P.info：{ meshes, tris, colliders, ms }；P.setLights(n)：起跑燈亮幾顆（0–5；−1 全暗）；P.dispose()（V.dispose() 也會叫）
+//   createCircuitRace({ world: V, scene, drive, opps, laps, hudParent, title, onFinish, onDone, onAbort, calm })
+//     opps：[{ name, obj（輕量車 buildLodCar 回傳的：car、setRoll、setLook）, perf（{ hp, kg, cda, vmax, awd, drive }）, skill（'rookie' | 'ok' | 'good' | 'pro' | 'slow'）, boss }]
+//     drive：開車的（createDrive 回傳的）；比賽一開始把你放到最後一個起跑格、對手排在前面；五顆紅燈一顆一顆亮、全部熄掉才可以開
+//     onFinish(result) → { lines: [多顯示的字] }（獎金由呼叫的人加）；onDone({ again })：「再比一次」／「開走」；onAbort(why)：'quit'、'left'（開出賽車場）
+//     → { update(dt)（drive.update 之後叫）, abort(why), dispose(), standings(), state（'grid' | 'run' | 'done' | 'off'）, time, me, ais, result }
+//     result：{ place, n, time, best（最快一圈）, laps, won }
+// 效能：地面（草、柏油、碎石、白線＋路緣石）、護欄、看台、建築都照材質合併（450 公尺一塊）；樹一個 InstancedMesh；對手一台 4 個 draw call（輕量車）＋影子一個
+
+// 打包（build-art.mjs、build-app.mjs）：跟 offroad.js 一樣整個包在一個函式裡，只露出下面這些名字
+const { buildCircuit, circuitFonts, CIRCUIT_TEXT, CIRCUIT_KEEP, createCircuitRace, CIRCUIT_SKILL, circuitCourse, circuitCSS, circuitFmt, circuitCar, circuitProfile } = (() => {
+const TAU = Math.PI * 2;
+const SANS = '"Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Heiti TC", "WenQuanYi Zen Hei", sans-serif';
+const COND = '"Barlow Condensed", "Arial Narrow", sans-serif';
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const ss = (e0, e1, v) => { const t = clamp((v - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); };
+const wrapA = (a) => { a = (a + Math.PI) % TAU; return a < 0 ? a + Math.PI : a - Math.PI; };
+function rng(seed) { let s = seed >>> 0; return () => { s = (s + 0x6d2b79f5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const CC = new Map();
+const C = (hex) => { let v = CC.get(hex); if (!v) { const c = new THREE.Color(hex); v = [c.r, c.g, c.b]; CC.set(hex, v); } return v; }; // 線性顏色
+const mul = (a, k) => [a[0] * k, a[1] * k, a[2] * k];
+const plen = (pts) => { let L = 0; for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); return L; };
+function segD(px, pz, ax, az, bx, bz) { const dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz || 1; let t = ((px - ax) * dx + (pz - az) * dz) / l2; t = t < 0 ? 0 : t > 1 ? 1 : t; const ex = ax + dx * t - px, ez = az + dz * t - pz; return Math.sqrt(ex * ex + ez * ez); }
+function cv(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d')]; }
+function fitFont(g, text, maxW, px, fam = SANS) { let s = px; for (; s > 8; s -= 2) { g.font = `700 ${s}px ${fam}`; if (g.measureText(text).width <= maxW) break; } return s; }
+
+// ---- 賽道的形狀：多邊形的角（逆時針）＋每個角的圓弧半徑；out＝彎道外側到護欄幾公尺、grav＝外側鋪碎石（衝出去會慢下來）----
+const LAYOUT = [
+  [230, -160, 60, 22, 0], // 最後一個彎（左）→ 主直線
+  [1150, -160, 40, 32, 1], // 第 1 彎：主直線盡頭重煞車（左）
+  [1150, -330, 260, 18, 0], [1050, -470, 260, 18, 0], // 高速的左、右
+  [1050, -600, 35, 28, 1], [900, -600, 70, 22, 0], [900, -740, 30, 28, 1], // 中速彎三個
+  [660, -740, 14, 17, 1], [642, -728, 14, 17, 1], [608, -728, 14, 17, 1], [590, -740, 14, 17, 1], // 後直線中間的減速彎（右、左）
+  [250, -740, 17, 30, 1], [240, -695, 25, 24, 1], // 髮夾彎
+  [450, -600, 70, 20, 0], [470, -470, 45, 22, 1], [700, -470, 60, 18, 0], [770, -400, 70, 18, 0], [720, -330, 40, 24, 1], // 內場：長的右彎、中速彎
+  [560, -330, 45, 16, 0], [500, -270, 45, 16, 0], [400, -270, 60, 16, 0], [340, -330, 30, 18, 1], // S 彎
+  [230, -330, 80, 20, 0], // 往南回主直線
+];
+const HW = 6.5, W0 = 13, SF_X = 640; // 跑道半寬；直線兩邊到護欄；起終點線（主直線往東）
+// 維修區：維修道（z −150…−138）、車庫（x 475…805）、後面的停車場，全部是柏油，跟主直線接在一起（x 300…372、952…990 是進出口）
+const PAD = { x0: 300, x1: 990, z0: -153.4, z1: -92 };
+const PIT = { z: -144, x0: 300, x1: 990, wall: { x0: 372, x1: 952, z: -150.8 } };
+const GARAGE = { x0: 475, x1: 805, z0: -138, z1: -126, h: 8 };
+const BOX = { x: 446, z: -144 }; // 報名處（停在這裡選對手）
+const JX = -51; // 聯外道路接直線加速賽道入口的地方（x −51、z 0）
+const ACC_POLY = [[JX, -3, 0], [JX, -100, 35], [300, -100, 0]]; // 聯外道路（9 公尺寬）
+const ACC_W = 9;
+// 樹（race.src.js 的 buildTrack）不要種的地方：聯外道路 [x0, z0, x1, z1]
+const CIRCUIT_KEEP = [[-64, -116, 4, -5], [-10, -112, 310, -86]];
+// 對手開車的功力：lat＝過彎抓地（你的 1）、brk＝煞車、react＝起跑反應（秒）
+const SKILL = { slow: { lat: 0.62, brk: 0.7, react: 0.8 }, rookie: { lat: 0.68, brk: 0.75, react: 0.65 }, ok: { lat: 0.74, brk: 0.8, react: 0.5 }, good: { lat: 0.8, brk: 0.86, react: 0.4 }, pro: { lat: 0.86, brk: 0.9, react: 0.3 } };
+const AERO = 0.55; // 跟 drive.js 一樣（街機的風阻）
+const SIGNS = { name: '大便龍賽車場', short: '賽車場', sf: '起點 · 終點', pit: '維修區', ads: ['阿輝改車廠', '阿財車行', '越野車場', '加油！衝啊！', '安全第一', '大便龍賽車場'], arch: '大便龍賽車場 →', exit: '出口', welcome: '歡迎光臨' };
+const HUD_TEXT = '第名圈你放棄比賽出發開反了掉頭最後一圈最快再比一次開走獎金秒準備中選對手開始離開贏過先還沒出現';
+const CIRCUIT_TEXT = [...new Set([...Object.values(SIGNS).flat().join(''), ...HUD_TEXT].filter((ch) => ch.charCodeAt(0) > 0x2e80))].join('');
+function circuitFonts(ms = 1500) {
+  const f = typeof document !== 'undefined' && document.fonts;
+  if (!f || !f.load) return Promise.resolve();
+  const all = Promise.all([f.load(`700 64px ${SANS}`, CIRCUIT_TEXT), f.load(`700 64px ${COND}`, '0123456789 ')]).catch(() => {});
+  return Promise.race([all, new Promise((r) => setTimeout(r, ms))]);
+}
+
+// ---- 中線：每個角換成圓弧（切線長 R·tan(θ/2)），每 ds（約 2 公尺）一點；s＝0 移到起終點線 ----
+function fillet(P, closed, step = 0.5) { // P：[[x, z, R], ...] → { pts: [[x, z], ...], corners: [{ at（第幾點）, n, R, left, k }] }
+  const N = P.length, out = [], corners = [];
+  const T = P.map((p, i) => {
+    if (!closed && (i === 0 || i === N - 1)) return null;
+    const a = P[(i + N - 1) % N], c = P[(i + 1) % N], l1 = Math.hypot(p[0] - a[0], p[1] - a[1]), l2 = Math.hypot(c[0] - p[0], c[1] - p[1]);
+    const din = [(p[0] - a[0]) / l1, (p[1] - a[1]) / l1], dout = [(c[0] - p[0]) / l2, (c[1] - p[1]) / l2];
+    const th = Math.acos(clamp(din[0] * dout[0] + din[1] * dout[1], -1, 1)), left = din[0] * dout[1] - din[1] * dout[0] < 0;
+    return { din, dout, th, t: p[2] * Math.tan(th / 2), left, R: p[2] };
+  });
+  const M = closed ? N : N - 1;
+  for (let i = 0; i < M; i++) {
+    const p = P[i], k = T[i], q = P[(i + 1) % N], kn = T[(i + 1) % N];
+    let a1 = [p[0], p[1]];
+    if (k && k.R > 0 && k.th > 1e-6) {
+      const a0 = [p[0] - k.din[0] * k.t, p[1] - k.din[1] * k.t], nL = [k.din[1], -k.din[0]], sg = k.left ? 1 : -1, cx = a0[0] + nL[0] * sg * k.R, cz = a0[1] + nL[1] * sg * k.R;
+      const n = Math.max(1, Math.ceil((k.R * k.th) / step)), ang0 = Math.atan2(a0[1] - cz, a0[0] - cx);
+      corners.push({ at: out.length, n, R: k.R, left: k.left, idx: i });
+      for (let j = 0; j < n; j++) { const ang = ang0 + (k.left ? -1 : 1) * k.th * (j / n); out.push([cx + Math.cos(ang) * k.R, cz + Math.sin(ang) * k.R]); }
+      a1 = [p[0] + k.dout[0] * k.t, p[1] + k.dout[1] * k.t];
+    } else if (!closed && i === 0) a1 = [p[0], p[1]];
+    const b0 = kn && kn.R > 0 ? [q[0] - kn.din[0] * kn.t, q[1] - kn.din[1] * kn.t] : [q[0], q[1]], sl = Math.hypot(b0[0] - a1[0], b0[1] - a1[1]), m = Math.max(1, Math.ceil(sl / step));
+    for (let j = 0; j < m; j++) out.push([a1[0] + (b0[0] - a1[0]) * (j / m), a1[1] + (b0[1] - a1[1]) * (j / m)]);
+  }
+  if (!closed) out.push([P[N - 1][0], P[N - 1][1]]);
+  return { pts: out, corners };
+}
+let COURSE = null;
+function makeCourse() {
+  if (COURSE) return COURSE;
+  const F = fillet(LAYOUT.map((p) => [p[0], p[1], p[2]]), true), raw = F.pts, m = raw.length;
+  // 細的點（0.5 公尺）累積長度 → 照長度平均取 n 點
+  const cum = new Float64Array(m + 1); for (let i = 1; i <= m; i++) { const a = raw[i - 1], b = raw[i % m]; cum[i] = cum[i - 1] + Math.hypot(b[0] - a[0], b[1] - a[1]); }
+  const L = cum[m];
+  let s0 = 0; for (let i = 0; i < m; i++) { const a = raw[i], b = raw[(i + 1) % m]; if (a[1] === b[1] && a[1] === LAYOUT[0][1] && a[0] <= SF_X && b[0] > SF_X) { s0 = cum[i] + (SF_X - a[0]); break; } }
+  const n = Math.round(L / 2), ds = L / n, x = new Float32Array(n), z = new Float32Array(n), tx = new Float32Array(n), tz = new Float32Array(n), k = new Float32Array(n);
+  let j = 0;
+  for (let i = 0; i < n; i++) {
+    let s = s0 + i * ds; if (s >= L) s -= L;
+    if (i === 0 || s < cum[j]) j = 0;
+    while (cum[j + 1] < s) j++;
+    const a = raw[j], b = raw[(j + 1) % m], f = (s - cum[j]) / (cum[j + 1] - cum[j] || 1);
+    x[i] = a[0] + (b[0] - a[0]) * f; z[i] = a[1] + (b[1] - a[1]) * f;
+  }
+  for (let i = 0; i < n; i++) { const a = (i + n - 1) % n, b = (i + 1) % n, dx = x[b] - x[a], dz = z[b] - z[a], l = Math.hypot(dx, dz); tx[i] = dx / l; tz[i] = dz / l; }
+  for (let i = 0; i < n; i++) { const a = (i + n - 1) % n, b = (i + 1) % n, h0 = Math.atan2(-tz[a], tx[a]), h1 = Math.atan2(-tz[b], tx[b]); k[i] = wrapA(h1 - h0) / (2 * ds); }
+  // 彎道：中線上的範圍（s0..s1）、左右、半徑
+  const sOf = (rawIdx) => { let s = cum[rawIdx] - s0; if (s < 0) s += L; return s; };
+  const corners = F.corners.map((c) => { const a = sOf(c.at), b = a + (cum[c.at + c.n] - cum[c.at]); const L5 = LAYOUT[c.idx]; return { s0: a, s1: b, R: c.R, left: c.left, out: L5[3], grav: !!L5[4], idx: c.idx }; });
+  // 左右到護欄多遠：直線 W0；彎道外側照 LAYOUT（前 30、後 20 公尺開始變寬）；外側碎石（彎前 15 到彎後 25 公尺）
+  const wl = new Float32Array(n).fill(W0), wr = new Float32Array(n).fill(W0), gl = new Uint8Array(n), gr = new Uint8Array(n);
+  const dS = (s, a) => { let d = s - a; if (d > L / 2) d -= L; if (d < -L / 2) d += L; return d; };
+  for (const c of corners) for (let i = 0; i < n; i++) {
+    const s = i * ds, da = dS(s, c.s0), db = dS(s, c.s1);
+    const ramp = Math.min(ss(-60, -30, da), 1 - ss(20, 45, db)); if (ramp <= 0) continue;
+    const W = W0 + (c.out - W0) * ramp, OUT = c.left ? wr : wl; if (W > OUT[i]) OUT[i] = W;
+    if (c.grav && da > -15 && db < 25) (c.left ? gr : gl)[i] = 1;
+  }
+  const at = (s, o = {}) => {
+    s = ((s % L) + L) % L; const f0 = s / ds, i = Math.floor(f0) % n, b = (i + 1) % n, f = f0 - Math.floor(f0);
+    o.x = x[i] + (x[b] - x[i]) * f; o.z = z[i] + (z[b] - z[i]) * f; o.tx = tx[i] + (tx[b] - tx[i]) * f; o.tz = tz[i] + (tz[b] - tz[i]) * f; o.k = k[i] + (k[b] - k[i]) * f; o.i = i;
+    const l = Math.hypot(o.tx, o.tz) || 1; o.tx /= l; o.tz /= l; return o;
+  };
+  const PR = { s: 0, d: 0, i: 0, dist: 0 };
+  const project = (px, pz, hint = -1, o = PR) => { // 投影到中線：s、d（往右 +）、最近的點 i；hint＝上一次的 i（附近找就好）
+    let bi = 0, bd = Infinity;
+    if (hint >= 0) { for (let q = -14; q <= 14; q++) { const i = (hint + q + n) % n, d = (x[i] - px) ** 2 + (z[i] - pz) ** 2; if (d < bd) { bd = d; bi = i; } } }
+    if (hint < 0 || bd > 400) { bd = Infinity; for (let i = 0; i < n; i += 3) { const d = (x[i] - px) ** 2 + (z[i] - pz) ** 2; if (d < bd) { bd = d; bi = i; } } for (let q = -3; q <= 3; q++) { const i = (bi + q + n) % n, d = (x[i] - px) ** 2 + (z[i] - pz) ** 2; if (d < bd) { bd = d; bi = i; } } }
+    // 前後兩段裡最近的那段
+    let best = null;
+    for (const a of [(bi + n - 1) % n, bi]) {
+      const b = (a + 1) % n, dx = x[b] - x[a], dz = z[b] - z[a], l2 = dx * dx + dz * dz, t = clamp(((px - x[a]) * dx + (pz - z[a]) * dz) / l2, 0, 1), qx = x[a] + dx * t, qz = z[a] + dz * t, d2 = (px - qx) ** 2 + (pz - qz) ** 2;
+      if (!best || d2 < best.d2) best = { d2, a, t, qx, qz, l: Math.sqrt(l2) };
+    }
+    const a = best.a, txa = tx[a], tza = tz[a];
+    o.s = (a + best.t) * ds; o.i = best.t < 0.5 ? a : (a + 1) % n; o.dist = Math.sqrt(best.d2);
+    o.d = -(px - best.qx) * tza + (pz - best.qz) * txa; // 往右（法線 (−tz, tx)）+
+    return o;
+  };
+  // 跑線（對手開的線）：在跑道裡（離邊 1.4 公尺）拉直，曲率越小越好（橡皮筋：每點往前後兩點的中間拉，先粗後細）
+  const lim = HW - 1.4, line = new Float32Array(n), nx = (i) => -tz[i], nz = (i) => tx[i];
+  for (const [st, it] of [[12, 70], [5, 90], [2, 110], [1, 70]]) for (let r = 0; r < it; r++) for (let i = 0; i < n; i++) {
+    const a = (i - st + n) % n, b = (i + st) % n;
+    const mx = (x[a] + nx(a) * line[a] + x[b] + nx(b) * line[b]) / 2, mz = (z[a] + nz(a) * line[a] + z[b] + nz(b) * line[b]) / 2;
+    const d = (mx - x[i] - nx(i) * line[i]) * nx(i) + (mz - z[i] - nz(i) * line[i]) * nz(i);
+    line[i] = clamp(line[i] + 0.6 * d, -lim, lim);
+  }
+  // 跑線的曲率、每一段多長（對手照這個算速度）
+  const lk = new Float32Array(n), lq = new Float32Array(n);
+  const LX = (i) => x[i] + nx(i) * line[i], LZ = (i) => z[i] + nz(i) * line[i];
+  for (let i = 0; i < n; i++) {
+    const a = (i + n - 2) % n, b = (i + 2) % n, ax = LX(a), az = LZ(a), px = LX(i), pz = LZ(i), bx = LX(b), bz = LZ(b);
+    const c1 = (px - ax) * (bz - az) - (pz - az) * (bx - ax), la = Math.hypot(px - ax, pz - az), lb = Math.hypot(bx - px, bz - pz), lc = Math.hypot(bx - ax, bz - az);
+    lk[i] = (-2 * c1) / (la * lb * lc || 1); // 左轉 +
+    const j = (i + 1) % n; lq[i] = Math.hypot(LX(j) - px, LZ(j) - pz);
+  }
+  for (let r = 0; r < 2; r++) { const t = Float32Array.from(lk); for (let i = 0; i < n; i++) lk[i] = (t[(i + n - 1) % n] + 2 * t[i] + t[(i + 1) % n]) / 4; }
+  COURSE = { len: L, n, ds, x, z, tx, tz, k, wl, wr, gl, gr, line, lk, lq, corners, at, project };
+  return COURSE;
+}
+
+// ---- 車的加速、煞車（對手；跟 drive.js 差不多：馬力、重量、起步抓地、風阻）----
+function carModel(perf) {
+  const P = perf || {}, m = (P.kg || 1400) + 75, pw = (P.hp || 300) * 745.7 * 0.88 * 0.9, tract = 1.35 * 9.81 * (P.awd ? 0.9 : P.drive ?? 0.74), aero = (AERO * 0.6 * (P.cda || 0.65)) / m, vtop = (P.vmax || 250) / 3.6;
+  return { vtop, acc: (v) => Math.min(tract, pw / (m * Math.max(v, 3))) - 0.147 - aero * v * v, brk: (v) => 9.5 + 2.5 * Math.min(1, (v * v) / 4900) + 1.4 + aero * v * v, lat: (v) => 13 + 2 * clamp((v - 20) / 50, 0, 1) };
+}
+function speedProfile(CO, M, sk) { // 照跑線的曲率：彎道最快多快（側向抓地 × 功力）、往回算煞車點、往前算加速
+  const n = CO.n, v = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const kk = Math.abs(CO.lk[i]); let u = M.vtop; if (kk > 1e-5) { u = Math.min(u, Math.sqrt((sk.lat * M.lat(30)) / kk)); u = Math.min(M.vtop, Math.sqrt((sk.lat * M.lat(u)) / kk)); } v[i] = u; }
+  for (let pass = 0; pass < 2; pass++) for (let i = n - 1; i >= 0; i--) { const j = (i + 1) % n; v[i] = Math.min(v[i], Math.sqrt(v[j] * v[j] + 2 * M.brk(v[j]) * sk.brk * CO.lq[i])); }
+  for (let pass = 0; pass < 2; pass++) for (let i = 0; i < n; i++) { const j = (i + n - 1) % n; v[i] = Math.min(v[i], Math.sqrt(v[j] * v[j] + 2 * Math.max(0.3, M.acc(v[j])) * CO.lq[j])); }
+  return v;
+}
+
+// ---- 蓋：一個材質、一塊（450 公尺）一個網格 ----
+const CH = 450, CX0 = -100, CZ0 = -850;
+function bank() {
+  const map = new Map();
+  const get = (mat, x, z) => { const key = mat + ':' + Math.floor((x - CX0) / CH) + ',' + Math.floor((z - CZ0) / CH); let g = map.get(key); if (!g) map.set(key, (g = { mat, p: [], n: [], u: [], c: [], i: [], v: 0 })); return g; };
+  return { map, get };
+}
+const vtx = (g, x, y, z, nx, ny, nz, u, v, c) => { g.p.push(x, y, z); g.n.push(nx, ny, nz); g.u.push(u, v); g.c.push(c[0], c[1], c[2]); return g.v++; };
+function quad(g, a, b, c, d, uv, col) { // 正面看逆時針 a（左下）b（右下）c（右上）d（左上）；uv＝[u0, v0, u1, v1]
+  const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], wx = d[0] - a[0], wy = d[1] - a[1], wz = d[2] - a[2];
+  let nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx; const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+  const k = vtx(g, a[0], a[1], a[2], nx, ny, nz, uv[0], uv[1], col); vtx(g, b[0], b[1], b[2], nx, ny, nz, uv[2], uv[1], col); vtx(g, c[0], c[1], c[2], nx, ny, nz, uv[2], uv[3], col); vtx(g, d[0], d[1], d[2], nx, ny, nz, uv[0], uv[3], col);
+  g.i.push(k, k + 1, k + 2, k, k + 2, k + 3);
+}
+function flat(g, a, b, c, d, y, uvf, col) { // 地上的四邊形（四個 [x, z]）：法線朝上，uv＝uvf(x, z)
+  const cr = (b[0] - a[0]) * (d[1] - a[1]) - (b[1] - a[1]) * (d[0] - a[0]); // 從上面看的方向：要順著 +y 法線
+  const P = cr < 0 ? [a, b, c, d] : [a, d, c, b], cs = Array.isArray(col[0]) ? (cr < 0 ? col : [col[0], col[3], col[2], col[1]]) : null;
+  const k = g.v; P.forEach((p, j) => { const t = uvf(p[0], p[1]); vtx(g, p[0], y, p[1], 0, 1, 0, t[0], t[1], cs ? cs[j] : col); });
+  g.i.push(k, k + 1, k + 2, k, k + 2, k + 3);
+}
+// 盒子（實心的顏色）：中心 (x, y0 底, z)、半長 hx、半寬 hz、高 h、轉 ry；skip＝不要底
+function box(g, x, y0, z, hx, hz, h, ry, col, top = col) {
+  const c = Math.cos(ry), s = Math.sin(ry), P = (lx, ly, lz) => [x + lx * c + lz * s, y0 + ly, z - lx * s + lz * c];
+  const a = P(-hx, 0, hz), b = P(hx, 0, hz), cc = P(hx, 0, -hz), d = P(-hx, 0, -hz), A = P(-hx, h, hz), B = P(hx, h, hz), Cc = P(hx, h, -hz), D = P(-hx, h, -hz), u = [0.5, 0.5, 0.5, 0.5];
+  quad(g, a, b, B, A, u, col); quad(g, b, cc, Cc, B, u, mul(col, 0.92)); quad(g, cc, d, D, Cc, u, mul(col, 0.85)); quad(g, d, a, A, D, u, mul(col, 0.92)); quad(g, A, B, Cc, D, u, top);
+}
+// 貼圖的面：直立的長方形（從 p0 到 p1、y0..y1），正面朝 p0→p1 的右邊（(−dz, dx)）；看的人看過去 p0 在左邊
+function wall(g, p0, p1, y0, y1, uv, col = [1, 1, 1]) { quad(g, [p0[0], y0, p0[1]], [p1[0], y0, p1[1]], [p1[0], y1, p1[1]], [p0[0], y1, p0[1]], uv, col); }
+
+// ---- 貼圖 ----
+function toTex(c, aniso, rep) { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = aniso; if (rep) t.wrapS = t.wrapT = THREE.RepeatWrapping; return t; }
+function noiseTex(R, N, base, spots, aniso) { // 地面：底色＋小點點（柏油、碎石、草）
+  const [c, g] = cv(N, N); g.fillStyle = base; g.fillRect(0, 0, N, N);
+  for (const [n, cols, s] of spots) for (let i = 0; i < n; i++) { g.fillStyle = cols[(R() * cols.length) | 0]; const w = 1 + R() * s; g.fillRect(R() * N, R() * N, w, w); }
+  return toTex(c, aniso, true);
+}
+function grassTex(R, aniso) { // 割過的草（兩種綠一條一條；一張 = 24 公尺）
+  const N = 128, [c, g] = cv(N, N);
+  g.fillStyle = '#7f9157'; g.fillRect(0, 0, N, N / 2); g.fillStyle = '#738650'; g.fillRect(0, N / 2, N, N / 2);
+  for (let i = 0; i < 1400; i++) { g.fillStyle = `rgba(${50 + R() * 40},${70 + R() * 50},${30 + R() * 25},0.3)`; g.fillRect(R() * N, R() * N, 1.5, 1.5); }
+  return toTex(c, aniso, true);
+}
+function atlas(aniso) { // 護欄、輪胎牆、車庫、觀眾、窗戶、招牌、廣告、煞車牌：一張 1024×1024
+  const W = 1024, H = 1024, [c, g] = cv(W, H), uv = {};
+  const reg = (name, x, y, w, h, draw) => { g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip(); g.translate(x, y); draw(g, w, h); g.restore(); uv[name] = [(x + 1) / W, 1 - (y + h - 1) / H, (x + w - 1) / W, 1 - (y + 1) / H]; };
+  const R = rng(5);
+  const T = (g2, t, x, y, px, col, max, fam = SANS) => { g2.fillStyle = col; g2.textAlign = 'center'; g2.textBaseline = 'middle'; fitFont(g2, t, max, px, fam); g2.fillText(t, x, y); };
+  reg('rail', 0, 0, 256, 64, (g2, w, h) => { // 鋼板護欄（W 形：亮暗亮暗）
+    const gr = g2.createLinearGradient(0, 0, 0, h); [[0, '#e9edf0'], [0.18, '#9aa1a8'], [0.32, '#dfe4e8'], [0.5, '#7e858c'], [0.68, '#dfe4e8'], [0.82, '#9aa1a8'], [1, '#6b7177']].forEach(([o, col]) => gr.addColorStop(o, col));
+    g2.fillStyle = gr; g2.fillRect(0, 0, w, h); for (let i = 0; i < 160; i++) { g2.fillStyle = 'rgba(80,70,60,0.12)'; g2.fillRect(R() * w, R() * h, 2, 1); }
+  });
+  reg('tyre', 256, 0, 256, 128, (g2, w, h) => { // 輪胎牆：三層輪胎、紅白的帶子
+    g2.fillStyle = '#16171a'; g2.fillRect(0, 0, w, h);
+    for (let r = 0; r < 3; r++) for (let q = 0; q < 6; q++) { const cx = q * 43 + 21 + (r % 2) * 10, cy = h - 21 - r * 42; g2.fillStyle = '#26272b'; g2.beginPath(); g2.arc(cx, cy, 20, 0, TAU); g2.fill(); g2.fillStyle = '#0b0b0c'; g2.beginPath(); g2.arc(cx, cy, 9, 0, TAU); g2.fill(); }
+    for (let q = 0; q < 4; q++) { g2.fillStyle = q % 2 ? '#f2f3f5' : '#d0342c'; g2.fillRect((q * w) / 4, h * 0.42, w / 4, h * 0.16); }
+  });
+  reg('conc', 512, 0, 256, 64, (g2, w, h) => { // 水泥牆：上面紅白
+    g2.fillStyle = '#c9c7c0'; g2.fillRect(0, 0, w, h); for (let i = 0; i < 500; i++) { g2.fillStyle = 'rgba(0,0,0,0.06)'; g2.fillRect(R() * w, R() * h, 2, 2); }
+    for (let q = 0; q < 4; q++) { g2.fillStyle = q % 2 ? '#f2f3f5' : '#d0342c'; g2.fillRect((q * w) / 4, 0, w / 4, h * 0.22); }
+  });
+  reg('garage', 0, 64, 256, 256, (g2, w, h) => { // 一間車庫（15 公尺寬、8 公尺高）：上面一排玻璃、下面捲門、號碼
+    g2.fillStyle = '#e8e9ec'; g2.fillRect(0, 0, w, h);
+    g2.fillStyle = '#5d7c96'; g2.fillRect(6, 10, w - 12, 70); g2.fillStyle = 'rgba(255,255,255,0.35)'; for (let q = 0; q < 6; q++) g2.fillRect(8 + q * 41, 12, 3, 66);
+    g2.fillStyle = '#2b2e35'; g2.fillRect(0, 92, w, 26); g2.fillStyle = '#FF6A1F'; g2.fillRect(0, 92, w, 5);
+    g2.fillStyle = '#8f949b'; g2.fillRect(18, 128, w - 36, h - 128); g2.fillStyle = 'rgba(0,0,0,0.18)'; for (let y = 134; y < h; y += 9) g2.fillRect(18, y, w - 36, 2);
+  });
+  reg('crowd', 256, 128, 256, 128, (g2, w, h) => { // 觀眾：兩排座位，坐滿人
+    g2.fillStyle = '#3a4d6b'; g2.fillRect(0, 0, w, h);
+    const cols = ['#f2c230', '#d0342c', '#2f6fd6', '#f2f3f5', '#3dbb6b', '#ff8a2a', '#1d1f23', '#e57fb0'];
+    for (let r = 0; r < 2; r++) for (let q = 0; q < 16; q++) { if (R() < 0.12) continue; const x = q * 16 + 8 + (R() - 0.5) * 4, y = r * 64 + 40; g2.fillStyle = cols[(R() * cols.length) | 0]; g2.fillRect(x - 6, y - 4, 12, 22); g2.fillStyle = ['#f1c9a5', '#d8a77f', '#8d5a3b'][(R() * 3) | 0]; g2.beginPath(); g2.arc(x, y - 12, 6, 0, TAU); g2.fill(); g2.fillStyle = '#1d1f23'; g2.fillRect(x - 6, y - 19, 12, 4); }
+  });
+  reg('glass', 512, 128, 128, 128, (g2, w, h) => { const gr = g2.createLinearGradient(0, 0, w, h); gr.addColorStop(0, '#9fc3dd'); gr.addColorStop(1, '#3f6585'); g2.fillStyle = gr; g2.fillRect(0, 0, w, h); g2.fillStyle = '#2b2e35'; for (let q = 0; q <= 4; q++) g2.fillRect((q * w) / 4 - 2, 0, 4, h); g2.fillRect(0, h / 2 - 2, w, 4); });
+  reg('chk', 640, 128, 128, 128, (g2, w, h) => { const s = 32; for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) { g2.fillStyle = (i + j) % 2 ? '#111' : '#f2f3f5'; g2.fillRect(i * s, j * s, s, s); } });
+  reg('banner', 0, 320, 1024, 128, (g2, w, h) => { // 大招牌：大便龍賽車場
+    g2.fillStyle = '#1A0F07'; g2.fillRect(0, 0, w, h); g2.fillStyle = '#FF6A1F'; g2.fillRect(0, 0, w, 10); g2.fillRect(0, h - 10, w, 10);
+    for (const x0 of [0, w - 96]) for (let i = 0; i < 3; i++) for (let j = 0; j < 4; j++) { g2.fillStyle = (i + j) % 2 ? '#111' : '#f2f3f5'; g2.fillRect(x0 + i * 32, 16 + j * 24, 32, 24); }
+    T(g2, SIGNS.name, w / 2, h / 2 + 3, 92, '#FFD23F', w - 240);
+  });
+  reg('arch', 0, 448, 1024, 96, (g2, w, h) => { g2.fillStyle = '#FF6A1F'; g2.fillRect(0, 0, w, h); T(g2, SIGNS.arch, w / 2, h / 2 + 2, 70, '#1A0F07', w - 60); });
+  const adCol = [['#2F6FD6', '#fff'], ['#C8281E', '#fff'], ['#8A5A2B', '#FFF3E0'], ['#FFD23F', '#1A0F07'], ['#1F8A4C', '#fff'], ['#1A0F07', '#FF9A4D']];
+  SIGNS.ads.forEach((t, q) => reg('ad' + q, (q % 2) * 512, 544 + (q >> 1) * 96, 512, 96, (g2, w, h) => { g2.fillStyle = adCol[q][0]; g2.fillRect(0, 0, w, h); g2.fillStyle = 'rgba(255,255,255,0.18)'; g2.fillRect(0, 0, w, 8); T(g2, t, w / 2, h / 2 + 3, 62, adCol[q][1], w - 40); }));
+  ['300', '200', '100'].forEach((t, q) => reg('b' + t, q * 128, 832, 128, 128, (g2, w, h) => { g2.fillStyle = '#f2f3f5'; g2.fillRect(0, 0, w, h); g2.lineWidth = 8; g2.strokeStyle = '#1d1f23'; g2.strokeRect(6, 6, w - 12, h - 12); T(g2, t, w / 2, h / 2 + 4, 76, '#1d1f23', w - 20, COND); }));
+  reg('pit', 384, 832, 384, 96, (g2, w, h) => { g2.fillStyle = '#1d1f23'; g2.fillRect(0, 0, w, h); T(g2, SIGNS.pit, w / 2, h / 2 + 2, 60, '#FFD23F', w - 30); });
+  reg('sf', 384, 928, 384, 96, (g2, w, h) => { g2.fillStyle = '#f2f3f5'; g2.fillRect(0, 0, w, h); T(g2, SIGNS.sf, w / 2, h / 2 + 2, 58, '#1d1f23', w - 30); });
+  reg('flag', 768, 832, 128, 128, (g2, w, h) => { g2.fillStyle = '#ff8a2a'; g2.fillRect(0, 0, w, h); g2.fillStyle = '#1d1f23'; g2.fillRect(0, h * 0.44, w, h * 0.12); });
+  reg('white', 896, 832, 64, 64, (g2, w, h) => { g2.fillStyle = '#ffffff'; g2.fillRect(0, 0, w, h); });
+  return { tex: toTex(c, aniso, false), uv };
+}
+const dot = (r) => { const u = (r[0] + r[2]) / 2, v = (r[1] + r[3]) / 2; return [u, v, u, v]; };
+
+// ---- 蓋賽車場：地面、跑道、路緣石、白線、碎石、護欄、看台、維修區、塔台、起跑燈、招牌、樹；碰撞、路面、路線、小地圖 ----
+function buildCircuit(V, opt = {}) {
+  const T0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  const CO = makeCourse(), n = CO.n, ds = CO.ds, L = CO.len, X = CO.x, Z = CO.z, TX = CO.tx, TZ = CO.tz;
+  const aniso = opt.renderer ? Math.min(8, opt.renderer.capabilities.getMaxAnisotropy()) : 4, R = rng(20261004);
+  const NX = (i) => -TZ[i], NZ = (i) => TX[i];
+  const P2 = (i, d) => [X[i] + NX(i) * d, Z[i] + NZ(i) * d];
+  // 聯外道路的中線
+  const ACC = fillet(ACC_POLY, false, 1).pts;
+  // ---- 範圍格子（2 公尺）：每一格離護欄多遠 F（裡面 −）、最近的是中線哪一點 J（n＝維修區、n+1＝聯外道路）----
+  const G = { x0: -72, z0: -820, st: 2 }; G.nx = Math.ceil((1250 - G.x0) / G.st) + 1; G.nz = Math.ceil((-8 - G.z0) / G.st) + 1;
+  const F = new Float32Array(G.nx * G.nz).fill(99), J = new Uint16Array(G.nx * G.nz).fill(65535);
+  const stamp = (x0, z0, x1, z1, fn, code) => {
+    const i0 = clamp(Math.floor((x0 - G.x0) / G.st), 0, G.nx - 1), i1 = clamp(Math.ceil((x1 - G.x0) / G.st), 0, G.nx - 1), j0 = clamp(Math.floor((z0 - G.z0) / G.st), 0, G.nz - 1), j1 = clamp(Math.ceil((z1 - G.z0) / G.st), 0, G.nz - 1);
+    for (let jj = j0; jj <= j1; jj++) for (let ii = i0; ii <= i1; ii++) { const k = jj * G.nx + ii, f = fn(G.x0 + ii * G.st, G.z0 + jj * G.st); if (f < F[k]) { F[k] = f; J[k] = code; } }
+  };
+  for (let i = 0; i < n; i++) {
+    const r = Math.max(CO.wl[i], CO.wr[i]) + 5, cx = X[i], cz = Z[i], nx = NX(i), nz = NZ(i), wl = CO.wl[i], wr = CO.wr[i];
+    stamp(cx - r, cz - r, cx + r, cz + r, (px, pz) => { const dx = px - cx, dz = pz - cz; return Math.sqrt(dx * dx + dz * dz) - (dx * nx + dz * nz >= 0 ? wr : wl); }, i);
+  }
+  const padF = (px, pz) => { const dx = Math.max(PAD.x0 - px, 0, px - PAD.x1), dz = Math.max(PAD.z0 - pz, 0, pz - PAD.z1); const out = Math.hypot(dx, dz); return (out > 0 ? out : -Math.min(px - PAD.x0, PAD.x1 - px, pz - PAD.z0, PAD.z1 - pz)) - 3; };
+  stamp(PAD.x0 - 8, PAD.z0 - 8, PAD.x1 + 8, PAD.z1 + 8, padF, n);
+  for (let i = 1; i < ACC.length; i++) { const [ax, az] = ACC[i - 1], [bx, bz] = ACC[i], r = ACC_W / 2 + 7; stamp(Math.min(ax, bx) - r, Math.min(az, bz) - r, Math.max(ax, bx) + r, Math.max(az, bz) + r, (px, pz) => segD(px, pz, ax, az, bx, bz) - (ACC_W / 2 + 2), n + 1); }
+  // 路口（從直線加速賽道往北轉進來）：東邊做成喇叭口，z −20 → −8 往東斜出去 7.5 公尺（不會一轉彎就擦到護欄；直線加速北邊的牆開口到 x −37，看台從 −35 開始）
+  const MOUTH = (z) => 0.625 * clamp(z + 20, 0, 14);
+  stamp(JX - 10, -24, JX + 18, -8, (px, pz) => Math.max(px - (JX + ACC_W / 2 + 2 + MOUTH(pz)), JX - ACC_W / 2 - 2 - px), n + 1);
+  const cellK = (x, z) => { const ii = Math.round((x - G.x0) / G.st), jj = Math.round((z - G.z0) / G.st); return ii < 0 || jj < 0 || ii >= G.nx || jj >= G.nz ? -1 : jj * G.nx + ii; };
+  const Fat = (x, z) => { // 雙線性
+    const fx = (x - G.x0) / G.st, fz = (z - G.z0) / G.st, i = Math.floor(fx), j = Math.floor(fz); if (i < 0 || j < 0 || i >= G.nx - 1 || j >= G.nz - 1) return 99;
+    const a = fx - i, b = fz - j, k = j * G.nx + i; return (F[k] * (1 - a) + F[k + 1] * a) * (1 - b) + (F[k + G.nx] * (1 - a) + F[k + G.nx + 1] * a) * b;
+  };
+  const inPad = (x, z) => x >= PAD.x0 && x <= PAD.x1 && z >= PAD.z0 && z <= PAD.z1;
+  const PRJ = { s: 0, d: 0, i: 0, dist: 0 };
+  const zoneAt = (x, z) => { const k = cellK(x, z); if (k < 0 || F[k] > 1.5) return null; const j = J[k]; return j === n ? 'pad' : j === n + 1 ? 'access' : j < n ? 'track' : null; };
+  // ---- 路面：柏油（跑道、路緣石、維修區、聯外道路）0、草地 1、碎石 2；外面照舊 ----
+  const surf0 = V.surfaceAt;
+  const surfaceAt = (x, z) => {
+    if (z > -8.5 && z < -6.2 && x > JX - ACC_W / 2 && x < JX + ACC_W / 2 + MOUTH(-8)) return 0; // 路口：直線加速的牆到網格邊邊那一條（柏油）
+    const k = cellK(x, z); if (k < 0 || F[k] > 2.5) return surf0(x, z);
+    if (inPad(x, z)) return 0;
+    const j = J[k];
+    if (j === n + 1) return Fat(x, z) <= -1.7 ? 0 : 1; // 聯外道路（F＝離路中線 −（半寬＋2））
+    if (j === n) return 1;
+    const p = CO.project(x, z, j, PRJ), ad = Math.abs(p.d);
+    if (ad <= HW + 1.3) return 0;
+    const i = p.i, gv = p.d > 0 ? CO.gr[i] : CO.gl[i];
+    return gv && ad >= HW + 3 ? 2 : 1;
+  };
+  V.surfaceAt = surfaceAt;
+
+  // ---- 材質 ----
+  const AT = atlas(aniso);
+  const std = (o) => new THREE.MeshStandardMaterial(o);
+  const tAsph = noiseTex(R, 256, '#56585c', [[5000, ['#4a4c50', '#65676b', '#3f4144', '#6e7074'], 1.6]], aniso), tGrav = noiseTex(R, 128, '#b9a27c', [[2400, ['#a08860', '#cfbb97', '#8d7756', '#e2d3b4'], 2.2]], aniso), tGrass = grassTex(R, aniso);
+  const mats = {
+    grass: std({ map: tGrass, roughness: 1, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
+    grav: std({ map: tGrav, roughness: 1, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -3 }),
+    asph: std({ map: tAsph, vertexColors: true, roughness: 0.92, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -5 }),
+    paint: std({ vertexColors: true, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -7 }),
+    solid: std({ vertexColors: true, roughness: 0.78 }),
+    atlas: std({ map: AT.tex, vertexColors: true, roughness: 0.7 }),
+    lamp: new THREE.MeshBasicMaterial({ vertexColors: true }),
+  };
+  const B = bank(), UV = AT.uv;
+  const wuv = (s) => (x, z) => [x / s, z / s]; // 地面：世界座標的 uv（s 公尺一張）
+  const Y = { grav: 0.012, asph: 0.03, paint: 0.045 };
+  const WHITE = C('#f2f3f5'), RED = C('#d0342c'), YEL = C('#f2c230');
+  // ---- 草地（整個賽車場一大片，割草的條紋）----
+  { const g = B.get('grass', 600, -400), x0 = -60, x1 = 1250, z0 = -820, z1 = -62; flat(g, [x0, z1], [x1, z1], [x1, z0], [x0, z0], 0, wuv(24), [1, 1, 1]); }
+  // ---- 跑道（柏油：中間跑線的地方深一點＝輪胎的膠）、直線 8 公尺一段、彎道 2 公尺一段 ----
+  const rows = []; for (let i = 0; i < n; i++) { const kk = Math.abs(CO.k[i]) + Math.abs(CO.k[(i + 1) % n]) + Math.abs(CO.k[(i + n - 1) % n]); if (kk > 1e-4 || i % 4 === 0) rows.push(i); }
+  const COLS = [-HW, -HW / 2, 0, HW / 2, HW];
+  for (let r = 0; r < rows.length; r++) {
+    const i = rows[r], j = rows[(r + 1) % rows.length], g = B.get('asph', X[i], Z[i]);
+    for (let q = 0; q < 4; q++) {
+      const sh = (ii, d) => { const e = (d - CO.line[ii]) / 2.2, k = 1 - 0.22 * Math.exp(-e * e); return [k, k, k * 1.01]; };
+      const a = P2(i, COLS[q]), b = P2(i, COLS[q + 1]), c = P2(j, COLS[q + 1]), d = P2(j, COLS[q]);
+      flat(g, a, b, c, d, Y.asph, wuv(6), [sh(i, COLS[q]), sh(i, COLS[q + 1]), sh(j, COLS[q + 1]), sh(j, COLS[q])]);
+    }
+  }
+  // ---- 維修區、停車場（一大片）、聯外道路 ----
+  { const g = B.get('asph', 640, -120); flat(g, [PAD.x0, PAD.z1], [PAD.x1, PAD.z1], [PAD.x1, PAD.z0], [PAD.x0, PAD.z0], Y.asph - 0.004, wuv(6), [[0.97, 0.97, 0.98], [0.97, 0.97, 0.98], [0.97, 0.97, 0.98], [0.97, 0.97, 0.98]]); }
+  const offsetPts = (pts, d) => pts.map((p, i) => { const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)], dx = b[0] - a[0], dz = b[1] - a[1], l = Math.hypot(dx, dz) || 1; return [p[0] - (dz / l) * d, p[1] + (dx / l) * d]; });
+  const ribbonPts = (mat, pts, d0, d1, y, col, uvf) => { const A = offsetPts(pts, d0), Bp = offsetPts(pts, d1); for (let i = 0; i < pts.length - 1; i++) flat(B.get(mat, pts[i][0], pts[i][1]), A[i], Bp[i], Bp[i + 1], A[i + 1], y, uvf || wuv(6), col); };
+  ribbonPts('asph', ACC, -ACC_W / 2, ACC_W / 2, Y.asph, [0.98, 0.98, 0.98]);
+  { const e = (z) => [JX + ACC_W / 2 + MOUTH(z), z]; flat(B.get('asph', JX, -12), [JX + ACC_W / 2 - 0.5, -20], e(-20), e(-6.3), [JX + ACC_W / 2 - 0.5, -6.3], Y.asph, wuv(6), [0.98, 0.98, 0.98]); } // 喇叭口的柏油
+  // ---- 白線、路緣石（紅白一格 2 公尺）、起終點（格子）、起跑格、維修道的線 ----
+  const ribbon = (mat, i0, i1, d0, d1, y, colF) => { for (let i = i0; i < i1; i++) { const a = ((i % n) + n) % n, b = (a + 1) % n, c = colF(i); if (!c) continue; flat(B.get(mat, X[a], Z[a]), P2(a, d0), P2(a, d1), P2(b, d1), P2(b, d0), y, wuv(6), c); } };
+  for (let r = 0; r < rows.length; r++) { const i = rows[r], j = rows[(r + 1) % rows.length]; for (const sg of [1, -1]) flat(B.get('paint', X[i], Z[i]), P2(i, sg * (HW - 0.4)), P2(i, sg * (HW - 0.15)), P2(j, sg * (HW - 0.15)), P2(j, sg * (HW - 0.4)), Y.paint, wuv(6), WHITE); }
+  for (const c of CO.corners) { // 內側：整個彎；外側：出彎那一段
+    const a = Math.round(c.s0 / ds), b = Math.round(c.s1 / ds), inS = c.left ? -1 : 1, mid = Math.round((a + b) / 2);
+    ribbon('paint', a - 3, b + 3, inS * HW, inS * (HW + 1.3), Y.paint - 0.003, (i) => (i % 2 ? RED : WHITE));
+    ribbon('paint', mid - 2, b + 8, -inS * HW, -inS * (HW + 1.3), Y.paint - 0.003, (i) => (i % 2 ? RED : WHITE));
+  }
+  { // 起終點：兩排黑白格子
+    const g = B.get('paint', SF_X, -160), z0 = -160 - HW, cnt = 12, w = (2 * HW) / cnt;
+    for (let r = 0; r < 2; r++) for (let q = 0; q < cnt; q++) flat(g, [SF_X - 1 + r, z0 + q * w], [SF_X + r, z0 + q * w], [SF_X + r, z0 + (q + 1) * w], [SF_X - 1 + r, z0 + (q + 1) * w], Y.paint + 0.002, wuv(6), (q + r) % 2 ? C('#16171a') : WHITE);
+  }
+  const gridPose = (k) => { const x = SF_X - 9 - 9 * k, d = k % 2 ? 3.2 : -3.2; return { x, z: -160 + d, heading: 0 }; };
+  for (let k = 0; k < 6; k++) { // 起跑格：白色的 ㄇ
+    const p = gridPose(k), g = B.get('paint', p.x, p.z), x0 = p.x + 3, zz = p.z;
+    flat(g, [x0 - 0.3, zz - 1.4], [x0, zz - 1.4], [x0, zz + 1.4], [x0 - 0.3, zz + 1.4], Y.paint, wuv(6), WHITE);
+    for (const s of [-1, 1]) flat(g, [x0 - 1.8, zz + s * 1.4 - 0.15], [x0, zz + s * 1.4 - 0.15], [x0, zz + s * 1.4 + 0.15], [x0 - 1.8, zz + s * 1.4 + 0.15], Y.paint, wuv(6), WHITE);
+  }
+  { // 維修道：靠賽道那邊白線、車庫前面黃色停車格；聯外道路：兩邊白線、中間虛線
+    ribbonPts('paint', [[PIT.x0, PIT.z - 6], [PIT.x1, PIT.z - 6]], -0.15, 0.15, Y.paint, WHITE);
+    ribbonPts('paint', [[PIT.x0 + 30, PIT.z + 5.6], [PIT.x1 - 20, PIT.z + 5.6]], -0.12, 0.12, Y.paint, YEL);
+    for (let x = GARAGE.x0 + 2; x < GARAGE.x1; x += 15) { const g = B.get('paint', x, -140); flat(g, [x, -141], [x + 0.25, -141], [x + 0.25, -138.4], [x, -138.4], Y.paint, wuv(6), YEL); }
+    ribbonPts('paint', ACC, ACC_W / 2 - 0.45, ACC_W / 2 - 0.2, Y.paint, WHITE); ribbonPts('paint', ACC, -ACC_W / 2 + 0.2, -ACC_W / 2 + 0.45, Y.paint, WHITE);
+    let acc = 0; for (let i = 1; i < ACC.length; i++) { const a = ACC[i - 1], b = ACC[i]; acc += Math.hypot(b[0] - a[0], b[1] - a[1]); if (acc % 9 < 4.5) ribbonPts('paint', [a, b], -0.1, 0.1, Y.paint, WHITE); }
+  }
+  // ---- 碎石（彎道外側，從跑道邊 3 公尺到護欄前面 1 公尺）----
+  for (let i = 0; i < n; i++) for (const sg of [1, -1]) {
+    const G0 = sg > 0 ? CO.gr : CO.gl, Wd = sg > 0 ? CO.wr : CO.wl, j = (i + 1) % n;
+    if (!G0[i] || !G0[j]) continue;
+    flat(B.get('grav', X[i], Z[i]), P2(i, sg * (HW + 3)), P2(i, sg * (Wd[i] - 0.8)), P2(j, sg * (Wd[j] - 0.8)), P2(j, sg * (HW + 3)), Y.grav, wuv(3), [1, 1, 1]);
+  }
+
+  // ---- 護欄：F＝0 的等高線（marching squares）→ 連成線 → 簡化 → 一段一段（≤ 4 公尺）：鋼板護欄、輪胎牆（碎石那邊）、水泥牆（主直線看台前面）----
+  const contours = (() => {
+    const nx = G.nx, segs = [], eid = (i, j, dir) => (j * nx + i) * 2 + dir; // dir 0：(i,j)→(i+1,j)，1：(i,j)→(i,j+1)
+    const ept = (i, j, dir) => { const k0 = j * nx + i, k1 = dir ? k0 + nx : k0 + 1, a = F[k0], b = F[k1], t = a / (a - b); return dir ? [G.x0 + i * G.st, G.z0 + (j + t) * G.st] : [G.x0 + (i + t) * G.st, G.z0 + j * G.st]; };
+    for (let j = 0; j < G.nz - 1; j++) for (let i = 0; i < nx - 1; i++) {
+      const k = j * nx + i, a = F[k] < 0, b = F[k + 1] < 0, c = F[k + nx + 1] < 0, d = F[k + nx] < 0; // a (i,j) b (i+1,j) c (i+1,j+1) d (i,j+1)
+      const code = (a ? 1 : 0) | (b ? 2 : 0) | (c ? 4 : 0) | (d ? 8 : 0); if (code === 0 || code === 15) continue;
+      const E = { t: eid(i, j, 0), r: eid(i + 1, j, 1), b: eid(i, j + 1, 0), l: eid(i, j, 1) };
+      const pairs = { 1: [['l', 't']], 2: [['t', 'r']], 3: [['l', 'r']], 4: [['r', 'b']], 6: [['t', 'b']], 7: [['l', 'b']], 8: [['b', 'l']], 9: [['b', 't']], 11: [['b', 'r']], 12: [['r', 'l']], 13: [['r', 't']], 14: [['t', 'l']] }[code]
+        || (code === 5 ? [['l', 't'], ['r', 'b']] : [['t', 'r'], ['b', 'l']]);
+      for (const [p, q] of pairs) segs.push([E[p], E[q]]);
+    }
+    const pos = new Map(); const P = (id) => { let v = pos.get(id); if (!v) { const k = id >> 1, i = k % nx, j = (k / nx) | 0; v = ept(i, j, id & 1); pos.set(id, v); } return v; };
+    const adj = new Map(); segs.forEach(([a, b], s) => { for (const e of [a, b]) { let l = adj.get(e); if (!l) adj.set(e, (l = [])); l.push(s); } });
+    const used = new Uint8Array(segs.length), lines = [];
+    for (let s = 0; s < segs.length; s++) {
+      if (used[s]) continue; used[s] = 1;
+      const chain = [segs[s][0], segs[s][1]];
+      for (const dir of [1, 0]) for (;;) { // 往兩頭接
+        const e = dir ? chain[chain.length - 1] : chain[0], nb = (adj.get(e) || []).find((q) => !used[q]); if (nb == null) break;
+        used[nb] = 1; const o = segs[nb][0] === e ? segs[nb][1] : segs[nb][0]; if (dir) chain.push(o); else chain.unshift(o);
+      }
+      const pts = chain.map(P), closed = chain[0] === chain[chain.length - 1];
+      if (plen(pts) > 6) lines.push({ pts, closed });
+    }
+    return lines;
+  })();
+  const simplify = (pts, eps) => { // Douglas–Peucker
+    if (pts.length < 3) return pts;
+    const keep = new Uint8Array(pts.length); keep[0] = keep[pts.length - 1] = 1; const st = [[0, pts.length - 1]];
+    while (st.length) { const [a, b] = st.pop(); let bd = 0, bi = -1; for (let i = a + 1; i < b; i++) { const d = segD(pts[i][0], pts[i][1], pts[a][0], pts[a][1], pts[b][0], pts[b][1]); if (d > bd) { bd = d; bi = i; } } if (bd > eps) { keep[bi] = 1; st.push([a, bi], [bi, b]); } }
+    return pts.filter((p, i) => keep[i]);
+  };
+  const colliders = [], BAR = [];
+  let barLen = 0;
+  for (const ln of contours) {
+    const pts = simplify(ln.pts, 0.2);
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1], l = Math.hypot(b[0] - a[0], b[1] - a[1]); if (l < 0.05) continue;
+      barLen += l;
+      const nC = Math.max(1, Math.ceil(l / 10)); // 碰撞：最長 10 公尺一個盒子（厚 0.6、高 1）
+      for (let q = 0; q < nC; q++) { const f0 = q / nC, f1 = (q + 1) / nC, x0 = a[0] + (b[0] - a[0]) * f0, z0 = a[1] + (b[1] - a[1]) * f0, x1 = a[0] + (b[0] - a[0]) * f1, z1 = a[1] + (b[1] - a[1]) * f1; colliders.push({ t: 'box', x: (x0 + x1) / 2, z: (z0 + z1) / 2, hx: Math.hypot(x1 - x0, z1 - z0) / 2 + 0.15, hz: 0.3, rot: Math.atan2(-(z1 - z0), x1 - x0), h: 1, circuit: 1 }); }
+      const nM = Math.max(1, Math.round(l / 4)); // 畫：4 公尺左右一段
+      for (let q = 0; q < nM; q++) { const f0 = q / nM, f1 = (q + 1) / nM; BAR.push([a[0] + (b[0] - a[0]) * f0, a[1] + (b[1] - a[1]) * f0, a[0] + (b[0] - a[0]) * f1, a[1] + (b[1] - a[1]) * f1]); }
+    }
+  }
+  // 哪一種：碎石那邊＝輪胎牆；主直線北邊（看台前面）＝水泥牆＋廣告；其他＝鋼板護欄
+  const SOLID = C('#8d9197'), POST = C('#5d6268');
+  const mainS = (s) => { let d = s; if (d > L / 2) d -= L; return d > -340 && d < 470; }; // 主直線（起終點前後）
+  for (const [x0, z0, x1, z1] of BAR) {
+    const mx = (x0 + x1) / 2, mz = (z0 + z1) / 2, l = Math.hypot(x1 - x0, z1 - z0), ux = (x1 - x0) / l, uz = (z1 - z0) / l;
+    const fL = Fat(mx - uz * 0.8, mz + ux * 0.8), inSide = fL < Fat(mx + uz * 0.8, mz - ux * 0.8) ? 1 : -1; // 賽道在哪一邊：(−uz, ux) 那邊＝1
+    const nx = -uz * inSide, nz = ux * inSide; // 朝賽道
+    const k = cellK(mx + nx * 3, mz + nz * 3), j = k >= 0 ? J[k] : 65535;
+    let type = 'rail';
+    if (j < n) { const p = CO.project(mx, mz, j, PRJ), gv = p.d > 0 ? CO.gr[p.i] : CO.gl[p.i]; if (gv) type = 'tyre'; else if (mainS(p.s) && p.d < 0) type = 'conc'; }
+    // 正面（朝賽道）：從賽道看過去左到右
+    const A = inSide > 0 ? [x0, z0] : [x1, z1], Bq = inSide > 0 ? [x1, z1] : [x0, z0];
+    const g = B.get('atlas', mx, mz), gs = B.get('solid', mx, mz);
+    if (type === 'rail') {
+      const back = (p) => [p[0] - nx * 0.12, p[1] - nz * 0.12];
+      wall(g, A, Bq, 0.42, 0.8, UV.rail); wall(g, back(Bq), back(A), 0.42, 0.8, UV.rail, [0.8, 0.8, 0.8]); // 正面、背面
+      const px = A[0] - nx * 0.25, pz = A[1] - nz * 0.25; box(gs, px, 0, pz, 0.07, 0.07, 0.76, Math.atan2(-nz, nx), POST);
+    } else {
+      const h = type === 'tyre' ? 0.95 : 1.1, th = type === 'tyre' ? 0.8 : 0.45, back = (p) => [p[0] - nx * th, p[1] - nz * th], uvr = type === 'tyre' ? UV.tyre : UV.conc;
+      wall(g, A, Bq, 0, h, uvr); wall(g, back(Bq), back(A), 0, h, uvr, [0.85, 0.85, 0.85]);
+      quad(gs, [A[0], h, A[1]], [Bq[0], h, Bq[1]], [back(Bq)[0], h, back(Bq)[1]], [back(A)[0], h, back(A)[1]], [0.5, 0.5, 0.5, 0.5], type === 'tyre' ? C('#1d1e21') : C('#b9b7b0'));
+    }
+  }
+  // ---- 東西（看台、車庫、塔台、起跑燈、維修區的牆、拱門、天橋、救援站、煞車牌、廣告）----
+  const frameAt = (x, z, ry) => { const c = Math.cos(ry), s = Math.sin(ry); return (lx, ly, lz) => [x + lx * c + lz * s, ly, z - lx * s + lz * c]; }; // 局部：x 往前、z 往右
+  const addBox = (x, y0, z, hx, hz, h, ry, col, top, hit) => { box(B.get('solid', x, z), x, y0, z, hx, hz, h, ry, col, top); if (hit) colliders.push({ t: 'box', x, z, hx, hz, rot: ry, h: y0 + h }); };
+  // 看台：長 len、row 排（每排深 0.9、高 0.5），面向 ry 的 −z 方向（frame 的 −z＝前面）……這裡用：中心 (x, z)、ry＝看台「看的方向」
+  function stand(x, z, look, len, rows = 9) {
+    const ry = look - Math.PI / 2, P = frameAt(x, z, ry), D = rows * 0.9, H = rows * 0.5; // 局部：x 沿著看台、z 往後（遠離賽道）
+    const g = B.get('atlas', x, z), gs = B.get('solid', x, z), conc = C('#c9c7c0'), cu = UV.crowd, nTile = Math.max(1, Math.round(len / 8));
+    for (let r = 0; r < rows; r++) {
+      const z0 = r * 0.9, y0 = r * 0.5, y1 = y0 + 0.5;
+      for (let q = 0; q < nTile; q++) { const xa = -len / 2 + (q * len) / nTile, xb = -len / 2 + ((q + 1) * len) / nTile; quad(g, P(xb, y0, z0), P(xa, y0, z0), P(xa, y1, z0), P(xb, y1, z0), [cu[0], cu[1] + ((cu[3] - cu[1]) * (r % 2)) / 2, cu[2], cu[1] + ((cu[3] - cu[1]) * ((r % 2) + 1)) / 2], [1, 1, 1]); }
+      quad(gs, P(len / 2, y1, z0), P(-len / 2, y1, z0), P(-len / 2, y1, z0 + 0.9), P(len / 2, y1, z0 + 0.9), [0.5, 0.5, 0.5, 0.5], conc);
+    }
+    quad(gs, P(-len / 2, 0, D), P(len / 2, 0, D), P(len / 2, H + 0.6, D), P(-len / 2, H + 0.6, D), [0.5, 0.5, 0.5, 0.5], mul(conc, 0.8)); // 背面
+    for (const s of [-1, 1]) { const e = (s * len) / 2; if (s > 0) quad(gs, P(e, 0, D), P(e, 0, 0), P(e, 0.5, 0), P(e, H + 0.6, D), [0.5, 0.5, 0.5, 0.5], mul(conc, 0.9)); else quad(gs, P(e, 0, 0), P(e, 0, D), P(e, H + 0.6, D), P(e, 0.5, 0), [0.5, 0.5, 0.5, 0.5], mul(conc, 0.9)); }
+    // 屋頂：柱子＋一片（前面高一點）
+    const roof = C('#e8e9ec'), yr0 = H + 4.2;
+    for (let q = 0; q <= Math.round(len / 20); q++) { const lx = -len / 2 + (q * len) / Math.round(len / 20), p = P(lx, 0, D + 0.3); box(gs, p[0], 0, p[2], 0.25, 0.25, yr0 + 0.6, ry, C('#5d6268')); }
+    quad(gs, P(len / 2 + 1, yr0 + 1.2, -1.5), P(-len / 2 - 1, yr0 + 1.2, -1.5), P(-len / 2 - 1, yr0 + 0.6, D + 1), P(len / 2 + 1, yr0 + 0.6, D + 1), [0.5, 0.5, 0.5, 0.5], roof);
+    quad(gs, P(-len / 2 - 1, yr0 + 1.2 - 0.05, -1.5), P(len / 2 + 1, yr0 + 1.2 - 0.05, -1.5), P(len / 2 + 1, yr0 + 0.55, D + 1), P(-len / 2 - 1, yr0 + 0.55, D + 1), [0.5, 0.5, 0.5, 0.5], mul(roof, 0.6)); // 屋頂底下
+    const c0 = P(0, 0, D / 2); colliders.push({ t: 'box', x: c0[0], z: c0[2], hx: len / 2, hz: D / 2 + 0.3, rot: ry, h: H + 0.6 });
+  }
+  stand(525, -181, -Math.PI / 2, 100); stand(640, -181, -Math.PI / 2, 110); stand(755, -181, -Math.PI / 2, 100); // 主直線北邊（看維修區、起終點）
+  stand(1196, -222, Math.PI, 60, 8); // 第 1 彎外面
+  stand(390, -759, -Math.PI / 2, 90, 8); // 髮夾彎北邊
+  stand(1095, -625, Math.atan2(-60, -80), 50, 7); // 第 4 彎外面（東北）
+  // 維修區：車庫一長排（正面＝車庫貼圖）、屋頂、背面；塔台（玻璃、上面大招牌）
+  {
+    const gA = B.get('atlas', 640, -132), gs = B.get('solid', 640, -132), H = GARAGE.h, n15 = Math.round((GARAGE.x1 - GARAGE.x0) / 15);
+    for (let q = 0; q < n15; q++) { const xa = GARAGE.x0 + q * 15, xb = xa + 15; quad(gA, [xb, 0, GARAGE.z0], [xa, 0, GARAGE.z0], [xa, H, GARAGE.z0], [xb, H, GARAGE.z0], UV.garage, [1, 1, 1]); }
+    addBox((GARAGE.x0 + GARAGE.x1) / 2, 0, (GARAGE.z0 + GARAGE.z1) / 2 + 0.05, (GARAGE.x1 - GARAGE.x0) / 2 - 0.05, (GARAGE.z1 - GARAGE.z0) / 2 - 0.1, H, 0, C('#d9dadd'), C('#b7b9bd'), true);
+    const t0 = { x: 640, z: -119, hx: 12, hz: 7 }; // 塔台（車庫後面）
+    addBox(t0.x, 0, t0.z, t0.hx, t0.hz, 16, 0, C('#e8e9ec'), C('#9da1a6'), true);
+    for (const [p0, p1] of [[[t0.x + t0.hx, t0.z - t0.hz - 0.05], [t0.x - t0.hx, t0.z - t0.hz - 0.05]], [[t0.x - t0.hx, t0.z + t0.hz + 0.05], [t0.x + t0.hx, t0.z + t0.hz + 0.05]]]) wall(gA, p0, p1, 11, 15.4, UV.glass);
+    for (const sx of [-1, 1]) wall(gA, [t0.x + sx * (t0.hx + 0.05), t0.z + sx * t0.hz], [t0.x + sx * (t0.hx + 0.05), t0.z - sx * t0.hz], 11, 15.4, UV.glass);
+    // 大招牌：塔台上面（兩面）
+    wall(gA, [t0.x + 24, t0.z - 1], [t0.x - 24, t0.z - 1], 17, 23, UV.banner); wall(gA, [t0.x - 24, t0.z - 0.6], [t0.x + 24, t0.z - 0.6], 17, 23, UV.banner);
+    for (const sx of [-1, 1]) box(gs, t0.x + sx * 20, 16, t0.z - 0.8, 0.3, 0.3, 1.2, 0, C('#5d6268'));
+    // 維修區的牆（賽道跟維修道中間：水泥、上面紅白）＋「維修區」牌子
+    const W = PIT.wall, nW = Math.round((W.x1 - W.x0) / 4);
+    for (let q = 0; q < nW; q++) { const xa = W.x0 + (q * (W.x1 - W.x0)) / nW, xb = W.x0 + ((q + 1) * (W.x1 - W.x0)) / nW; wall(gA, [xb, W.z - 0.35], [xa, W.z - 0.35], 0, 1.1, UV.conc); wall(gA, [xa, W.z + 0.35], [xb, W.z + 0.35], 0, 1.1, UV.conc, [0.85, 0.85, 0.85]); }
+    quad(gs, [W.x0, 1.1, W.z - 0.35], [W.x1, 1.1, W.z - 0.35], [W.x1, 1.1, W.z + 0.35], [W.x0, 1.1, W.z + 0.35], [0.5, 0.5, 0.5, 0.5], C('#b9b7b0'));
+    for (let q = 0; q < Math.ceil((W.x1 - W.x0) / 10); q++) { const xa = W.x0 + q * 10, xb = Math.min(W.x1, xa + 10); colliders.push({ t: 'box', x: (xa + xb) / 2, z: W.z, hx: (xb - xa) / 2, hz: 0.35, rot: 0, h: 1.1, circuit: 1 }); }
+    for (const x of [W.x0 + 10, 640 - 40, W.x1 - 10]) { wall(gA, [x + 2.5, W.z - 0.4], [x - 2.5, W.z - 0.4], 1.15, 2.4, UV.pit); wall(gA, [x - 2.5, W.z + 0.4], [x + 2.5, W.z + 0.4], 1.15, 2.4, UV.pit); box(gs, x, 1.1, W.z, 2.5, 0.08, 0.05, 0, C('#5d6268')); }
+    // 起終點的牌子（維修區的牆上、面對賽道）
+    wall(gA, [SF_X + 3, W.z - 0.4], [SF_X - 3, W.z - 0.4], 1.2, 2.4, UV.sf);
+  }
+  // 起跑燈：橫跨跑道（起終點線上面，x SF_X + 1），五組紅燈朝西（起跑格看得到）
+  const gantryX = SF_X + 1.5;
+  {
+    const gs = B.get('solid', gantryX, -160), dark = C('#26282c');
+    for (const z of [-168.6, -151]) addBox(gantryX, 0, z, 0.3, 0.3, 7, 0, dark, dark, z < -160);
+    addBox(gantryX, 6.2, -159.8, 0.4, 9.2, 0.8, 0, dark, dark, false);
+    for (let q = 0; q < 5; q++) box(gs, gantryX - 0.2, 4.7, -163 + q * 1.6, 0.25, 0.55, 1.5, 0, C('#111214'));
+    const gA = B.get('atlas', gantryX, -160); wall(gA, [gantryX - 0.45, -168.6], [gantryX - 0.45, -151], 6.25, 6.95, UV.chk); wall(gA, [gantryX + 0.45, -151], [gantryX + 0.45, -168.6], 6.25, 6.95, UV.chk);
+  }
+  // 燈（自己一個網格，頂點色換顏色）：每組上下兩顆
+  const lampGeo = (() => {
+    const g = { p: [], n: [], u: [], c: [], i: [], v: 0 };
+    for (let q = 0; q < 5; q++) for (const y of [5.05, 5.75]) { const z = -163 + q * 1.6, x = gantryX - 0.47, r = 0.24; quad(g, [x, y - r, z - r], [x, y - r, z + r], [x, y + r, z + r], [x, y + r, z - r], [0, 0, 1, 1], C('#3a0d0b')); }
+    return g;
+  })();
+  // 聯外道路的拱門（「大便龍賽車場 →」）、救援站、煞車牌、天橋（後直線）、廣告牌
+  {
+    const ax = JX, az = -26, gs = B.get('solid', ax, az), gA = B.get('atlas', ax, az), post = C('#3b3f46');
+    for (const s of [-1, 1]) addBox(ax + s * 6.8, 0, az, 0.35, 0.35, 7.6, 0, post, post, true);
+    addBox(ax, 6.0, az, 7.2, 0.3, 1.6, 0, post, post, false);
+    wall(gA, [ax - 7, az + 0.32], [ax + 7, az + 0.32], 6.05, 7.55, UV.arch); wall(gA, [ax + 7, az - 0.32], [ax - 7, az - 0.32], 6.05, 7.55, UV.banner);
+  }
+  { // 後直線的天橋（兩面大招牌）
+    const bx = 760, s0 = CO.project(bx, -740), i = s0.i, w = Math.max(CO.wl[i], CO.wr[i]) + 2.5, a = P2(i, -w), b = P2(i, w), gs = B.get('solid', bx, -740), gA = B.get('atlas', bx, -740), post = C('#3b3f46');
+    for (const p of [a, b]) addBox(p[0], 0, p[1], 0.6, 0.6, 7.6, 0, post, post, true);
+    addBox(bx, 6.2, -740, 0.9, w + 0.6, 1.8, 0, C('#e8e9ec'), C('#9da1a6'), false);
+    const n0 = Math.round((2 * w) / 26); for (let q = 0; q < n0; q++) { const za = -740 - w + (q * 2 * w) / n0, zb = -740 - w + ((q + 1) * 2 * w) / n0; wall(gA, [bx - 0.92, za], [bx - 0.92, zb], 6.25, 7.95, UV.banner); wall(gA, [bx + 0.92, zb], [bx + 0.92, za], 6.25, 7.95, UV.banner); }
+  }
+  // 彎道外面：救援站（小房子＋橘色旗子）、彎前的煞車牌 300/200/100（外側草地）
+  const big = CO.corners.filter((c) => [1, 4, 6, 7, 11, 14, 17, 21].includes(c.idx));
+  for (const c of big) {
+    const outS = c.left ? 1 : -1, i = Math.round(((c.s0 + c.s1) / 2) / ds) % n, W = (outS > 0 ? CO.wr : CO.wl)[i] + 4, p = P2(i, outS * W), ry = Math.atan2(-TZ[i], TX[i]);
+    addBox(p[0], 0, p[1], 1.2, 1.2, 2.4, ry, C('#f2f3f5'), C('#ff8a2a'), true);
+    const gA = B.get('atlas', p[0], p[1]), q0 = P2(i, outS * (W - 1.3)), fx = q0[0], fz = q0[1];
+    box(B.get('solid', fx, fz), fx, 0, fz, 0.04, 0.04, 3.4, 0, C('#5d6268'));
+    wall(gA, [fx, fz], [fx + TX[i] * 0.9, fz + TZ[i] * 0.9], 2.6, 3.3, UV.flag); wall(gA, [fx + TX[i] * 0.9, fz + TZ[i] * 0.9], [fx, fz], 2.6, 3.3, UV.flag);
+    // 煞車牌：彎前 300、200、100 公尺（前面要有夠長的直線）
+    let straight = 0; for (let q = 1; q < 200; q++) { const ii = (Math.round(c.s0 / ds) - q + n) % n; if (Math.abs(CO.k[ii]) > 1e-3) break; straight = q * ds; }
+    for (const d of [300, 200, 100]) {
+      if (d > straight - 10) continue;
+      const ii = (Math.round((c.s0 - d) / ds) + n) % n, pp = P2(ii, outS * (HW + 2.2)), fx2 = pp[0], fz2 = pp[1], hw2 = 0.45; // 外側草地，牌子面向來車
+      box(B.get('solid', fx2, fz2), fx2, 0, fz2, 0.05, 0.05, 1.0, 0, C('#5d6268'));
+      const g2 = B.get('atlas', fx2, fz2), pl = [fx2 - NX(ii) * hw2, fz2 - NZ(ii) * hw2], pr = [fx2 + NX(ii) * hw2, fz2 + NZ(ii) * hw2];
+      wall(g2, pl, pr, 0.95, 1.85, UV['b' + d]); wall(g2, pr, pl, 0.95, 1.85, UV.white, [0.7, 0.7, 0.7]);
+    }
+  }
+  // 廣告牌（主直線看台前、第 1 彎、髮夾彎的護欄後面）
+  { let q = 0;
+    const ads = (sA, sB, side) => { for (let s = sA; s < sB; s += 14) { const i = (Math.round(s / ds) + n) % n, W = (side > 0 ? CO.wr : CO.wl)[i] + 0.9, a = P2(i, side * W), b = P2((i + 5) % n, side * W), g = B.get('atlas', a[0], a[1]); const uv = UV['ad' + (q++ % SIGNS.ads.length)]; if (side > 0) { wall(g, b, a, 0.3, 1.55, uv); wall(g, a, b, 0.3, 1.55, UV.white, [0.5, 0.5, 0.5]); } else { wall(g, a, b, 0.3, 1.55, uv); wall(g, b, a, 0.3, 1.55, UV.white, [0.5, 0.5, 0.5]); } } };
+    const c1 = CO.corners.find((c) => c.idx === 1), c11 = CO.corners.find((c) => c.idx === 11);
+    ads(L - 300, L - 40, -1); ads(40, 420, -1); ads(c1.s0 - 120, c1.s1 + 20, 1); ads(c11.s0 - 60, c11.s1 + 10, 1);
+  }
+  // ---- 樹（賽車場裡面的草地、護欄外面；離護欄 6 公尺以上、不擋看台、建築）----
+  const blockers = colliders.filter((c) => !c.circuit && c.t === 'box');
+  const TP = [];
+  for (let tries = 0; tries < 6000 && TP.length < 420; tries++) {
+    const x = -40 + R() * 1280, z = -815 + R() * 740, f = Fat(x, z);
+    if (f < 7 || (f > 60 && R() < 0.65)) continue; // 外面遠的地方少一點
+    if (x < 140 && z > -120) continue; // 直線加速賽道、村子那邊不種
+    if (blockers.some((b) => Math.abs(x - b.x) < b.hx + 8 && Math.abs(z - b.z) < Math.max(b.hz, b.hx) + 8)) continue;
+    if (CIRCUIT_KEEP.some(([a, b2, c, d]) => x > a && x < c && z > b2 && z < d)) continue;
+    TP.push([x, z, 0.75 + R() * 0.9]);
+  }
+  const cone = new THREE.ConeGeometry(1.6, 5, 7); cone.translate(0, 4.2, 0);
+  const trunk = new THREE.CylinderGeometry(0.18, 0.25, 1.8, 6); trunk.translate(0, 0.9, 0);
+  const treeMat = std({ color: 0x3f5a32, roughness: 1 }), trunkMat = std({ color: 0x5a4332, roughness: 1 });
+  const trees = new THREE.InstancedMesh(cone, treeMat, Math.max(1, TP.length)), trunks = new THREE.InstancedMesh(trunk, trunkMat, Math.max(1, TP.length));
+  { const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), pv = new THREE.Vector3(); TP.forEach(([x, z, k], i) => { m4.compose(pv.set(x, 0, z), q, sc.set(k, k * (0.85 + ((i * 37) % 10) / 20), k)); trees.setMatrixAt(i, m4); trunks.setMatrixAt(i, m4); }); }
+  trees.name = 'ci-trees'; trunks.name = 'ci-trunks';
+  for (const tp of TP) if (tp[2] > 0) colliders.push({ t: 'circle', x: tp[0], z: tp[1], r: 0.3 * tp[2], h: 6, circuit: 1 });
+
+  // ---- 網格 ----
+  const group = new THREE.Group(); group.name = 'circuit';
+  let tris = 0, meshes = 0;
+  const geoOf = (g) => {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(g.p, 3)); geo.setAttribute('normal', new THREE.Float32BufferAttribute(g.n, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(g.u, 2)); geo.setAttribute('color', new THREE.Float32BufferAttribute(g.c, 3));
+    geo.setIndex(g.v > 65535 ? new THREE.Uint32BufferAttribute(g.i, 1) : new THREE.Uint16BufferAttribute(g.i, 1)); geo.computeBoundingSphere(); geo.computeBoundingBox();
+    return geo;
+  };
+  const order = ['grass', 'grav', 'asph', 'paint', 'solid', 'atlas'];
+  for (const [key, g] of [...B.map.entries()].sort((a, b) => order.indexOf(a[1].mat) - order.indexOf(b[1].mat))) {
+    if (!g.v) continue;
+    const m = new THREE.Mesh(geoOf(g), mats[g.mat]); m.name = 'ci-' + key; m.matrixAutoUpdate = false; m.updateMatrix(); group.add(m);
+    tris += g.i.length / 3; meshes++;
+  }
+  const lampMesh = new THREE.Mesh(geoOf(lampGeo), mats.lamp); lampMesh.name = 'ci-lamps'; group.add(lampMesh); meshes++; tris += lampGeo.i.length / 3;
+  group.add(trees, trunks); meshes += 2; tris += TP.length * (cone.index ? cone.index.count : cone.attributes.position.count) / 3 + TP.length * (trunk.index ? trunk.index.count : trunk.attributes.position.count) / 3;
+  if (V.group) V.group.add(group);
+  const lampCol = lampMesh.geometry.attributes.color, OFF = C('#3a0d0b'), ON = [1, 0.08, 0.05];
+  const setLights = (k) => { // 第幾組亮（0–5）
+    for (let q = 0; q < 5; q++) for (let r = 0; r < 2; r++) for (let v = 0; v < 4; v++) { const c = q < k ? ON : OFF; lampCol.setXYZ((q * 2 + r) * 4 + v, c[0], c[1], c[2]); }
+    lampCol.needsUpdate = true;
+  };
+  setLights(0);
+
+  // ---- 碰撞、地方、路、小地圖、範圍 ----
+  V.colliders.push(...colliders);
+  const places = {
+    circuit: { name: SIGNS.short, pos: [BOX.x, BOX.z], zone: { x: BOX.x - 14, z: BOX.z, hx: 18, hz: 5.5, rot: 0 }, park: { x: BOX.x, z: BOX.z, heading: 0 }, spawn: { x: BOX.x, z: BOX.z, heading: 0 } },
+  };
+  Object.assign(V.places, places);
+  const loop = []; for (let i = 0; i < n; i += 3) loop.push([X[i], Z[i]]); loop.push([X[0], Z[0]]);
+  V.roads.push({ pts: loop, w: 13, kind: 'circuit', noNpc: true }, { pts: ACC.map((p) => p.slice()), w: ACC_W, kind: 'circuit', noNpc: true },
+    { pts: [[PIT.x0, PIT.z], [PIT.x1, PIT.z]], w: 12, kind: 'circuit', noNpc: true }, { pts: [[PAD.x0 + 8, -109], [PAD.x1 - 8, -109]], w: 30, kind: 'circuit', noNpc: true });
+  if (V.bounds) { V.bounds.x1 = Math.max(V.bounds.x1, 1230); V.bounds.z0 = Math.min(V.bounds.z0, -800); }
+
+  // ---- 路線：賽車場裡面（照跑道的方向開到維修區入口 → 維修道 → 停車場 → 聯外道路）、聯外道路、村子（照舊）----
+  const route0 = V.route;
+  const join = (...rs) => { const pts = []; for (const r of rs) for (const p of r.pts || r) { const q = pts[pts.length - 1]; if (!q || Math.hypot(q[0] - p[0], q[1] - p[1]) > 0.05) pts.push([p[0], p[1]]); } return { pts, len: plen(pts) }; };
+  const projPts = (pts, x, z) => { let bd = Infinity, bi = 1, bq = pts[0]; for (let i = 1; i < pts.length; i++) { const [ax, az] = pts[i - 1], [bx, bz] = pts[i], dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz || 1, t = clamp(((x - ax) * dx + (z - az) * dz) / l2, 0, 1), qx = ax + dx * t, qz = az + dz * t, d = Math.hypot(x - qx, z - qz); if (d < bd) { bd = d; bi = i; bq = [qx, qz]; } } return { d: bd, i: bi, q: bq }; };
+  const PIT_W = [370, PIT.z], BOXP = [BOX.x, BOX.z], PADW = [330, -100]; // 維修道西頭、報名處、停車場西頭
+  const ACCR = ACC.slice().reverse();
+  const toJ = (x, z) => { // 賽車場裡面任何地方 → 直線加速賽道入口（JX, 0）
+    const zn = zoneAt(x, z);
+    if (zn === 'access') { const pr = projPts(ACCR, x, z); return join([[x, z], pr.q], ACCR.slice(pr.i), [[JX, 0]]); }
+    if (zn === 'pad' || inPad(x, z)) return join([[x, z]], z < -128 && x > GARAGE.x0 - 5 && x < GARAGE.x1 + 5 ? [[Math.min(x, GARAGE.x0 - 8), z]] : [], x > PADW[0] + 4 ? [PADW] : [], ACCR, [[JX, 0]]); // 已經過了停車場西頭：直接上聯外道路（不要繞回去）
+    return join(trackTo(x, z, 345), [[372, PIT.z - 2]], [PIT_W, PADW], ACCR, [[JX, 0]]);
+  };
+  function trackTo(x, z, xTarget) { // 照跑道的方向開到主直線 x＝xTarget
+    const p = CO.project(x, z), sT = CO.project(xTarget, -160).s;
+    let s1 = sT; while (s1 < p.s + 2) s1 += L;
+    const pts = [[x, z]], o = {}; for (let s = p.s + 4; s < s1; s += 8) { CO.at(s, o); pts.push([o.x, o.z]); }
+    CO.at(sT, o); pts.push([o.x, o.z]); return pts;
+  }
+  const fromJ = (x, z) => { // 村子 → 賽車場報名處
+    let lead;
+    if (x > JX - 9 && x < 770 && Math.abs(z) < 7) lead = [[x, z], [JX, 0]]; // 在直線加速賽道上
+    else { const r = route0(x, z, 'track'), pts = r.pts; let cut = pts.length; for (let i = 1; i < pts.length; i++) if (pts[i][0] >= JX && pts[i - 1][0] <= JX + 0.01 && Math.abs(pts[i][1]) < 7) { cut = i; break; } lead = [...pts.slice(0, cut), [JX, 0]]; }
+    return join(lead, ACC, [PADW, PIT_W, BOXP]);
+  };
+  V.route = (x, z, dest) => {
+    const zn = zoneAt(x, z), inC = !!zn || inPad(x, z);
+    if (dest === 'circuit') {
+      if (!inC) return fromJ(x, z);
+      if (zn === 'access') { const pr = projPts(ACC, x, z); return join([[x, z], pr.q], ACC.slice(pr.i), [PADW, PIT_W, BOXP]); }
+      if (zn === 'pad' || inPad(x, z)) return join([[x, z]], z < -128 && x > GARAGE.x0 - 5 && x < GARAGE.x1 + 5 && x > BOX.x ? [[Math.max(x, GARAGE.x1 + 8), z], [GARAGE.x1 + 8, PIT.z]] : [], [BOXP]);
+      return join(trackTo(x, z, 345), [[372, PIT.z - 2], BOXP]);
+    }
+    if (!inC) return route0(x, z, dest);
+    const a = toJ(x, z), b = route0(JX, 0, dest);
+    return join(a, b);
+  };
+  // ---- 檢查點、起跑格 ----
+  const NG = 12, gates = [];
+  for (let k = 1; k <= NG; k++) { const s = (k * L) / NG, o = CO.at(s, {}), i = o.i; gates.push({ s: k === NG ? L : s, x: o.x, z: o.z, tx: o.tx, tz: o.tz, hw: Math.max(CO.wl[i], CO.wr[i]) + 3 }); }
+  const grid = (k) => { const p = gridPose(k); return { x: p.x, z: p.z, heading: 0 }; };
+
+  const info = { meshes, tris: Math.round(tris), colliders: colliders.length, barrier: Math.round(barLen), trees: TP.length, ms: 0, lap: Math.round(L) };
+  if (V.info) V.info.circuit = info;
+  const P = {
+    group, course: CO, gates, grid, places, info, zoneAt, inside: (x, z) => !!zoneAt(x, z) || inPad(x, z), surfaceAt, setLights, F: Fat, contours, gantryX,
+    dispose() {
+      group.removeFromParent();
+      group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+      for (const m of [...Object.values(mats), treeMat, trunkMat]) m.dispose();
+      for (const t of [tAsph, tGrav, tGrass, AT.tex]) t.dispose();
+    },
+  };
+  V.circuit = P;
+  const d0 = V.dispose; V.dispose = function () { P.dispose(); return d0 ? d0.apply(this, arguments) : undefined; };
+  info.ms = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - T0);
+  return P;
+}
+
+// ==== 比賽 ====
+const RCSS = `
+.cir{position:absolute;inset:0;pointer-events:none;z-index:4;color:#F2F3F5;font-family:${SANS};-webkit-user-select:none;user-select:none}
+.cir[hidden],.cir [hidden]{display:none!important}
+.cir-p{position:absolute;top:58px;left:10px;min-width:138px;padding:8px 12px 9px;border-radius:16px;background:rgba(14,15,18,0.66);line-height:1.25}
+.cir-p b{display:block;font-size:24px;font-weight:700;letter-spacing:.02em}
+.cir-p span{display:block;font-size:14px;font-weight:600;color:#DADDE2}
+.cir-p ol{margin:6px 0 0;padding:0 0 0 18px;font-size:13px;color:#C6CAD1}
+.cir-p ol li.me{color:#FF9A4D;font-weight:700}
+.cir-p button{margin-top:7px;padding:5px 12px;border:0;border-radius:999px;background:rgba(255,255,255,0.14);color:#F2F3F5;font:600 13px ${SANS};pointer-events:auto;cursor:pointer}
+.cir-l{position:absolute;top:36%;left:50%;transform:translate(-50%,-50%);display:flex;gap:10px;padding:12px 16px;border-radius:20px;background:rgba(14,15,18,0.78)}
+.cir-l i{width:34px;height:34px;border-radius:50%;background:#3a0d0b;box-shadow:inset 0 3px 6px rgba(0,0,0,0.6)}
+.cir-l i.on{background:#ff2a1a;box-shadow:0 0 14px #ff2a1a}
+.cir-c{position:absolute;top:38%;left:50%;transform:translate(-50%,-50%);font:700 60px/1.1 ${COND},${SANS};color:#FFD23F;text-shadow:0 5px 0 rgba(0,0,0,0.35);white-space:nowrap;text-align:center}
+.cir-c.go{color:#3DDC84;font-size:70px}
+.cir-c.warn{color:#FF5A4D;font-size:44px}
+.cir-r{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(340px,calc(100% - 32px));max-height:calc(100% - 24px);overflow:auto;box-sizing:border-box;padding:18px 18px 16px;border-radius:22px;background:rgba(14,15,18,0.9);text-align:center;pointer-events:auto}
+.cir-r h3{margin:0 0 4px;font-size:30px}
+.cir-r p{margin:4px 0;font-size:16px;line-height:1.35}
+.cir-r p.big{font-size:20px;font-weight:700;color:#FFD23F}
+.cir-r ol{margin:8px auto 4px;padding:0 0 0 22px;text-align:left;font-size:15px;max-width:240px}
+.cir-r ol li.me{color:#FF9A4D;font-weight:700}
+.cir-r div{display:flex;gap:10px;justify-content:center;margin-top:12px}
+.cir-r button{flex:1;min-height:48px;border:0;border-radius:999px;font:700 18px ${SANS};cursor:pointer}
+.cir-r button.a,.cir-m button.a{background:#FF6A1F;color:#1A0F07;box-shadow:0 4px 0 #9E4213}
+.cir-r button.b,.cir-m button.b{background:#2B2E35;color:#F2F3F5;box-shadow:0 4px 0 #111216}
+.cir-m{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);width:min(420px,calc(100% - 20px));max-height:calc(100% - 20px);display:flex;flex-direction:column;box-sizing:border-box;padding:14px 14px 12px;border-radius:22px;background:rgba(14,15,18,0.92);color:#F2F3F5;font-family:${SANS};pointer-events:auto;z-index:5}
+.cir-m h3{margin:0;font-size:22px}
+.cir-m p{margin:2px 0 8px;font-size:14px;color:#C6CAD1}
+.cir-m .list{flex:1 1 auto;min-height:0;overflow:auto;display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:2px}
+.cir-m .list button{display:flex;flex-direction:column;align-items:flex-start;gap:1px;padding:8px 10px;border:2px solid transparent;border-radius:14px;background:#2B2E35;color:#F2F3F5;text-align:left;cursor:pointer;font-family:${SANS}}
+.cir-m .list button b{font-size:16px}
+.cir-m .list button span,.cir-m .list button small{font-size:12px;color:#C6CAD1}
+.cir-m .list button[aria-pressed="true"]{border-color:#FF6A1F;background:#3a2a20}
+.cir-m .list button.beaten b::after{content:" ✓";color:#3DDC84}
+.cir-m .list button:disabled{opacity:0.45;cursor:default}
+.cir-m .row{display:flex;gap:10px;margin-top:10px}
+.cir-m .row button{flex:1;min-height:46px;border:0;border-radius:999px;font:700 17px ${SANS};cursor:pointer}
+.cir-m .row button:disabled{opacity:0.5}
+body.ciracing #drivebar #dests{display:none}
+body.cimenu #drivebar{visibility:hidden}
+@media (max-height:520px){.cir-m .list{grid-template-columns:1fr 1fr 1fr}.cir-l{top:30%}.cir-c{font-size:46px}}
+`;
+const fmtT = (t) => { const m = Math.floor(t / 60), s = t - m * 60; return `${m}:${s < 10 ? '0' : ''}${s.toFixed(1)}`; };
+let SHT = null;
+const shadowTex = () => {
+  if (SHT) return SHT;
+  const [c, g] = cv(64, 64), gr = g.createRadialGradient(32, 32, 4, 32, 32, 31); gr.addColorStop(0, 'rgba(0,0,0,0.7)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  SHT = new THREE.CanvasTexture(c); return SHT;
+};
+const cssOnce = () => { if (typeof document === 'undefined' || document.getElementById('cir-style')) return; const s = document.createElement('style'); s.id = 'cir-style'; s.textContent = RCSS; document.head.appendChild(s); };
+function createCircuitRace(o) {
+  const V = o.world, P = V.circuit, CO = P.course, L = CO.len, n = CO.n, drv = o.drive, scene = o.scene, laps = clamp(o.laps | 0 || 2, 1, 9), GATES = P.gates, NG = GATES.length;
+  const ci = drv.carInfo, pCX = (ci.nose + ci.tail) / 2, pHW = ci.halfW;
+  const TMP = {}, PR = { s: 0, d: 0, i: 0, dist: 0 }, MEAS = new THREE.Box3();
+  const nA = o.opps.length;
+  // 起跑：你在最後一格，對手照順序排在前面
+  const meGrid = P.grid(nA);
+  if (drv.teleport) drv.teleport({ x: meGrid.x - pCX, z: meGrid.z, heading: 0 });
+  if (drv.setInput) drv.setInput({ throttle: 0, brake: 1, steer: 0, handbrake: 1 });
+  if (drv.setDestination) drv.setDestination(null);
+  const ais = o.opps.map((od, k) => {
+    const car = od.obj.car, p0 = car.position.clone(), r0 = car.rotation.y;
+    car.position.set(0, 0, 0); car.rotation.set(0, 0, 0); car.updateMatrixWorld(true); MEAS.setFromObject(car); car.position.copy(p0); car.rotation.y = r0;
+    const info = { len: MEAS.max.x - MEAS.min.x, halfW: Math.max(MEAS.max.z, -MEAS.min.z), CX: (MEAS.max.x + MEAS.min.x) / 2 };
+    const sk = typeof od.skill === 'object' ? od.skill : SKILL[od.skill] || SKILL.ok, M = carModel(od.perf), g = P.grid(k), pr = CO.project(g.x, g.z);
+    if (scene && car.parent !== scene) scene.add(car);
+    car.visible = true;
+    return { od, name: od.name, car, obj: od.obj, info, sk, M, prof: speedProfile(CO, M, sk), p: pr.s - L, d: pr.d, laneT: pr.d, lane: 0, v: 0, th: 0, x: g.x, z: g.z, dd: 0, roll: 0, brake: false, react: sk.react * (0.8 + Math.random() * 0.4), fin: null, k: 0, best: null, lapT: null, lap0: null };
+  });
+  const sIM = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: shadowTex(), transparent: true, depthWrite: false, opacity: 0.8 }), Math.max(1, nA));
+  sIM.frustumCulled = false; sIM.renderOrder = 1; sIM.name = 'ci-racer-shadows'; if (scene) scene.add(sIM);
+  const M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), V3 = new THREE.Vector3(), S3 = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
+  const me = { p: -L, d: 0, v: 0, lapsDone: -1, next: NG - 1, hint: -1, px: null, pz: null, fin: null, held: false, name: '你', best: null, lap0: null, laps: [] };
+  let hudT = 0, state = 'grid', t = 0, gT = 0, goAt = 4.2 + 0.5 + Math.random() * 1.0, result = null, outT = 0, wrongT = 0, wrongSaid = -9, msg = '', msgT = 0, lightsOn = -1;
+  const hud = (() => {
+    if (!o.hudParent || typeof document === 'undefined') return null;
+    cssOnce();
+    const mk = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+    const root = mk('div', 'cir'), panel = mk('div', 'cir-p'), pos = mk('b'), lap = mk('span'), tm = mk('span'), bst = mk('span'), list = mk('ol'), quit = mk('button', null, '放棄比賽'), lt = mk('div', 'cir-l'), cd = mk('div', 'cir-c'), res = mk('div', 'cir-r');
+    for (let q = 0; q < 5; q++) lt.append(mk('i'));
+    quit.type = 'button'; quit.addEventListener('click', () => abort('quit'));
+    panel.append(pos, lap, tm, bst, list, quit); res.hidden = true; root.append(panel, lt, cd, res); o.hudParent.appendChild(root);
+    return { root, panel, pos, lap, tm, bst, list, quit, lt, lamps: [...lt.children], cd, res, last: {} };
+  })();
+  const setTxt = (k, el, v) => { if (!hud || hud.last[k] === v) return; hud.last[k] = v; el.textContent = v; };
+  const say = (s, ms = 1400) => { msg = s; msgT = ms / 1000; };
+  function setLamps(k) {
+    if (k === lightsOn) return; lightsOn = k;
+    P.setLights(Math.max(0, k));
+    if (hud) { hud.lamps.forEach((e, q) => e.classList.toggle('on', q < k)); hud.lt.hidden = k < 0; }
+  }
+  setLamps(0);
+  function standings() { const all = [me, ...ais]; return all.slice().sort((a, b) => (a.fin != null && b.fin != null ? a.fin - b.fin : a.fin != null ? -1 : b.fin != null ? 1 : b.p - a.p)); }
+  function crossGate(c, x0, z0, x1, z1) {
+    const s0 = (x0 - c.x) * c.tx + (z0 - c.z) * c.tz, s1 = (x1 - c.x) * c.tx + (z1 - c.z) * c.tz;
+    if (!(s0 < 0 && s1 >= 0)) return false;
+    const k = s0 / (s0 - s1), qx = x0 + (x1 - x0) * k, qz = z0 + (z1 - z0) * k;
+    return Math.abs(-(qx - c.x) * c.tz + (qz - c.z) * c.tx) <= c.hw;
+  }
+  function playerTick(dt) {
+    const tl = drv.telemetry(), x = tl.x + Math.cos(tl.heading) * pCX, z = tl.z - Math.sin(tl.heading) * pCX;
+    me.v = tl.v;
+    if (state === 'grid' && Math.abs(tl.v) > 0.2 && drv.setInput) drv.setInput(HOLD); // 還沒熄燈：踩不動（別的地方把煞車放掉了也一樣）
+    if (state === 'done' && !me.held && Math.abs(tl.v) < 0.5 && drv.setInput) { me.held = true; drv.setInput(HOLD); }
+    if (me.px != null && state === 'run' && me.fin == null) {
+      if (crossGate(GATES[me.next], me.px, me.pz, x, z)) {
+        if (me.next === NG - 1) {
+          me.lapsDone++;
+          if (me.lap0 != null) { const lt = t - me.lap0; me.laps.push(lt); if (me.best == null || lt < me.best) me.best = lt; }
+          me.lap0 = t;
+          if (me.lapsDone >= laps) { me.fin = t; finish(); }
+          else { me.next = 0; if (me.lapsDone > 0) say(me.lapsDone === laps - 1 ? '最後一圈！' : `第 ${me.lapsDone + 1} 圈`); }
+        } else me.next++;
+      }
+    }
+    me.px = x; me.pz = z;
+    const pr = CO.project(x, z, me.hint, PR); me.hint = pr.i;
+    const prevS = me.next === 0 ? 0 : GATES[me.next - 1].s, nextS = GATES[me.next].s;
+    let s = pr.s; while (s < prevS - L / 2) s += L; while (s > prevS + L / 2) s -= L;
+    me.p = me.lapsDone * L + clamp(s, prevS - 5, nextS + 5); me.d = pr.d;
+    // 開反了：車頭跟跑道的方向相反、在動
+    const fx = Math.cos(tl.heading), fz = -Math.sin(tl.heading), dotT = fx * CO.tx[pr.i] + fz * CO.tz[pr.i];
+    if (state === 'run' && me.fin == null && dotT < -0.35 && tl.v > 2 && pr.dist < 30) { wrongT += dt; if (wrongT > 1 && t - wrongSaid > 3) { wrongSaid = t; say('開反了！掉頭', 2000); } } else wrongT = 0;
+    // 開出賽車場（聯外道路）＝不比了
+    const zn = P.zoneAt(x, z);
+    if (state === 'run' && (zn === 'access' || (!zn && !P.inside(x, z)))) { outT += dt; if (outT > 0.6) abort('left'); } else outT = 0;
+    return tl;
+  }
+  // 對手：照跑線（＋換車道）開；速度照 speedProfile；前面有車（你、別的對手）換邊超車或跟著慢下來
+  const others = [me, ...ais];
+  function aiStep(a, h) {
+    const s = ((a.p % L) + L) % L, i = Math.floor(s / CO.ds) % n, j = (i + 1) % n, f = s / CO.ds - Math.floor(s / CO.ds);
+    let vt = 0;
+    if (state !== 'grid' && t > a.react) vt = a.prof[i] + (a.prof[j] - a.prof[i]) * f; // 你跑完了（done）對手照跑到終點
+    if (a.fin != null || state === 'done' && me.fin != null && a.p > laps * L) vt = Math.min(vt, 26);
+    if (state === 'run' && me.fin == null && a.fin == null && o.rubber !== false) vt *= 1 + clamp((me.p - a.p) / 400, -0.06, 0.03); // 你落後很多：等你一點；你在前面：追快一點點
+    // 跑線＋車道
+    const line = CO.line[i] + (CO.line[j] - CO.line[i]) * f;
+    let target = clamp(line + a.lane, -HW + 1.3, HW - 1.3);
+    let block = null, bgap = 1e9;
+    for (const b of others) {
+      if (b === a || b.fin != null && b !== me) continue;
+      const gap = b.p - a.p; if (gap <= 0 || gap > 30) continue;
+      if (Math.abs(b.d - a.d) < 2.7 && gap < bgap) { bgap = gap; block = b; }
+    }
+    if (block) {
+      const faster = vt > (block.v || 0) + 0.5;
+      if (faster && bgap < 26) { const side = block.d > 0 ? -1 : 1, want = block.d + side * 3.3; if (Math.abs(want) <= HW - 1.2) a.lane = clamp(want - line, -9, 9); else a.lane = clamp(block.d - side * 3.3 - line, -9, 9); }
+      if (bgap < 9) vt = Math.min(vt, Math.max(0, (block.v || 0) - 0.4 + (bgap - 6) * 0.4));
+    } else a.lane *= Math.exp(-h * 0.35); // 沒車了慢慢回到跑線
+    a.laneT = target;
+    const acc = a.M.acc(a.v), brk = a.M.brk(a.v) * a.sk.brk;
+    if (vt > a.v) a.v = Math.min(vt, a.v + Math.max(0.3, acc) * h); else a.v = Math.max(vt, a.v - brk * h);
+    a.brake = vt < a.v - 0.6 || state === 'grid';
+    a.p += a.v * h * (CO.ds / Math.max(0.5, CO.lq[i]));
+    const d0 = a.d; a.d += clamp(target - a.d, -2.2 * h, 2.2 * h); a.dd += ((a.d - d0) / h - a.dd) * (1 - Math.exp(-h * 5));
+    const c = CO.at(a.p, TMP);
+    a.x = c.x - c.tz * a.d; a.z = c.z + c.tx * a.d; a.k = c.k;
+    a.th = Math.atan2(-c.tz, c.tx) - Math.atan2(a.dd, Math.max(6, a.v));
+    a.roll += a.v * h;
+    if (a.fin == null && a.p >= laps * L) a.fin = t;
+    const lapNo = Math.floor(a.p / L); if (lapNo !== a.lapT) { if (a.lapT != null && lapNo > a.lapT && a.lap0 != null && lapNo >= 1) { const lt = t - a.lap0; if (a.best == null || lt < a.best) a.best = lt; } a.lapT = lapNo; if (lapNo >= 0) a.lap0 = t; }
+  }
+  function aiPose(a, j) {
+    a.car.position.set(a.x, 0, a.z); a.car.rotation.set(0, a.th, 0);
+    if (a.obj.setRoll) a.obj.setRoll(a.roll);
+    if (a.obj.setLook && a.brake !== a.bk0) { a.bk0 = a.brake; a.obj.setLook({ brake: a.brake }); }
+    M4.compose(V3.set(a.x, 0.05, a.z), Q.setFromAxisAngle(UP, a.th), S3.set(a.info.len + 0.6, 1, a.info.halfW * 2 + 0.4)); sIM.setMatrixAt(j, M4);
+  }
+  const HOLD = { throttle: 0, brake: 1, steer: 0, handbrake: 1 }; // 手煞車：停住了只按煞車會換倒車
+  const AIC = ais.map(() => ({ t: 'box', x: 0, z: 0, hx: 2, hz: 1, rot: 0, h: 1.6 }));
+  function finish() {
+    state = 'done';
+    if (drv.setInput) drv.setInput({ throttle: 0, brake: 1, steer: 0 }); // 先煞車（很快的時候拉手煞車會甩尾），停住了再拉手煞車（playerTick）
+    const place = 1 + ais.filter((a) => a.fin != null && a.fin < me.fin).length, N = ais.length + 1;
+    result = { place, n: N, time: me.fin, best: me.best, laps, won: place === 1 };
+    const extra = (o.onFinish && o.onFinish(result)) || {};
+    if (hud) {
+      const r = hud.res; r.replaceChildren();
+      const h = document.createElement('h3'); h.textContent = place === 1 ? '第 1 名！' : `第 ${place} 名`;
+      const p1 = document.createElement('p'); p1.textContent = `${o.title ? `對手：${o.title} · ` : ''}你 ${fmtT(me.fin)}${me.best ? `（最快一圈 ${fmtT(me.best)}）` : ''}`;
+      r.append(h, p1);
+      for (const line of [].concat(extra.lines || [])) { const p = document.createElement('p'); p.className = /獎金/.test(line) ? 'big' : ''; p.textContent = line; r.append(p); }
+      const row = document.createElement('div'), again = document.createElement('button'), go = document.createElement('button');
+      again.type = go.type = 'button'; again.className = 'b'; go.className = 'a'; again.textContent = '再比一次'; go.textContent = '開走';
+      again.addEventListener('click', () => { if (o.onDone) o.onDone({ again: true, result }); });
+      go.addEventListener('click', () => { if (o.onDone) o.onDone({ again: false, result }); });
+      row.append(again, go); r.append(row); r.hidden = false; hud.panel.hidden = true;
+    }
+  }
+  function abort(why) {
+    if (state === 'off' || state === 'done') return;
+    state = 'off';
+    if (drv.setInput) drv.setInput(null);
+    P.setLights(0);
+    if (hud) hud.root.hidden = true;
+    if (o.onAbort) o.onAbort(why || 'quit');
+  }
+  function update(dt) {
+    if (state === 'off') return;
+    dt = Math.min(0.1, Math.max(0, +dt || 0)); if (!dt) return;
+    if (state === 'grid') {
+      gT += dt;
+      const k = gT < 1 ? 0 : Math.min(5, 1 + Math.floor((gT - 1) / 0.8));
+      if (gT >= goAt) { state = 'run'; t = 0; setLamps(-1); say('出發！', 900); if (drv.setInput) drv.setInput(null); } else setLamps(k);
+    } else t += dt;
+    if (msgT > 0) msgT -= dt;
+    playerTick(dt);
+    const ns = Math.max(1, Math.ceil(dt * 60 - 1e-6)), h = dt / ns;
+    for (let q = 0; q < ns; q++) for (const a of ais) aiStep(a, h);
+    ais.forEach((a, j) => aiPose(a, j));
+    sIM.instanceMatrix.needsUpdate = true;
+    // 對手的車是會動的碰撞（撞到會被擋住）
+    if (drv.removeColliders) { drv.removeColliders('ciai'); ais.forEach((a, j) => { const c = AIC[j]; c.x = a.x + Math.cos(a.th) * a.info.CX; c.z = a.z - Math.sin(a.th) * a.info.CX; c.hx = a.info.len / 2; c.hz = a.info.halfW; c.rot = a.th; }); drv.addColliders(AIC, 'ciai'); }
+    if (hud) {
+      const big = msgT > 0 ? msg : '';
+      if (hud.last.cd !== big) { hud.last.cd = big; hud.cd.textContent = big; hud.cd.className = 'cir-c' + (big === '出發！' ? ' go' : /開反/.test(big) ? ' warn' : ''); hud.cd.hidden = !big; }
+      hudT -= dt;
+      if (state !== 'done' && hudT <= 0) { // 名次、圈數、時間：一秒五次
+        hudT = 0.2;
+        const order = standings(), pl = order.indexOf(me) + 1;
+        setTxt('pos', hud.pos, `第 ${pl} 名 / ${order.length}`);
+        setTxt('lap', hud.lap, `第 ${clamp(me.lapsDone + 1, 1, laps)}/${laps} 圈`);
+        setTxt('tm', hud.tm, fmtT(t));
+        setTxt('bst', hud.bst, me.best ? `最快 ${fmtT(me.best)}` : '');
+        const names = order.map((c) => c.name).join('|');
+        if (hud.last.names !== names) { hud.last.names = names; hud.list.replaceChildren(...order.map((c) => { const li = document.createElement('li'); li.textContent = c.name; if (c === me) li.className = 'me'; return li; })); }
+      }
+    }
+  }
+  function dispose() {
+    if (state !== 'off' && drv.setInput) drv.setInput(null);
+    state = 'off';
+    P.setLights(0);
+    if (drv.removeColliders) drv.removeColliders('ciai');
+    sIM.removeFromParent(); sIM.geometry.dispose(); sIM.material.dispose(); sIM.dispose();
+    if (hud) hud.root.remove();
+  }
+  update(1e-6);
+  return { update, abort, dispose, standings: () => standings().map((c) => ({ name: c.name, p: c.p, fin: c.fin, me: c === me })), get state() { return state; }, get time() { return t; }, laps, ais, me, get result() { return result; }, drive: drv, get lights() { return lightsOn; } };
+}
+
+return { buildCircuit, circuitFonts, CIRCUIT_TEXT, CIRCUIT_KEEP, createCircuitRace, CIRCUIT_SKILL: SKILL, circuitCourse: makeCourse, circuitCSS: cssOnce, circuitFmt: fmtT, circuitCar: carModel, circuitProfile: speedProfile };
 })();
 
 // ---- damage.js ----
@@ -15405,6 +16635,7 @@ void main() {
 //                          world.colliders（村子的）的 tag 是 'world'：走進房子（interiors.js）removeColliders('world')，出來 addColliders(V.colliders, 'world')
 //                          y0（多的）：碰撞物的底有多高（天花板、捲起來一半的門）：比頭高的不擋人、只擋鏡頭（drive.js 不看 y0：這種不要給開車的）
 //   walker.setMovers(array | null)   會動的東西（路上的車、居民）：陣列、裡面的物件頁面每一格自己改（x、z、rot⋯），走路每一格照現在的值擋人、擋鏡頭（不用再叫）
+//   walker.setMarkers(array | null)   小地圖上多畫的點（警車⋯）：[{ x, z, fill, ring, r（半徑 px，預設 5）, on（false＝不畫） }]；跟 drive.setMarkers 一樣（只記住陣列，每一幀照現在的值畫）
 //   walker.setCars(list)       可以上的車（車庫車位的車、路邊的車⋯）：[{ key, name?, x, z, heading, hx, hz, cx?, cz?, h?, door?, object?, solid? }]
 //                          x, z, heading＝車子原點（跟 spots、drv.teleport 一樣）；hx, hz＝車身長方形的半長、半寬；cx, cz＝長方形中心在車子本地的位置（LODS[k].cx、cz）；
 //                          door＝駕駛座車門在車身長方形中間往前幾公尺（預設 0）；solid: false＝不要幫它加碰撞（預設會加，頁面不用再 addColliders）
@@ -15453,6 +16684,8 @@ const DEST = {
   garage: { label: '回車庫', icon: '家', bg: '#1d1f23', fg: '#FF6A1F' }, shop: { label: '去改車廠', icon: '改', bg: '#2F6FD6', fg: '#FFFFFF' },
   track: { label: '去賽道', icon: '賽', bg: '#FF6A1F', fg: '#1A0F07' }, dealer: { label: '去車店', icon: '車', bg: '#F2C230', fg: '#1A0F07' },
   highway: { label: '去快速道路', icon: '快', bg: '#1F8A4C', fg: '#FFFFFF' },
+  police: { label: '去警察局', icon: '警', bg: '#1F4FA8', fg: '#FFFFFF' }, gunshop: { label: '去槍店', icon: '槍', bg: '#26282C', fg: '#FF9A2E' }, // 第 3 批（b3-int）：跟 drive.js 一樣
+  offroad: { label: '去越野車場', icon: '越', bg: '#8A5A2B', fg: '#FFF3E0' },
 };
 const COND = '"Barlow Condensed", "Arial Narrow", sans-serif', SANS = '"Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif';
 // 上面（目的地、大按鈕、小地圖、換視角、提示）跟 drive.js 的 .dv 一模一樣（兩個 HUD 換來換去看起來是同一個遊戲）；下面換成搖桿
@@ -15642,6 +16875,7 @@ function createWalker(o) {
   const wb = o.bounds || (() => { const b = world.bounds || { x0: -1320, x1: 12, z0: -1000, z1: 1000 }; return { x0: b.x0 - 150, x1: Math.max(b.x1, 760) + 480, z0: b.z0 - 120, z1: b.z1 + 120 }; })(); // 地面鋪到哪裡
   const cw = colGrid(); cw.add(world.colliders, 'world'); cw.add(o.colliders); cw.add(fronts(world)); // 村子的碰撞標 'world'：走進房子（interiors.js）頁面先拿掉（房子的地板被村子的盒子蓋住），出來再放回去
   let movers = null; const mq = []; let mqN = 0; // 會動的（頁面的陣列）→ 算好的
+  let marks = null; // 別的模組給的小地圖點（setMarkers）：[{ x, z, fill, ring, r, on }]
 
   // ---- 狀態 ----
   let ch = null, R = 0.28, BH = 1.72, alive = true, active = false, now = 0, lockT = 0;
@@ -16155,6 +17389,14 @@ function createWalker(o) {
       g.beginPath(); g.arc(s / 2 + sx, s / 2 + sy, r, 0, TAU); g.fillStyle = d.bg; g.fill(); g.lineWidth = 2 * H.dpr; g.strokeStyle = key === dest ? '#FF6A1F' : 'rgba(242,243,245,0.85)'; g.stroke();
       g.fillStyle = d.fg; g.font = `700 ${Math.round(r * 1.15)}px ${SANS}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(d.icon, s / 2 + sx, s / 2 + sy + 0.5 * H.dpr);
     }
+    // 別的模組給的點（警車⋯）：小圓點；地圖外面的貼在邊上；on: false 的不畫
+    if (marks) for (let i = 0; i < marks.length; i++) {
+      const m = marks[i]; if (!m || m.on === false) continue;
+      const wx = m.x - cx, wz = m.z - cz; let sx = (wx * cs - wz * sn) * k, sy = (wx * sn + wz * cs) * k + oy; const l = Math.max(Math.abs(sx), Math.abs(sy));
+      if (l > Rr) { sx *= Rr / l; sy *= Rr / l; }
+      g.beginPath(); g.arc(s / 2 + sx, s / 2 + sy, (m.r || 5) * H.dpr, 0, TAU); g.fillStyle = m.fill || '#FF3B30'; g.fill();
+      if (m.ring) { g.lineWidth = 1.5 * H.dpr; g.strokeStyle = m.ring; g.stroke(); }
+    }
     // 你：中間偏下的箭頭（照臉朝的方向轉；地圖是照鏡頭轉的）
     const u = H.dpr; g.translate(s / 2, s / 2 + oy); g.rotate(-wrapA(st.th - yaw)); g.beginPath(); g.moveTo(0, -9 * u); g.lineTo(7 * u, 7 * u); g.lineTo(0, 3.5 * u); g.lineTo(-7 * u, 7 * u); g.closePath();
     g.fillStyle = '#F2F3F5'; g.fill(); g.lineWidth = 2 * u; g.strokeStyle = '#FF6A1F'; g.stroke(); g.setTransform(1, 0, 0, 1, 0, 0);
@@ -16303,6 +17545,7 @@ function createWalker(o) {
     setDoors: (src) => { doorSrc = src; doorList = buildDoors(src); armDoors(); },
     setInput: (i) => { forced = i ? { x: clamp(+i.x || 0, -1, 1), y: clamp(+i.y || 0, -1, 1), run: i.run } : null; },
     setMovers: (list) => { movers = Array.isArray(list) ? list : null; },
+    setMarkers: (list) => { marks = Array.isArray(list) ? list : null; },
     setCarReach: (on) => { reach = !!on; },
     play: (state) => { if (state) st.play = String(state); },
     addColliders: (list, tag) => cw.add(Array.isArray(list) ? list : [list], tag ?? null).length,
@@ -24369,7 +25612,7 @@ function createPedestrians(o = {}) {
       const lon = dx * ch - dz * sh, lat = dx * sh + dz * ch; // 車頭方向 (cos, −sin)、右邊 (sin, cos)
       const ex = Math.max(0, Math.abs(lon) - hx), ez = Math.max(0, Math.abs(lat) - hz);
       if (ex * ex + ez * ez < p.r * p.r && p.y < 0.6) { // 撞到了
-        if (av > 2.2 && p.hitCool <= 0 && !c.ai) { // 玩家（或以後的警車）撞到：飛出去；路上的 AI 車只會輕輕推開
+        if (av > 2.2 && p.hitCool <= 0 && !c.ai && p.age !== 'kid') { // 玩家（或以後的警車）撞到：飛出去；路上的 AI 車只會輕輕推開；第 3 批（b3-int）：小孩永遠撞不到（只被推開）
           const s = v >= 0 ? 1 : -1, side = lat >= 0 ? 1 : -1, k = 0.35 * clamp(Math.abs(lat) / hz, 0.2, 1);
           const kx = ch * s + sh * side * k, kz = -sh * s + ch * side * k;
           knock(p, kx, kz, av, c); if (o.onHit) o.onHit(p, av, c);
@@ -24387,7 +25630,7 @@ function createPedestrians(o = {}) {
       const s = v >= 0 ? 1 : -1, ahead = lon * s - hx - p.r; if (ahead < -0.2) continue;
       const t = ahead / av; if (t > 1.3 || Math.abs(lat) > hz + p.r + (c.ai ? 0.1 : 0.55)) continue;
       if (c.ai && ahead > (av * av) / 10 + 0.5) continue;
-      if (t < p.react * 0.6 || R() < 0.12) { p.freeze = 1; continue; } // 來不及／嚇呆了
+      if ((t < p.react * 0.6 || R() < 0.12) && p.age !== 'kid') { p.freeze = 1; continue; } // 來不及／嚇呆了（小孩一定會跳開）
       let side = lat >= 0 ? 1 : -1; if (Math.abs(lat) < 0.15 && R() < 0.5) side = -side;
       let fx = sh * side, fz = ch * side;
       if (!W.clearAt(p.x + fx * 1.8, p.z + fz * 1.8, 0.28)) { if (c.ai || Math.abs(lat) > hz * 0.5) { p.freeze = 1; continue; } fx = -fx; fz = -fz; if (!W.clearAt(p.x + fx * 1.8, p.z + fz * 1.8, 0.28)) { p.freeze = 1; continue; } }
@@ -24501,6 +25744,4446 @@ function createPedestrians(o = {}) {
 }
 
 return { createTraffic, createPedestrians, npcGraphs };
+})();
+
+// ---- police-ai.js ----
+// ---- 警察（第 3 批）：開車撞人、自己揍人、開槍會被警察追；被抓到關進警察局的拘留室 ----
+// Nick 2026-09-28 07:16：「開車撞人或自己揍人會被警察追」；之前：「還要可以揍人會被警察抓撞人也會被警察抓」、開車撞人會被抓去關
+// Nick 2026-09-28 07:19：「有店可以買槍 子彈」→ 開槍也算犯罪。警察不會開槍：只會追、會抓；被撞到、被打到的人倒下去再爬起來（沒有血）
+// 世界座標跟 village.js、drive.js 一樣：x 往東、y 往上、z 往南；heading＝rotation.y（0 朝 +x、π/2 朝北 −z）；車子本地 +x 朝前、+z 朝右
+// 【API】
+//   const police = createPolice({
+//     scene,                    警車、警察（角色）加在這裡
+//     world: V,                 buildVillage() 回傳的（roads、highway、colliders、buildings、surfaceAt、places.police）
+//     colliders,                另外要擋的東西（stripColliders()：賽道的護欄⋯），跟 drive.js 一樣
+//     obstacles,                (x, z, r) → [box]：會動的東西（路上的車 traffic.colliders），警車會撞到、會閃（可省略）
+//     sound: { ctx, out, muted, gain },   警笛（Web Audio）：ctx＝AudioContext 或回傳它的函式（() => engineAudio.context）；
+//                               out＝接到哪個節點（預設 ctx.destination）；muted()＝現在靜音嗎；gain＝音量（預設 0.22）
+//     hudParent: stage,         星星（通緝中）、快被抓的提示、被抓到、拘留室倒數放在這裡（要 position: relative）
+//     makePoliceCar,            () → { group, setLights(on), update(dt) }（police.js 的；沒給用 placeholderPoliceCar）
+//                               group：車的中心在原點、車頭朝 +x、輪子踩在 y = 0（跟 carlod.js 一樣）
+//     makeOfficer,              () → 角色（buildCharacter(POLICE_LOOK)；沒給用 placeholderOfficer）：group、radius、update(dt, { speed, state })
+//     jail,                     拘留室（世界座標）：{ cell: { x, z, heading }（關在這裡）, door: { x, z, heading }（放出來站在警察局門口，朝外）,
+//                               yard: { x, z, heading }（你的車停這裡）, spawn: { x, z, heading }（警車從這裡開出來）, setCellDoor(open) }
+//                               沒給就用 V.places.police 的 cell／door／yard／spawn；都沒有：放在被抓的地方、警車從 200–400 公尺外的路上來
+//     getPlayer: (out) => out,  每一幀叫（把 out 填好回傳它，不用每幀新建物件）：
+//                               { mode: 'drive' | 'walk' | 'off', x, z, heading, v（m/s，倒車負的）,
+//                                 car: { hx, hz, cx }（開車時車身長方形：半長、半寬、中心在車子原點前面幾公尺；drive.carInfo 算）,
+//                                 safe（躲在自己車庫、鐵捲門關了 → 星星清掉）, hidden（在房子裡面：警察看不到） }
+//                               'off'＝在改車廠、車店、比賽⋯（警察停著等、不會抓）
+//     onCaught(info),           被抓到的那一下（{ stars, fine, seconds, mode }）：頁面把開車／走路停住（drv.setInput 煞車、walker.pause()）
+//     onArrest(info),           畫面全黑的時候：{ cell, door, yard, fine, seconds, stars }：人放進拘留室（walker.teleport(cell)）、車停到 yard
+//     onRelease(info),          畫面全黑的時候：{ door, yard, paid }：人放到警察局門口（walker.teleport(door)、resume）；回傳 false＝車子沒拖來（不說「你的車停在⋯」）
+//     toast(text, ms, red),     第 3 批（b3-int，可省略）：頁面自己說提示（回傳 true＝說了，這裡就不用自己的）；red＝被抓到那一下（大的紅色）
+//     money: { get(), spend(n) },   錢包（萬）：get() 回傳現在多少；spend(n) 扣錢成功回傳 true（GAME.money、save、renderWallet）
+//     tune: { … },              改預設值（見下面 TUNE）
+//   });
+//   police.update(dt)            每一幀（開車、走路更新完以後、render 之前）
+//   police.crime(type, { x, z }) 犯罪（任何模組都可以叫）：
+//       'punch' 揍人 +1★、'hit' 開車撞人 +2★、'cop' 撞警車／揍警察 +1★、
+//       'shoot' 開槍打到人 → 直接 3★、'shootCop' 開槍打到警車／警察 +1★、'gunfire' 開槍沒打到人：60 公尺內有警察才 +1★
+//       同一種 1.5 秒內只算一次（撞一個人好幾幀都碰到、連發）；最多 3★；回傳現在幾顆星
+//   police.punch(me, people, knock)   揍人的判斷（走路按「揍」：walker.play('punch') 以後叫）：me＝{ x, z, heading }；
+//       前面 1.2 公尺、左右 ±60° 以內最近的一個人（people：[{ x, z, down }]、npc.js 的 peds.people 也可以（mode 是 fall／lie／getup 的不算），或警察）
+//       → knock(person, dx, dz) 讓他倒下去（npc.js：(p, dx, dz) => peds.knock(p, dx, dz, 4)）；報 'punch'／'cop'
+//   police.carHit(people, knock)      開車撞人的判斷（每一幀，開車的時候）：車身碰到 people 裡的人、車速 > 2 m/s → knock、報 'hit'
+//       （行人模組自己會判斷撞到就不用這兩個，直接叫 crime）；警察（下車跑的）一定是這裡判斷：撞到／揍到警察 → 倒下去、報 'cop'
+//   police.shot(hit)           開槍打到警察（guns.js）：hit＝{ x, z, dx, dz }（打到的點、子彈的方向）→ 那個警察倒下去再爬起來；不報犯罪（guns.js 自己報 'shootCop'）
+//   police.carObject(i)        警車 i（police.movers 的第 i 個長方形）的 Object3D（彈孔貼在上面）；police.shotCar(i, hit) 警車被打到（只記下來，照樣追）
+//   police.colliders(x, z, r) → [box]  現在的警車（給 drive.js：drv.removeColliders('police'); drv.addColliders(police.colliders(t.x, t.z, 60), 'police')）
+//   police.movers              固定的陣列（前 3 個是警車的長方形、後 3 個是下車的警察的圓；沒用到的大小是 0）：walker.setMovers(police.movers)（一次就好，每幀自己更新）
+//   police.npcCars             固定的陣列（3 台警車，npc.js 的車的格式 { x, z, heading, v, hx, hz, ai: true, police: true }；沒出來的放在很遠）：
+//                              traffic.update 的 obstacles、peds.update 的 cars 放進去（路上的車會讓警車、居民會閃開；警車不會撞飛人）
+//   police.markers             小地圖的點：[{ x, z, fill, ring, r, on }]（同一個陣列，每幀換內容：紅藍閃、回警察局的灰色）
+//                              → drv.setMarkers(police.markers)、walker.setMarkers(police.markers)（drive.js／walk.js 加的小功能，一次就好）
+//   police.wanted              現在幾顆星（0–3）；police.state：'free' | 'wanted' | 'caught' | 'jail' | 'release'
+//   police.clear()             星星清掉、警車馬上收掉（重新開始、回車庫頁）；police.setEnabled(on)（比賽、車庫頁：false＝警察全部收起來、HUD 藏起來，星星留著）
+//   police.surrender()         第 3 批（b3-int）：通緝中自己走進警察局＝自首（跟被抓到一樣：關起來、可以繳罰款）
+//   police.payFine()           繳罰款（拘留室的按鈕就是叫這個）；police.telemetry() → 見最下面；police.dispose()
+//   police.preload(renderer?, camera?)   把 3 台警車、3 個警察先做好（載入畫面的時候叫；不叫也會在沒有星星的時候每 0.25 秒偷偷做一個）；給 renderer＋camera 順便編譯 shader
+// 規則（TUNE 可以改）：
+//   看到你＝警車／警察 180 公尺以內、中間沒有房子擋住（30 公尺以內轉角也算）；25 秒沒被看到掉一顆星，之後每 10 秒再掉一顆
+//   第 3 批（b3-int）：甩開的計時從警察第一次看到你才開始（警察還在路上不算）；躲在房子裡、或 45 秒（hunt）都沒被找到就照算
+//   小孩永遠打不到（揍、開車撞：punch／carHit 跳過 age: 'kid' 的）
+//   開進自己的車庫、關上鐵捲門（getPlayer().safe）→ 星星清掉；星星沒了警車關警笛、開回警察局（看不到了就收掉）
+//   警車：1★ 一台、2★ 兩台、3★ 三台；從警察局開出來（600 公尺以內），不然從 200–400 公尺外、你看不到的路上來；沿著路開過來，近了直接追
+//         追的時候：第一台咬著你、第二台想繞到你前面、第三台從旁邊夾；你慢下來就前後左右圍住
+//         開法：沿著路線（路的右邊、轉角切圓弧、照彎道減速）；看得到你、中間沒有東西擋（照真的會開的圓弧檢查）才直接衝過去
+//         卡住、要去的地方在後面：先在原地試幾種開法（前進／倒車 × 左打／右打），挑不會撞到的那個 → 慢慢倒車、轉頭（三點迴轉），轉過來再開
+//         卡住 8 秒你又沒看到它（20 秒就不管了）、落後 520 公尺以上：收起來，從 200–400 公尺外、你看不到的路上重新開過來
+//   警察下車：你走路的時候警車開到附近就下車用跑的追（格子 A*：繞過房子、牆、警車；遠的走路線）；你離太遠（60 公尺）或上車了就跑回車上
+//   開車被抓：速度 5 km/h 以下、7 公尺內有警車 2.5 秒（兩台以上貼著你 1.5 秒）；走路被抓：警察跑到 1.2 公尺以內（警察跑 5 m/s，比你快一點）
+//   被抓到：「被警察抓到了！」→ 畫面變黑 → 關在拘留室 30 秒（可以繳罰款：每顆星 2 萬）→ 放出來站在警察局門口，車停在警察局的停車場；星星清掉
+// 效能：每一幀不新增物件（路線、碰撞、找點都用事先開好的陣列）；路線 1 秒重算一次（錯開）、看不看得到 0.25 秒算一次；物理每步最多走 0.6 公尺
+
+// 打包（build-art.mjs、build-app.mjs）會拿掉 import、把 export 變成一般宣告、所有檔接在同一個 script 裡：只露出下面幾個名字
+const { createPolice, placeholderPoliceCar, placeholderOfficer, OFFICER_LOOK, policeNavGraph } = (() => {
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const wrapA = (a) => { a = (a + Math.PI) % TAU; return a < 0 ? a + Math.PI : a - Math.PI; };
+const tnow = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+const SANS = '"Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif', COND = '"Barlow Condensed", "Arial Narrow", sans-serif';
+
+// ---- 預設值 ----
+const TUNE = {
+  add: { punch: 1, hit: 2, cop: 1, shoot: 3, shootCop: 1, gunfire: 1 }, // 幾顆星（shoot：直接變 3★）
+  gunfireR: 60, cool: 1.5, // 開槍沒打到人：警察在幾公尺內才算；同一種犯罪幾秒內只算一次
+  seeR: 180, nearR: 30, lose: 25, loseNext: 10, hunt: 45, // 看得到的距離、轉角也算看到的距離、幾秒沒被看到掉一顆星、之後每幾秒再掉一顆
+  catchR: 7, catchV: 5 / 3.6, catchT: 2.5, boxT: 1.5, boxR: 6.2, // 開車被抓：幾公尺內、比多慢、幾秒；兩台以上夾著：幾秒、幾公尺
+  footR: 1.2, runV: 5.0, // 走路被抓：警察多近；警察跑多快（你跑 4.5）
+  jailS: 30, fine: 2, // 關幾秒、罰款每顆星幾萬
+  spawnMin: 200, spawnMax: 400, stationR: 600, stagger: 2.5, // 警車從哪裡來、第二台以後隔幾秒
+  vmax: 205 / 3.6, vfar: 250 / 3.6, acc: 6.2, brake: 10, comf: 5.5, alat: 9.2, // 警車：極速（離很遠、看不到的時候快一點追上來）、加速、煞車、過彎
+  stanK: 3.5, stanPre: 0.25, manIn: 2.4, manOut: 1.0, // 沿著路線開（Stanley 的力道、看前面幾秒的方向）；要去的地方偏幾度（弧度）以上就慢慢倒車、轉頭，轉到幾度以內再照平常開
+};
+const MAXC = 3; // 最多幾台（3★）
+
+// ---- 碰撞：有方向的長方形（車）碰到長方形／圓／車 ----
+// 車：中心 (x, z)、朝向 f＝(cos th, −sin th)、右邊 r＝(sin th, cos th)、半長 hl、半寬 hw
+// 回傳 true＝碰到了：OUT[0..1]＝把車推出去的量、OUT[2..3]＝法線（從東西指向車）
+const OUT = new Float64Array(4);
+function boxPush(x, z, fx, fz, hl, hw, c) { // c：{ x, z, hx, hz, ux, uz, wx, wz }
+  const rx = -fz, rz = fx, dx = x - c.x, dz = z - c.z;
+  let best = Infinity, nx = 0, nz = 0;
+  for (let k = 0; k < 4; k++) {
+    const ax = k === 0 ? fx : k === 1 ? rx : k === 2 ? c.ux : c.wx, az = k === 0 ? fz : k === 1 ? rz : k === 2 ? c.uz : c.wz;
+    const d = dx * ax + dz * az;
+    const o = hl * Math.abs(fx * ax + fz * az) + hw * Math.abs(rx * ax + rz * az) + c.hx * Math.abs(c.ux * ax + c.uz * az) + c.hz * Math.abs(c.wx * ax + c.wz * az) - Math.abs(d);
+    if (o <= 0) return false;
+    if (o < best) { best = o; const s = d < 0 ? -1 : 1; nx = ax * s; nz = az * s; }
+  }
+  OUT[0] = nx * best; OUT[1] = nz * best; OUT[2] = nx; OUT[3] = nz;
+  return true;
+}
+function circlePush(x, z, fx, fz, hl, hw, cx, cz, r) { // 圓 (cx, cz, r)
+  const rx = -fz, rz = fx, dx = cx - x, dz = cz - z, lx = dx * fx + dz * fz, lz = dx * rx + dz * rz;
+  const ex = lx - clamp(lx, -hl, hl), ez = lz - clamp(lz, -hw, hw), d2 = ex * ex + ez * ez;
+  if (d2 >= r * r) return false;
+  let nx, nz, pen;
+  if (d2 > 1e-10) { const d = Math.sqrt(d2); nx = ex / d; nz = ez / d; pen = r - d; }
+  else if (hl - Math.abs(lx) < hw - Math.abs(lz)) { nx = Math.sign(lx) || 1; nz = 0; pen = hl - Math.abs(lx) + r; }
+  else { nx = 0; nz = Math.sign(lz) || 1; pen = hw - Math.abs(lz) + r; }
+  const wx = fx * nx + rx * nz, wz = fz * nx + rz * nz; // 車子往圓的方向 → 車要往反方向推
+  OUT[0] = -wx * pen; OUT[1] = -wz * pen; OUT[2] = -wx; OUT[3] = -wz;
+  return true;
+}
+// 圓（人）碰到長方形／圓：OUT[0..1]＝把人推出去的量
+function circleVsBox(px, pz, r, c) {
+  const dx = px - c.x, dz = pz - c.z, lu = dx * c.ux + dz * c.uz, lw = dx * c.wx + dz * c.wz;
+  const eu = lu - clamp(lu, -c.hx, c.hx), ew = lw - clamp(lw, -c.hz, c.hz), d2 = eu * eu + ew * ew;
+  if (d2 >= r * r) return false;
+  if (d2 > 1e-10) { const d = Math.sqrt(d2), k = (r - d) / d; OUT[0] = (eu * c.ux + ew * c.wx) * k; OUT[1] = (eu * c.uz + ew * c.wz) * k; return true; }
+  const pu = c.hx - Math.abs(lu), pw = c.hz - Math.abs(lw); // 圓心在裡面：從最近的邊推出去
+  if (pu < pw) { const s = lu < 0 ? -1 : 1; OUT[0] = c.ux * s * (pu + r); OUT[1] = c.uz * s * (pu + r); } else { const s = lw < 0 ? -1 : 1; OUT[0] = c.wx * s * (pw + r); OUT[1] = c.wz * s * (pw + r); }
+  return true;
+}
+
+// ---- 碰撞物的格子（8 公尺一格）：每個碰撞物放進它碰到的格子（多放 pad 公尺：線段只要走過中線經過的格子就找得到）----
+// 大的（邊長 > 120 公尺：快速道路的長護欄、村子的圍牆）另外放一個清單；near() 回傳同一個陣列（下一次會蓋掉）
+function makeGrid(list, pad, keep) {
+  const CELL = 8, grid = new Map(), big = [], found = [], key = (i, j) => i * 100003 + j;
+  let stamp = 0;
+  for (const c0 of list || []) {
+    if (!c0 || !isFinite(c0.x) || !isFinite(c0.z) || (keep && !keep(c0))) continue;
+    const box = c0.t === 'box'; if (box ? !(c0.hx > 0 && c0.hz > 0) : !(c0.r > 0)) continue;
+    const rot = c0.rot || 0, c = { box, x: c0.x, z: c0.z, hx: box ? c0.hx : 0, hz: box ? c0.hz : 0, r: box ? 0 : c0.r, h: c0.h ?? 9, ux: Math.cos(rot), uz: -Math.sin(rot), wx: Math.sin(rot), wz: Math.cos(rot), s: 0 };
+    const ex = box ? Math.abs(c.ux) * c.hx + Math.abs(c.wx) * c.hz : c.r, ez = box ? Math.abs(c.uz) * c.hx + Math.abs(c.wz) * c.hz : c.r;
+    c.ex = ex; c.ez = ez;
+    if (ex > 60 || ez > 60) { big.push(c); continue; }
+    for (let i = Math.floor((c.x - ex - pad) / CELL); i <= Math.floor((c.x + ex + pad) / CELL); i++) for (let j = Math.floor((c.z - ez - pad) / CELL); j <= Math.floor((c.z + ez + pad) / CELL); j++) {
+      if (box) { // 斜的長方形只放真的碰到的格子
+        const dx = (i + 0.5) * CELL - c.x, dz = (j + 0.5) * CELL - c.z, hc = CELL / 2 + pad;
+        if (Math.abs(dx * c.ux + dz * c.uz) > c.hx + hc * (Math.abs(c.ux) + Math.abs(c.uz)) || Math.abs(dx * c.wx + dz * c.wz) > c.hz + hc * (Math.abs(c.wx) + Math.abs(c.wz))) continue;
+      }
+      const k = key(i, j); let a = grid.get(k); if (!a) grid.set(k, (a = [])); a.push(c);
+    }
+  }
+  const G = {
+    CELL, big,
+    near(x0, z0, x1, z1) {
+      stamp++; found.length = 0;
+      for (let b = 0; b < big.length; b++) { const c = big[b]; if (c.x + c.ex >= x0 && c.x - c.ex <= x1 && c.z + c.ez >= z0 && c.z - c.ez <= z1) found.push(c); }
+      for (let i = Math.floor(x0 / CELL); i <= Math.floor(x1 / CELL); i++) for (let j = Math.floor(z0 / CELL); j <= Math.floor(z1 / CELL); j++) {
+        const a = grid.get(key(i, j)); if (!a) continue;
+        for (let q = 0; q < a.length; q++) { const c = a[q]; if (c.s !== stamp) { c.s = stamp; found.push(c); } }
+      }
+      return found;
+    },
+    // 線段 (x0, z0) → (x1, z1) 胖 r 公尺（r ≤ pad）有沒有碰到東西：走過中線經過的格子（Amanatides–Woo）
+    blocked(x0, z0, x1, z1, r) {
+      stamp++;
+      const dx = x1 - x0, dz = z1 - z0, L = Math.hypot(dx, dz);
+      for (let b = 0; b < big.length; b++) if (segHits(big[b], x0, z0, dx, dz, r)) return true;
+      let i = Math.floor(x0 / CELL), j = Math.floor(z0 / CELL); const i1 = Math.floor(x1 / CELL), j1 = Math.floor(z1 / CELL);
+      const si = dx > 0 ? 1 : -1, sj = dz > 0 ? 1 : -1;
+      const tdx = Math.abs(dx) > 1e-9 ? CELL / Math.abs(dx) : Infinity, tdz = Math.abs(dz) > 1e-9 ? CELL / Math.abs(dz) : Infinity;
+      let tx = Math.abs(dx) > 1e-9 ? ((si > 0 ? (i + 1) * CELL - x0 : x0 - i * CELL) / Math.abs(dx)) : Infinity;
+      let tz = Math.abs(dz) > 1e-9 ? ((sj > 0 ? (j + 1) * CELL - z0 : z0 - j * CELL) / Math.abs(dz)) : Infinity;
+      for (let guard = 0; guard < 4 + (L / CELL) * 2 + 4; guard++) {
+        const a = grid.get(key(i, j));
+        if (a) for (let q = 0; q < a.length; q++) { const c = a[q]; if (c.s === stamp) continue; c.s = stamp; if (segHits(c, x0, z0, dx, dz, r)) return true; }
+        if (i === i1 && j === j1) break;
+        if (tx < tz) { if (tx > 1) break; tx += tdx; i += si; } else { if (tz > 1) break; tz += tdz; j += sj; }
+      }
+      return false;
+    },
+  };
+  return G;
+}
+// 線段（起點 x0, z0、方向 dx, dz）胖 r 碰不碰得到 c（長方形：本地座標的平板測試，邊長加 r；圓：點到線段的距離）
+function segHits(c, x0, z0, dx, dz, r) {
+  if (!c.box) {
+    const L2 = dx * dx + dz * dz, t = L2 > 1e-12 ? clamp(((c.x - x0) * dx + (c.z - z0) * dz) / L2, 0, 1) : 0, ex = x0 + dx * t - c.x, ez = z0 + dz * t - c.z, rr = c.r + r;
+    return ex * ex + ez * ez < rr * rr;
+  }
+  const ox = x0 - c.x, oz = z0 - c.z, pu = ox * c.ux + oz * c.uz, pw = ox * c.wx + oz * c.wz, du = dx * c.ux + dz * c.uz, dw = dx * c.wx + dz * c.wz;
+  const eu = c.hx + r, ew = c.hz + r;
+  let t0 = 0, t1 = 1;
+  if (Math.abs(du) < 1e-9) { if (Math.abs(pu) > eu) return false; } else { let a = (-eu - pu) / du, b = (eu - pu) / du; if (a > b) { const t = a; a = b; b = t; } if (a > t0) t0 = a; if (b < t1) t1 = b; if (t0 > t1) return false; }
+  if (Math.abs(dw) < 1e-9) { if (Math.abs(pw) > ew) return false; } else { let a = (-ew - pw) / dw, b = (ew - pw) / dw; if (a > b) { const t = a; a = b; b = t; } if (a > t0) t0 = a; if (b < t1) t1 = b; if (t0 > t1) return false; }
+  return true;
+}
+
+// ---- 路網（警車開的）：V.roads 的路（雙向）＋快速道路外圈、內圈（單向，照開的方向）＋快速道路路口的連接 ----
+// 節點＝折線上的每一點（0.6 公尺內併成一個）；丁字路口（端點在別條路中間）切開；每一段線＝一條邊（雙向的兩個方向都有）
+const NAVS = new WeakMap();
+function policeNavGraph(V) {
+  let G = NAVS.get(V); if (G) return G;
+  const px = [], pz = [], ph = [], nodeHash = new Map(), hk = (x, z) => Math.floor(x / 1.2) * 100003 + Math.floor(z / 1.2);
+  const nodeAt = (x, z, own) => { // own：快速道路的點不要跟村子的點併在一起
+    const i0 = Math.floor(x / 1.2), j0 = Math.floor(z / 1.2);
+    if (!own) for (let i = i0 - 1; i <= i0 + 1; i++) for (let j = j0 - 1; j <= j0 + 1; j++) { const a = nodeHash.get(i * 100003 + j); if (a) for (const n of a) if (Math.hypot(px[n] - x, pz[n] - z) < 0.6) return n; }
+    const n = px.length; px.push(x); pz.push(z); ph.push(own ? 1 : 0);
+    if (!own) { const k = hk(x, z); let a = nodeHash.get(k); if (!a) nodeHash.set(k, (a = [])); a.push(n); }
+    return n;
+  };
+  const dedupe = (pts) => { const out = []; for (const p of pts) if (!out.length || Math.hypot(p[0] - out[out.length - 1][0], p[1] - out[out.length - 1][1]) > 0.3) out.push([p[0], p[1]]); return out; };
+  const lines = [];
+  for (const r of V.roads || []) if (r.kind !== 'highway' && r.pts && r.pts.length > 1) lines.push({ pts: dedupe(r.pts), w: r.w || 7, two: true, hwy: false });
+  // 丁字路口：端點在另一條路的中間 → 那條路在那裡多一個點
+  for (const A of lines) for (const e of [A.pts[0], A.pts[A.pts.length - 1]]) for (const B of lines) {
+    if (B === A) continue;
+    for (let i = 0; i < B.pts.length - 1; i++) {
+      const a = B.pts[i], b = B.pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1], L2 = dx * dx + dz * dz; if (L2 < 1e-6) continue;
+      const t = ((e[0] - a[0]) * dx + (e[1] - a[1]) * dz) / L2; if (t <= 0.02 || t >= 0.98) continue;
+      if (Math.hypot(a[0] + dx * t - e[0], a[1] + dz * t - e[1]) < 0.6) { B.pts.splice(i + 1, 0, [e[0], e[1]]); break; }
+    }
+  }
+  const H = V.highway;
+  const loopPts = (pts, step) => { // 快速道路一圈：大約每 step 公尺一點（頭尾是路口，同一點）
+    const out = [pts[0]]; let acc = 0;
+    for (let i = 1; i < pts.length; i++) { acc += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); if (acc >= step || i === pts.length - 1) { out.push(pts[i]); acc = 0; } }
+    return dedupe(out);
+  };
+  if (H && H.out && H.in && H.out.length > 3) { lines.push({ pts: loopPts(H.out, 12), w: 7.5, two: false, hwy: true }); lines.push({ pts: loopPts(H.in, 12), w: 7.5, two: false, hwy: true }); }
+  // 邊（每一段線一條；雙向的兩個方向）
+  const segA = [], segB = [], segTwo = [], segW = [], segHwy = [];
+  for (const L of lines) {
+    const ids = []; let first = -1;
+    for (let i = 0; i < L.pts.length; i++) {
+      const p = L.pts[i];
+      if (L.hwy && i === L.pts.length - 1 && first >= 0 && Math.hypot(p[0] - px[first], p[1] - pz[first]) < 1) { ids.push(first); continue; } // 一圈接回自己
+      const n = nodeAt(p[0], p[1], L.hwy); if (i === 0) first = n; ids.push(n);
+    }
+    L.ids = ids;
+    for (let i = 0; i < ids.length - 1; i++) if (ids[i] !== ids[i + 1]) { segA.push(ids[i]); segB.push(ids[i + 1]); segTwo.push(L.two ? 1 : 0); segW.push(L.w); segHwy.push(L.hwy ? 1 : 0); }
+  }
+  // 快速道路的路口：村子的路的死路端點離快速道路的點 20 公尺以內 → 兩邊都接（右轉上外圈、左轉穿過中間護欄開口上內圈，下來也一樣）
+  const deg = new Int32Array(px.length); for (let s = 0; s < segA.length; s++) if (!segHwy[s]) { deg[segA[s]]++; deg[segB[s]]++; }
+  const hwyLines = lines.filter((l) => l.hwy);
+  for (let n = 0; n < px.length; n++) {
+    if (deg[n] !== 1) continue;
+    for (const L of hwyLines) {
+      let best = -1, bd = 20;
+      for (const m of L.ids) { const d = Math.hypot(px[m] - px[n], pz[m] - pz[n]); if (d < bd) { bd = d; best = m; } }
+      if (best >= 0) { segA.push(n); segB.push(best); segTwo.push(1); segW.push(8); segHwy.push(2); } // 2＝上下快速道路的連接（在快速道路上也找得到）
+    }
+  }
+  const N = px.length, M = segA.length;
+  const nx = Float64Array.from(px), nz = Float64Array.from(pz);
+  const sA = Int32Array.from(segA), sB = Int32Array.from(segB), sTwo = Uint8Array.from(segTwo), sW = Float32Array.from(segW), sHwy = Uint8Array.from(segHwy), sLen = new Float64Array(M);
+  for (let s = 0; s < M; s++) sLen[s] = Math.hypot(nx[sB[s]] - nx[sA[s]], nz[sB[s]] - nz[sA[s]]);
+  // 有方向的邊（CSR）：正的（從哪裡出去）、反的（從哪裡進來）
+  const outDeg = new Int32Array(N + 1), inDeg = new Int32Array(N + 1);
+  for (let s = 0; s < M; s++) { outDeg[sA[s]]++; inDeg[sB[s]]++; if (sTwo[s]) { outDeg[sB[s]]++; inDeg[sA[s]]++; } }
+  const oStart = new Int32Array(N + 1), iStart = new Int32Array(N + 1);
+  for (let n = 0; n < N; n++) { oStart[n + 1] = oStart[n] + outDeg[n]; iStart[n + 1] = iStart[n] + inDeg[n]; }
+  const E = oStart[N], oTo = new Int32Array(E), oSeg = new Int32Array(E), iFrom = new Int32Array(E), iSeg = new Int32Array(E), oFill = oStart.slice(0, N), iFill = iStart.slice(0, N);
+  const addE = (a, b, s) => { oTo[oFill[a]] = b; oSeg[oFill[a]++] = s; iFrom[iFill[b]] = a; iSeg[iFill[b]++] = s; };
+  for (let s = 0; s < M; s++) { addE(sA[s], sB[s], s); if (sTwo[s]) addE(sB[s], sA[s], s); }
+  // 找最近的一段：20 公尺一格，每一段放進它經過的格子（多放 6 公尺）
+  const EC = 20, egrid = new Map(), ekey = (i, j) => i * 100003 + j;
+  for (let s = 0; s < M; s++) {
+    const ax = nx[sA[s]], az = nz[sA[s]], bx = nx[sB[s]], bz = nz[sB[s]];
+    for (let i = Math.floor((Math.min(ax, bx) - 6) / EC); i <= Math.floor((Math.max(ax, bx) + 6) / EC); i++) for (let j = Math.floor((Math.min(az, bz) - 6) / EC); j <= Math.floor((Math.max(az, bz) + 6) / EC); j++) {
+      const k = ekey(i, j); let a = egrid.get(k); if (!a) egrid.set(k, (a = [])); a.push(s);
+    }
+  }
+  G = { N, M, nx, nz, nHwy: Uint8Array.from(ph), sA, sB, sTwo, sW, sHwy, sLen, oStart, oTo, oSeg, iStart, iFrom, iSeg, EC, egrid, ekey, segStamp: new Int32Array(M), stamp: 0 };
+  NAVS.set(V, G);
+  return G;
+}
+
+// ---- 路線（重複用的陣列）：點、累積長度、每一點的速限（彎道、煞得住）、從哪一段來（雙向的路才靠右）----
+function mkPath(cap) { return { n: 0, cap, x: new Float64Array(cap), z: new Float64Array(cap), cum: new Float64Array(cap), vl: new Float64Array(cap), i: 0, len: 0, tx: 0, tz: 0, ok: false }; }
+function pathAdd(P, x, z) {
+  if (P.n >= P.cap) return;
+  if (P.n > 0) { const dx = x - P.x[P.n - 1], dz = z - P.z[P.n - 1]; if (dx * dx + dz * dz < 0.04) return; }
+  P.x[P.n] = x; P.z[P.n] = z; P.n++;
+}
+function pathFinish(P, amax, dec, vcap) { // 累積長度＋速限：三點的曲率 → √(a/κ)；再往回推：前面要慢，後面就要先煞車
+  const n = P.n; P.cum[0] = 0;
+  for (let i = 1; i < n; i++) P.cum[i] = P.cum[i - 1] + Math.hypot(P.x[i] - P.x[i - 1], P.z[i] - P.z[i - 1]);
+  P.len = n ? P.cum[n - 1] : 0;
+  for (let i = 0; i < n; i++) {
+    let v = vcap;
+    if (i > 0 && i < n - 1) {
+      const ax = P.x[i] - P.x[i - 1], az = P.z[i] - P.z[i - 1], bx = P.x[i + 1] - P.x[i], bz = P.z[i + 1] - P.z[i], cx = P.x[i + 1] - P.x[i - 1], cz = P.z[i + 1] - P.z[i - 1];
+      const la = Math.hypot(ax, az), lb = Math.hypot(bx, bz), lc = Math.hypot(cx, cz);
+      if (la > 1e-6 && lb > 1e-6 && lc > 1e-6) { const k = (2 * Math.abs(ax * bz - az * bx)) / (la * lb * lc); if (k > 1e-6) v = Math.min(v, Math.sqrt(amax / k)); }
+    }
+    P.vl[i] = Math.max(4.5, v);
+  }
+  for (let i = n - 2; i >= 0; i--) P.vl[i] = Math.min(P.vl[i], Math.sqrt(P.vl[i + 1] * P.vl[i + 1] + 2 * dec * (P.cum[i + 1] - P.cum[i])));
+  P.i = 0; P.ok = n > 1;
+}
+
+// ---- 路線規劃（Dijkstra；陣列都是事先開好的）----
+function makeRouter(G) {
+  const N = G.N, dist = new Float64Array(N), prev = new Int32Array(N), seen = new Int32Array(N), done = new Int32Array(N);
+  const hN = new Int32Array(G.oTo.length + N + 8), hK = new Float64Array(G.oTo.length + N + 8); let hs = 0, st = 0;
+  const chain = new Int32Array(N + 4), RX = new Float64Array(N + 16), RZ = new Float64Array(N + 16), RL = new Uint8Array(N + 16), RW = new Float32Array(N + 16), OX = new Float64Array(N + 16), OZ = new Float64Array(N + 16);
+  const laneOf = (w) => clamp((w - 6) * 0.8, 0, 1); // 路多寬 → 靠右幾成（6 公尺的小路走中間：路邊的樹、電線桿才不會撞到）
+  const cand = { s: new Int32Array(8), d: new Float64Array(8), t: new Float64Array(8), qx: new Float64Array(8), qz: new Float64Array(8), n: 0 };
+  const push = (n, k) => { let i = hs++; while (i > 0) { const p = (i - 1) >> 1; if (hK[p] <= k) break; hN[i] = hN[p]; hK[i] = hK[p]; i = p; } hN[i] = n; hK[i] = k; };
+  const pop = () => { const top = hN[0]; hs--; if (hs > 0) { const n = hN[hs], k = hK[hs]; let i = 0; for (;;) { let c = 2 * i + 1; if (c >= hs) break; if (c + 1 < hs && hK[c + 1] < hK[c]) c++; if (hK[c] >= k) break; hN[i] = hN[c]; hK[i] = hK[c]; i = c; } hN[i] = n; hK[i] = k; } return top; };
+  const relax = (n, d, p) => { if (seen[n] !== st || d < dist[n]) { seen[n] = st; dist[n] = d; prev[n] = p; push(n, d); } };
+  // 離 (x, z) 最近的幾段（最多 8 段、R 公尺以內），照距離排好放在 cand
+  function nearest(x, z, R, hwyOnly) {
+    cand.n = 0; G.stamp++;
+    const EC = G.EC, i0 = Math.floor(x / EC), j0 = Math.floor(z / EC), rr = Math.ceil(R / EC);
+    for (let ring = 0; ring <= rr; ring++) {
+      for (let i = i0 - ring; i <= i0 + ring; i++) for (let j = j0 - ring; j <= j0 + ring; j++) {
+        if (Math.max(Math.abs(i - i0), Math.abs(j - j0)) !== ring) continue;
+        const a = G.egrid.get(G.ekey(i, j)); if (!a) continue;
+        for (let q = 0; q < a.length; q++) {
+          const s = a[q]; if (G.segStamp[s] === G.stamp) continue; G.segStamp[s] = G.stamp;
+          if (hwyOnly === 1 && G.sHwy[s] === 0) continue; if (hwyOnly === 0 && G.sHwy[s] === 1) continue; // 在快速道路上：只找快速道路（＋下交流道的連接）
+          const ax = G.nx[G.sA[s]], az = G.nz[G.sA[s]], dx = G.nx[G.sB[s]] - ax, dz = G.nz[G.sB[s]] - az, L2 = dx * dx + dz * dz;
+          const t = L2 > 1e-9 ? clamp(((x - ax) * dx + (z - az) * dz) / L2, 0, 1) : 0, qx = ax + dx * t, qz = az + dz * t, d = Math.hypot(x - qx, z - qz);
+          if (d > R) continue;
+          if (cand.n === 8 && d >= cand.d[7]) continue; // 滿了：比最遠的還遠就不要
+          let k = cand.n < 8 ? cand.n++ : 7;
+          while (k > 0 && cand.d[k - 1] > d) { cand.s[k] = cand.s[k - 1]; cand.d[k] = cand.d[k - 1]; cand.t[k] = cand.t[k - 1]; cand.qx[k] = cand.qx[k - 1]; cand.qz[k] = cand.qz[k - 1]; k--; }
+          cand.s[k] = s; cand.d[k] = d; cand.t[k] = t; cand.qx[k] = qx; cand.qz[k] = qz;
+        }
+      }
+      if (cand.n >= 3 && (ring + 1) * EC > cand.d[cand.n - 1] + EC) break; // 夠近的都找到了
+    }
+    return cand.n;
+  }
+  // 選一段：最近而且直直走得到的（線段胖 r 沒碰到東西）；都擋住就最近的
+  //   th（可省略）：車頭（或你開車）的方向 → 跟它垂直的路多算 8 公尺（大路上經過路口，不會投影到旁邊的小路上：路線才不會在路口折來折去、一直慢下來）
+  const pick = { s: -1, t: 0, qx: 0, qz: 0, d: 0, clear: false };
+  const cost = new Float64Array(8);
+  function project(x, z, R, hwyOnly, solid, r, th) {
+    pick.s = -1;
+    const n = nearest(x, z, R, hwyOnly); if (!n) return false;
+    const useTh = th != null && isFinite(th), hx = useTh ? Math.cos(th) : 0, hz = useTh ? -Math.sin(th) : 0;
+    let m = 0;
+    for (let k = 0; k < n; k++) {
+      if (k > 0 && cand.d[k] > cand.d[0] + 25) break;
+      let cs = cand.d[k];
+      if (useTh) { const sg = cand.s[k], dx = G.nx[G.sB[sg]] - G.nx[G.sA[sg]], dz = G.nz[G.sB[sg]] - G.nz[G.sA[sg]], L = Math.hypot(dx, dz); if (L > 1e-6) cs += 8 * (1 - Math.abs((dx * hx + dz * hz) / L)); }
+      cost[k] = cs; m = k + 1;
+    }
+    let done = 0, first = -1;
+    for (let it = 0; it < m; it++) { // 照 cost 由小到大試：第一個直直走得到的
+      let k = -1; for (let j = 0; j < m; j++) if (!(done & (1 << j)) && (k < 0 || cost[j] < cost[k])) k = j;
+      done |= 1 << k; if (first < 0) first = k;
+      if (!solid || cand.d[k] < 0.5 || !solid.blocked(x, z, cand.qx[k], cand.qz[k], r)) { pick.s = cand.s[k]; pick.t = cand.t[k]; pick.qx = cand.qx[k]; pick.qz = cand.qz[k]; pick.d = cand.d[k]; pick.clear = true; return true; }
+    }
+    pick.s = cand.s[first]; pick.t = cand.t[first]; pick.qx = cand.qx[first]; pick.qz = cand.qz[first]; pick.d = cand.d[first]; pick.clear = false;
+    return true;
+  }
+  // 從 (sx, sz)（車頭朝 sth）沿著路開到 (tx, tz)，寫進 P。o：{ solid, onHwy, tHwy, lane（雙向的路靠右幾公尺）, uturn（掉頭多算幾公尺）, toTarget（最後直直開到 (tx, tz)）,
+  //   tth（可省略：目標的方向，你開車的方向）, far（目標離路最遠幾公尺，預設 160）}
+  // 回傳 true＝找到路
+  function route(P, sx, sz, sth, tx, tz, o) {
+    P.n = 0; P.ok = false;
+    if (!project(sx, sz, 60, o.onHwy ? 1 : -1, o.solid, 0.9, sth)) return false;
+    const s0 = pick.s, t0 = pick.t, q0x = pick.qx, q0z = pick.qz;
+    if (!project(tx, tz, o.far || 160, o.tHwy ? 1 : -1, o.solid, 0.9, o.tth)) return false;
+    const s1 = pick.s, t1 = pick.t, q1x = pick.qx, q1z = pick.qz, clear1 = pick.clear;
+    const fx = Math.cos(sth), fz = -Math.sin(sth);
+    st++; hs = 0;
+    const a0 = G.sA[s0], b0 = G.sB[s0], L0 = G.sLen[s0];
+    const dab = L0 > 1e-6 ? ((G.nx[b0] - G.nx[a0]) * fx + (G.nz[b0] - G.nz[a0]) * fz) / L0 : 0; // 往 b 走跟車頭同方向嗎
+    const back = o.uturn ?? 30;
+    relax(b0, L0 * (1 - t0) + (dab < -0.3 ? back : 0), -1);
+    if (G.sTwo[s0]) relax(a0, L0 * t0 + (dab > 0.3 ? back : 0), -1);
+    const a1 = G.sA[s1], b1 = G.sB[s1], two1 = G.sTwo[s1];
+    // 同一段：直接沿著這段走（單行道要往前）
+    let direct = false;
+    if (s0 === s1) direct = two1 ? (t1 >= t0 ? dab > -0.3 : dab < 0.3) : t1 >= t0;
+    let endVia = -1, best = Infinity;
+    if (!direct) {
+      while (hs > 0) {
+        const u = pop(); if (done[u] === st) continue; done[u] = st;
+        const du = dist[u];
+        if (du > best) break;
+        if (u === a1) { const c = du + Math.hypot(G.nx[a1] - q1x, G.nz[a1] - q1z); if (c < best) { best = c; endVia = u; } }
+        if (u === b1 && two1) { const c = du + Math.hypot(G.nx[b1] - q1x, G.nz[b1] - q1z); if (c < best) { best = c; endVia = u; } }
+        for (let e = G.oStart[u]; e < G.oStart[u + 1]; e++) relax(G.oTo[e], du + G.sLen[G.oSeg[e]], u);
+      }
+      if (endVia < 0) return false;
+    }
+    // 點：起點 → 投影點 → 節點⋯ → 投影點 → 終點（看得到才直直開過去）；RL＝雙向的村子的路（要靠右）
+    let m = 0; const lane = o.lane || 0;
+    const put = (x, z, ln, w) => { if (m < RX.length) { RX[m] = x; RZ[m] = z; RL[m] = ln; RW[m] = w; m++; } };
+    const segW = (a, b) => { for (let e = G.oStart[a]; e < G.oStart[a + 1]; e++) if (G.oTo[e] === b) return G.sW[G.oSeg[e]]; return 7; }; // a → b 那條路多寬
+    put(sx, sz, 0, 0); put(q0x, q0z, G.sTwo[s0] && !G.sHwy[s0] ? 1 : 0, laneOf(G.sW[s0]));
+    if (!direct) {
+      let k = 0; for (let u = endVia; u >= 0 && k < chain.length; u = prev[u]) chain[k++] = u;
+      for (let j = k - 1; j >= 0; j--) {
+        const u = chain[j], wi = j < k - 1 ? segW(chain[j + 1], u) : G.sW[s0], wo = j > 0 ? segW(u, chain[j - 1]) : G.sW[s1];
+        put(G.nx[u], G.nz[u], G.nHwy[u] ? 0 : 1, laneOf(Math.min(wi, wo)));
+      }
+    }
+    put(q1x, q1z, two1 && !G.sHwy[s1] ? 1 : 0, laneOf(G.sW[s1]));
+    const tgt = clear1 && o.toTarget !== false; if (tgt) put(tx, tz, 0);
+    // 靠右：前後（也是要靠右的）點的方向 → 往右手邊（−dz, dx）移 lane 公尺（轉角照角平分線放大）
+    for (let i = 0; i < m; i++) {
+      let x = RX[i], z = RZ[i];
+      if (lane > 0 && RL[i]) {
+        const hp = i > 0 && RL[i - 1] === 1, hn = i < m - 1 && RL[i + 1] === 1;
+        let ax = 0, az = 0, bx = 0, bz = 0;
+        if (hp) { ax = x - RX[i - 1]; az = z - RZ[i - 1]; const l = Math.hypot(ax, az); if (l > 1e-6) { ax /= l; az /= l; } else { ax = 0; az = 0; } }
+        if (hn) { bx = RX[i + 1] - x; bz = RZ[i + 1] - z; const l = Math.hypot(bx, bz); if (l > 1e-6) { bx /= l; bz /= l; } else { bx = 0; bz = 0; } }
+        let tx2 = ax + bx, tz2 = az + bz; const tl = Math.hypot(tx2, tz2);
+        const ln = lane * RW[i];
+        if (tl > 0.3 && ln > 0.01) { tx2 /= tl; tz2 /= tl; const cs = hp && hn ? Math.max(0.5, ax * tx2 + az * tz2) : 1; x += (-tz2 * ln) / cs; z += (tx2 * ln) / cs; }
+      }
+      OX[i] = x; OZ[i] = z;
+    }
+    if (tgt && m >= 3 && Math.hypot(OX[m - 1] - OX[m - 2], OZ[m - 1] - OZ[m - 2]) < 3) { OX[m - 2] = OX[m - 1]; OZ[m - 2] = OZ[m - 1]; m--; } // 最後那個路上的點離終點很近：拿掉（不然路線尾巴折一下，追的時候一直慢下來）
+    // 轉角修圓（20° 以上）：二次貝茲曲線
+    for (let i = 0; i < m; i++) {
+      if (i === 0 || i === m - 1) { pathAdd(P, OX[i], OZ[i]); continue; }
+      const ax = OX[i] - OX[i - 1], az = OZ[i] - OZ[i - 1], bx = OX[i + 1] - OX[i], bz = OZ[i + 1] - OZ[i], la = Math.hypot(ax, az), lb = Math.hypot(bx, bz);
+      const cs = la > 1e-6 && lb > 1e-6 ? (ax * bx + az * bz) / (la * lb) : 1;
+      if (cs > 0.94 || la < 1 || lb < 1) { pathAdd(P, OX[i], OZ[i]); continue; }
+      const rr = Math.min(8, la * 0.45, lb * 0.45), p0x = OX[i] - (ax / la) * rr, p0z = OZ[i] - (az / la) * rr, p2x = OX[i] + (bx / lb) * rr, p2z = OZ[i] + (bz / lb) * rr;
+      for (let k = 0; k <= 4; k++) { const t = k / 4, u = 1 - t; pathAdd(P, u * u * p0x + 2 * u * t * OX[i] + t * t * p2x, u * u * p0z + 2 * u * t * OZ[i] + t * t * p2z); }
+    }
+    P.tx = tx; P.tz = tz;
+    return P.n > 1;
+  }
+  // 每個節點到 (tx, tz) 要開多遠（反方向的 Dijkstra；dist、prev＝下一個節點）→ 找生警車的地方用
+  function toTarget(tx, tz, tHwy, solid, maxD) {
+    st++; hs = 0;
+    if (!project(tx, tz, 160, tHwy ? 1 : -1, solid, 0.9)) return false;
+    const s1 = pick.s, a1 = G.sA[s1], b1 = G.sB[s1];
+    relax(a1, Math.hypot(G.nx[a1] - pick.qx, G.nz[a1] - pick.qz) + pick.d, -1);
+    if (G.sTwo[s1]) relax(b1, Math.hypot(G.nx[b1] - pick.qx, G.nz[b1] - pick.qz) + pick.d, -1);
+    while (hs > 0) {
+      const u = pop(); if (done[u] === st) continue; done[u] = st;
+      if (dist[u] > maxD) break;
+      for (let e = G.iStart[u]; e < G.iStart[u + 1]; e++) relax(G.iFrom[e], dist[u] + G.sLen[G.iSeg[e]], u);
+    }
+    return true;
+  }
+  const distOf = (n) => (seen[n] === st ? dist[n] : Infinity), nextOf = (n) => (seen[n] === st ? prev[n] : -1);
+  return { route, project, pick, toTarget, distOf, nextOf };
+}
+
+// ---- 替身警車（police.js 的 makePoliceCar 還沒好之前用）：白色車身、藍色腰線寫「警察 POLICE」、車頂紅藍警示燈 ----
+// 一台 3 個 draw call：車身（含車窗、輪子、字，頂點色＋一張小貼圖）、燈罩（頂點色，閃的時候改顏色）、光暈（加法混色）
+let PC_SHARED = null;
+function pcShared() {
+  if (PC_SHARED) return PC_SHARED;
+  const c = typeof document !== 'undefined' ? document.createElement('canvas') : null;
+  let tex = null, glowTex = null;
+  if (c) {
+    c.width = 512; c.height = 128; const g = c.getContext('2d');
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, 512, 128);
+    g.fillStyle = '#1f4fb4'; g.fillRect(0, 0, 512, 64); // 上半：藍色腰線＋白字
+    g.fillStyle = '#ffffff'; g.font = `900 44px ${SANS}`; g.textBaseline = 'middle'; g.textAlign = 'left'; g.fillText('警察', 70, 34);
+    g.font = `700 36px ${COND}`; g.fillText('POLICE', 190, 35);
+    g.fillStyle = '#ffffff'; g.fillRect(0, 60, 512, 4);
+    tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+    const c2 = document.createElement('canvas'); c2.width = c2.height = 64; const g2 = c2.getContext('2d');
+    const gr = g2.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.25, 'rgba(255,255,255,0.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g2.fillStyle = gr; g2.fillRect(0, 0, 64, 64);
+    glowTex = new THREE.CanvasTexture(c2); glowTex.colorSpace = THREE.SRGBColorSpace;
+  }
+  // 車身：頂點色 × 貼圖（大部分的面貼圖取白色那一點，腰線取上半的字）
+  const P = [], N = [], C = [], U = [];
+  const WHITE_UV = [0.5, 0.2];
+  const col = (h) => { const k = new THREE.Color(h); return [k.r, k.g, k.b]; };
+  // quadRaw：a→b→c→d 從外面看是逆時針（法線＝(b−a)×(d−a) 朝外）
+  const quadRaw = (a, b, c2, d, k, uv) => {
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = d[0] - a[0], vy = d[1] - a[1], vz = d[2] - a[2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx; const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+    const uvs = uv || [WHITE_UV, WHITE_UV, WHITE_UV, WHITE_UV];
+    for (const [p, t] of [[a, uvs[0]], [b, uvs[1]], [c2, uvs[2]], [a, uvs[0]], [c2, uvs[2]], [d, uvs[3]]]) { P.push(p[0], p[1], p[2]); N.push(nx, ny, nz); C.push(k[0], k[1], k[2]); U.push(t[0], t[1]); }
+  };
+  const quad = (a, b, c2, d, k) => quadRaw(a, d, c2, b, k); // 六面體、方塊的點是順時針排的：反過來
+  // 六面體：8 個角（x0 後、x1 前；每個 x 各自的 y0 y1 z 半寬）→ 可以做斜的引擎蓋、車窗
+  const hexa = (x0, x1, y00, y01, w0b, w0t, y10, y11, w1b, w1t, k, sides) => {
+    const A = [x0, y00, -w0b], B = [x0, y00, w0b], Cc = [x0, y01, w0t], D = [x0, y01, -w0t], E2 = [x1, y10, -w1b], F = [x1, y10, w1b], G2 = [x1, y11, w1t], Hh = [x1, y11, -w1t];
+    const s = sides || {};
+    quad(E2, F, G2, Hh, s.front || k); quad(B, A, D, Cc, s.back || k); // 前、後
+    quad(F, B, Cc, G2, s.right || k); quad(A, E2, Hh, D, s.left || k); // 右（+z）、左（−z）
+    quad(Hh, G2, Cc, D, s.top || k); quad(A, B, F, E2, s.bottom || k);
+  };
+  const block = (x0, y0, z0, x1, y1, z1, k) => { // 方方正正的一塊（z0 < z1）
+    const A = [x0, y0, z0], B = [x0, y0, z1], Cc = [x0, y1, z1], D = [x0, y1, z0], E2 = [x1, y0, z0], F = [x1, y0, z1], G2 = [x1, y1, z1], Hh = [x1, y1, z0];
+    quad(E2, F, G2, Hh, k); quad(B, A, D, Cc, k); quad(F, B, Cc, G2, k); quad(A, E2, Hh, D, k); quad(Hh, G2, Cc, D, k); quad(A, B, F, E2, k);
+  };
+  const white = col('#f4f5f6'), glass = col('#1b2430'), dark = col('#26282c'), black = col('#141517'), head = col('#f2f4f8'), tail = col('#b0161b'), tyre = col('#151618'), rim = col('#9aa0a7');
+  const L2 = 2.34, W2 = 0.9;
+  hexa(-L2, L2, 0.3, 0.84, W2, W2 - 0.02, 0.32, 0.74, W2 - 0.06, W2 - 0.1, white); // 下半車身（車頭低一點）
+  hexa(-L2 + 0.02, -1.25, 0.84, 0.98, W2 - 0.03, W2 - 0.06, 0.84, 0.98, W2 - 0.03, W2 - 0.06, white); // 行李箱
+  hexa(0.95, L2 - 0.02, 0.74, 0.86, W2 - 0.1, W2 - 0.12, 0.74, 0.8, W2 - 0.1, W2 - 0.14, white); // 引擎蓋
+  hexa(-1.3, 1.0, 0.84, 1.42, 0.84, 0.7, 0.84, 1.42, 0.84, 0.7, glass, { top: white }); // 車窗（上面是白色車頂）
+  hexa(-0.95, 0.42, 1.42, 1.46, 0.72, 0.7, 1.42, 1.46, 0.72, 0.7, white); // 車頂
+  hexa(-0.18, 0.2, 0.84, 1.43, 0.845, 0.705, 0.84, 1.43, 0.845, 0.705, white); // B 柱
+  // 腰線：兩邊一條藍色，前門那一段貼「警察 POLICE」（從哪一邊看字都是正的：右邊車頭在右、左邊車頭在左）
+  for (const s of [1, -1]) {
+    const z = s * (W2 + 0.006), y0 = 0.5, y1 = 0.66;
+    const band = (xa, xb, ua, ub) => { // xa < xb；ua、ub：xa、xb 那一頭的 u
+      const A = [xa, y0, z], B = [xb, y0, z], Cq = [xb, y1, z], D = [xa, y1, z], uv = [[ua, 0.52], [ub, 0.52], [ub, 0.98], [ua, 0.98]];
+      if (s > 0) quadRaw(A, B, Cq, D, [1, 1, 1], uv); else quadRaw(B, A, D, Cq, [1, 1, 1], [uv[1], uv[0], uv[3], uv[2]]);
+    };
+    band(-L2 + 0.05, -0.9, 0.02, 0.03); band(1.1, L2 - 0.1, 0.02, 0.03); // 藍色（字的左邊那一塊）
+    if (s > 0) band(-0.9, 1.1, 0.1, 0.8); else band(-0.9, 1.1, 0.8, 0.1);
+  }
+  // 前後保險桿、燈
+  hexa(L2 - 0.02, L2 + 0.08, 0.28, 0.5, W2 - 0.05, W2 - 0.08, 0.28, 0.5, W2 - 0.1, W2 - 0.12, dark);
+  hexa(-L2 - 0.08, -L2 + 0.02, 0.28, 0.52, W2 - 0.08, W2 - 0.08, 0.28, 0.52, W2 - 0.05, W2 - 0.05, dark);
+  for (const s of [1, -1]) {
+    block(L2 - 0.1, 0.6, s > 0 ? 0.48 : -0.82, L2 + 0.012, 0.72, s > 0 ? 0.82 : -0.48, head); // 大燈
+    block(-L2 - 0.012, 0.66, s > 0 ? 0.5 : -0.84, -L2 + 0.08, 0.8, s > 0 ? 0.84 : -0.5, tail); // 尾燈
+    block(-0.2 + 0.9, 0.9, s > 0 ? 0.84 : -0.98, 0.9 - 0.02, 0.98, s > 0 ? 0.98 : -0.84, black); // 後照鏡
+  }
+  block(L2 - 0.03, 0.36, -0.55, L2 + 0.09, 0.48, 0.55, black); // 水箱罩
+  block(-0.16, 1.46, -0.64, 0.16, 1.52, 0.64, black); // 警示燈座
+  // 輪子：10 邊的圓柱（胎面朝外、兩邊的圓面、輪框）
+  const wheel = (x, zc, s) => {
+    const R = 0.33, Wd = 0.23, n = 10;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU, b = ((i + 1) / n) * TAU, p = (t, zz) => [x + Math.cos(t) * R, R + Math.sin(t) * R, zz];
+      quadRaw(p(a, zc - Wd / 2), p(b, zc - Wd / 2), p(b, zc + Wd / 2), p(a, zc + Wd / 2), tyre); // 胎面
+      const cz = zc + (s * Wd) / 2, q = (t) => [x + Math.cos(t) * R * 0.62, R + Math.sin(t) * R * 0.62, cz + s * 0.002];
+      if (s > 0) quadRaw(p(a, cz), p(b, cz), q(b), q(a), tyre); else quadRaw(p(b, cz), p(a, cz), q(a), q(b), tyre); // 外側的胎壁
+      if (s > 0) quadRaw([x, R, cz + 0.004], q(a), q(b), q(b), rim); else quadRaw([x, R, cz - 0.004], q(b), q(a), q(a), rim); // 輪框
+    }
+  };
+  for (const x of [1.42, -1.38]) for (const s of [1, -1]) wheel(x, s * 0.79, s);
+  const bodyGeo = new THREE.BufferGeometry();
+  bodyGeo.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); bodyGeo.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3));
+  bodyGeo.setAttribute('color', new THREE.Float32BufferAttribute(C, 3)); bodyGeo.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
+  bodyGeo.computeBoundingSphere();
+  const bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, map: tex, roughness: 0.38, metalness: 0.05 });
+  PC_SHARED = { bodyGeo, bodyMat, glowTex, tex };
+  return PC_SHARED;
+}
+function placeholderPoliceCar() {
+  const S = pcShared(), group = new THREE.Group(); group.name = 'police-car';
+  const body = new THREE.Mesh(S.bodyGeo, S.bodyMat); body.name = 'police-body'; group.add(body);
+  // 燈罩：左紅右藍（左＝本地 −z）；閃的時候改頂點色
+  const LP = [], LC = [], LN = [];
+  const lensBox = (z0, z1, k) => {
+    const x0 = -0.13, x1 = 0.13, y0 = 1.52, y1 = 1.63, v = [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0], [x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0]];
+    const faces = [[4, 5, 6, 7, [1, 0, 0]], [1, 0, 3, 2, [-1, 0, 0]], [5, 1, 2, 6, [0, 0, 1]], [0, 4, 7, 3, [0, 0, -1]], [7, 6, 2, 3, [0, 1, 0]]];
+    for (const [a, b, c, d, n] of faces) for (const i of [a, c, b, a, d, c]) { LP.push(...v[i]); LN.push(...n); LC.push(k, k, k); } // 點是順時針排的：反過來
+  };
+  lensBox(-0.62, -0.03, 0); lensBox(0.03, 0.62, 0);
+  const lensGeo = new THREE.BufferGeometry(); lensGeo.setAttribute('position', new THREE.Float32BufferAttribute(LP, 3)); lensGeo.setAttribute('normal', new THREE.Float32BufferAttribute(LN, 3));
+  const lcol = new THREE.Float32BufferAttribute(new Float32Array(LC.length), 3); lensGeo.setAttribute('color', lcol); lensGeo.computeBoundingSphere();
+  const lens = new THREE.Mesh(lensGeo, new THREE.MeshBasicMaterial({ vertexColors: true })); lens.name = 'police-lens'; group.add(lens);
+  // 光暈：每個燈兩片交叉的方塊（從哪個角度看都有）＋一片平的；加法混色，關掉＝黑色（看不到）
+  const GP = [], GU = [];
+  const glowAt = (zc) => {
+    const s = 0.95, y = 1.58;
+    for (const [ax, az] of [[1, 0], [0, 1]]) { const a = [-ax * s, y - s, -az * s + zc], b = [ax * s, y - s, az * s + zc], c = [ax * s, y + s, az * s + zc], d = [-ax * s, y + s, -az * s + zc]; for (const [p, t] of [[a, [0, 0]], [b, [1, 0]], [c, [1, 1]], [a, [0, 0]], [c, [1, 1]], [d, [0, 1]]]) { GP.push(...p); GU.push(...t); } }
+    const a = [-s, y, zc - s], b = [s, y, zc - s], c = [s, y, zc + s], d = [-s, y, zc + s]; for (const [p, t] of [[a, [0, 0]], [b, [1, 0]], [c, [1, 1]], [a, [0, 0]], [c, [1, 1]], [d, [0, 1]]]) { GP.push(...p); GU.push(...t); }
+  };
+  glowAt(-0.33); glowAt(0.33);
+  const glowGeo = new THREE.BufferGeometry(); glowGeo.setAttribute('position', new THREE.Float32BufferAttribute(GP, 3)); glowGeo.setAttribute('uv', new THREE.Float32BufferAttribute(GU, 2));
+  const gcol = new THREE.Float32BufferAttribute(new Float32Array(GP.length), 3); glowGeo.setAttribute('color', gcol); glowGeo.computeBoundingSphere();
+  const glow = new THREE.Mesh(glowGeo, new THREE.MeshBasicMaterial({ map: S.glowTex, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+  glow.name = 'police-glow'; glow.renderOrder = 5; group.add(glow);
+  const nL = LC.length / 6, nG = GP.length / 6; // 每個燈幾個頂點×3
+  let on = false, t = 0, last = -1;
+  const paint = (r, b) => { // r、b：紅、藍現在多亮（0–1）
+    const la = lcol.array, ga = gcol.array;
+    for (let i = 0; i < nL; i += 3) { la[i] = 0.25 + 0.75 * r; la[i + 1] = 0.02 + 0.1 * r; la[i + 2] = 0.03 + 0.08 * r; }
+    for (let i = nL; i < la.length; i += 3) { la[i] = 0.02 + 0.2 * b; la[i + 1] = 0.05 + 0.4 * b; la[i + 2] = 0.3 + 0.7 * b; }
+    for (let i = 0; i < nG; i += 3) { ga[i] = 1.0 * r; ga[i + 1] = 0.12 * r; ga[i + 2] = 0.1 * r; }
+    for (let i = nG; i < ga.length; i += 3) { ga[i] = 0.12 * b; ga[i + 1] = 0.35 * b; ga[i + 2] = 1.0 * b; }
+    lcol.needsUpdate = true; gcol.needsUpdate = true;
+  };
+  paint(0, 0); glow.visible = false;
+  // 閃法（一輪 0.8 秒）：紅閃兩下、藍閃兩下
+  const phase = (x) => (x < 0.09 ? 1 : x < 0.14 ? 2 : x < 0.23 ? 1 : x < 0.4 ? 0 : x < 0.49 ? 3 : x < 0.54 ? 0 : x < 0.63 ? 3 : 0);
+  return {
+    group,
+    setLights(v) { on = !!v; glow.visible = on; if (!on) { paint(0, 0); last = -1; } },
+    update(dt) {
+      if (!on) return;
+      t = (t + dt) % 0.8; const p = phase(t);
+      if (p === last) return; last = p;
+      paint(p === 1 ? 1 : 0.08, p === 3 ? 1 : 0.08);
+    },
+    dispose() { lensGeo.dispose(); lens.material.dispose(); glowGeo.dispose(); glow.material.dispose(); group.removeFromParent(); },
+  };
+}
+
+// ---- 替身警察（character.js 還沒接上之前用）：深藍制服、帽子；API 跟 buildCharacter 一樣（group、radius、height、update(dt, { speed, state })）----
+const OFFICER_LOOK = { body: 'm', age: 'adult', height: 1.76, build: 'mid', skin: '#d9a77f', hair: 'short', hairColor: '#141110', top: 'uniform', topColor: '#22375e', bottom: 'slacks', bottomColor: '#1a2436',
+  shoes: 'leather', shoesColor: '#121212', hat: 'cap', hatColor: '#22375e', glasses: 'none', mask: false };
+function placeholderOfficer() {
+  const g = new THREE.Group(), mat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.75 });
+  const mTop = mat('#22375e'), mBot = mat('#1a2436'), mSkin = mat('#d9a77f'), mVest = mat('#c9f23a'), mShoe = mat('#111111');
+  const box = (w, h, d, m) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+  const root = new THREE.Group(); g.add(root);
+  const torso = box(0.27, 0.56, 0.42, mTop); torso.position.y = 1.22; root.add(torso);
+  const vest = box(0.285, 0.3, 0.44, mVest); vest.position.y = 1.28; root.add(vest); // 反光背心
+  const head = box(0.22, 0.24, 0.2, mSkin); head.position.y = 1.62; root.add(head);
+  const cap = box(0.25, 0.08, 0.23, mTop); cap.position.y = 1.77; root.add(cap);
+  const brim = box(0.12, 0.02, 0.2, mTop); brim.position.set(0.15, 1.74, 0); root.add(brim);
+  const limb = (z, y, len, m, foot) => { const p = new THREE.Group(); p.position.set(0, y, z); const b = box(0.13, len, 0.13, m); b.position.y = -len / 2; p.add(b); if (foot) { const f = box(0.26, 0.08, 0.13, mShoe); f.position.set(0.05, -len + 0.04, 0); p.add(f); } root.add(p); return p; };
+  const legL = limb(-0.1, 0.94, 0.9, mBot, true), legR = limb(0.1, 0.94, 0.9, mBot, true), armL = limb(-0.28, 1.47, 0.66, mTop), armR = limb(0.28, 1.47, 0.66, mTop);
+  let phase = 0, t = 0; const ONCE = { getup: 1.2, punch: 0.45, wave: 1.5 };
+  const C = { group: g, height: 1.8, radius: 0.3, look: OFFICER_LOOK, state: 'idle',
+    setLook() {},
+    update(dt, a = {}) {
+      const want = a.state || 'idle', speed = a.speed || 0;
+      if (want !== C.state && !(ONCE[C.state] && t < ONCE[C.state] && want !== 'fall')) { C.state = want; t = 0; }
+      t += dt; if (ONCE[C.state] && t >= ONCE[C.state]) { C.state = 'idle'; t = 0; }
+      const st = C.state; phase += (speed / (st === 'run' ? 1.6 : 1.1)) * TAU * dt;
+      const sw = st === 'walk' || st === 'run' ? Math.sin(phase) * (st === 'run' ? 0.95 : 0.5) : 0;
+      legL.rotation.z = sw; legR.rotation.z = -sw; armL.rotation.z = -sw; armR.rotation.z = sw;
+      root.rotation.z = st === 'fall' ? -Math.PI / 2 * Math.min(1, t / 0.35) : st === 'getup' ? -Math.PI / 2 * Math.max(0, 1 - t / ONCE.getup) : st === 'run' ? -0.18 : 0; // 往後倒、跑的時候身體往前傾
+      root.position.y = st === 'fall' ? 0.15 * Math.min(1, t / 0.35) : 0;
+      if (st === 'punch') armR.rotation.z = (Math.PI / 2) * Math.sin(Math.min(1, t / ONCE.punch) * Math.PI);
+      if (st === 'wave') armL.rotation.x = -2.6 + Math.sin(t * 10) * 0.3; else armL.rotation.x = 0;
+    },
+    dispose() { g.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); [mTop, mBot, mSkin, mVest, mShoe].forEach((m) => m.dispose()); g.removeFromParent(); },
+  };
+  return C;
+}
+
+// ---- 警笛：台灣警車的兩段音（高、低交替、中間滑過去）；每台一個聲音，照距離變大聲、變悶、左右、都卜勒 ----
+// 振盪器（鋸齒波＋方波高八度）→ 帶通 → 音量 → 低通（遠的悶）→ 左右 → 輸出；兩段音＝方波的 LFO 過低通（滑音）× 深度 → 振盪器的頻率
+function makeSiren(ctx, out, seed) {
+  try {
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator(), osc2 = ctx.createOscillator(), lfo = ctx.createOscillator(), lfoLp = ctx.createBiquadFilter(), depth = ctx.createGain(), depth2 = ctx.createGain();
+    const mix2 = ctx.createGain(), bp = ctx.createBiquadFilter(), g = ctx.createGain(), lp = ctx.createBiquadFilter();
+    let pan = null; try { pan = ctx.createStereoPanner(); } catch { pan = null; }
+    const base = 760 + seed * 25; // 每台差一點點（三台一起叫會一前一後）
+    osc.type = 'sawtooth'; osc.frequency.value = base; osc2.type = 'square'; osc2.frequency.value = base * 2;
+    lfo.type = 'square'; lfo.frequency.value = 0.78 + seed * 0.06; // 一高一低一輪約 1.3 秒
+    lfoLp.type = 'lowpass'; lfoLp.frequency.value = 5; lfoLp.Q.value = 0.5; // 滑過去（不是跳過去）
+    depth.gain.value = 170; depth2.gain.value = 340;
+    lfo.connect(lfoLp); lfoLp.connect(depth); lfoLp.connect(depth2); depth.connect(osc.frequency); depth2.connect(osc2.frequency);
+    mix2.gain.value = 0.18;
+    bp.type = 'bandpass'; bp.frequency.value = 1150; bp.Q.value = 0.9;
+    lp.type = 'lowpass'; lp.frequency.value = 2000; lp.Q.value = 0.3;
+    g.gain.value = 0;
+    osc.connect(bp); osc2.connect(mix2); mix2.connect(bp); bp.connect(g); g.connect(lp);
+    if (pan) { lp.connect(pan); pan.connect(out); } else lp.connect(out);
+    osc.start(t); osc2.start(t); lfo.start(t);
+    let dead = false;
+    return {
+      set(gain, cutoff, p, detune) {
+        if (dead) return; const n = ctx.currentTime;
+        g.gain.setTargetAtTime(gain, n, 0.08); lp.frequency.setTargetAtTime(cutoff, n, 0.1);
+        if (pan) pan.pan.setTargetAtTime(p, n, 0.08);
+        osc.detune.setTargetAtTime(detune, n, 0.08); osc2.detune.setTargetAtTime(detune, n, 0.08);
+      },
+      stop() {
+        if (dead) return; dead = true;
+        try { const n = ctx.currentTime; g.gain.cancelScheduledValues(n); g.gain.setTargetAtTime(0, n, 0.15); osc.stop(n + 0.9); osc2.stop(n + 0.9); lfo.stop(n + 0.9); } catch { /* 算了 */ }
+        setTimeout(() => { for (const nd of [osc, osc2, lfo, lfoLp, depth, depth2, mix2, bp, g, lp, pan]) try { nd && nd.disconnect(); } catch { /* 算了 */ } }, 1200);
+      },
+      get dead() { return dead; },
+    };
+  } catch { return null; }
+}
+
+// ---- HUD：上面中間的星星（通緝中）、快被抓的提示、被抓到、變黑、拘留室倒數 ----
+const CSS = `
+.pw{position:absolute;inset:0;pointer-events:none;color:#F2F3F5;font-family:${SANS};-webkit-user-select:none;user-select:none;z-index:5;overflow:hidden}
+.pw[hidden],.pw [hidden]{display:none!important}
+.pw>*{position:absolute}
+.pw-want{top:8px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;height:38px;padding:0 15px 0 11px;border-radius:999px;background:rgba(14,15,18,0.8);white-space:nowrap;box-shadow:0 0 0 2px #FF3B30,0 0 16px rgba(255,59,48,.55);transition:box-shadow .12s}
+.pw-want.b{box-shadow:0 0 0 2px #2F7BFF,0 0 16px rgba(47,123,255,.6)}
+.pw-want .st{display:flex;gap:1px;font-size:24px;line-height:1;color:#FFD23F;text-shadow:0 1px 0 rgba(0,0,0,.5)}
+.pw-want .st i{font-style:normal;color:rgba(242,243,245,.22);text-shadow:none}
+.pw-want b{font-size:17px;font-weight:700;letter-spacing:.06em}
+.pw-want.lost .st{animation:pw-blink 1s steps(2,start) infinite}
+.pw-want.lost{box-shadow:0 0 0 2px rgba(242,243,245,.5)}
+.pw-want.up{animation:pw-up .45s ease-out}
+@keyframes pw-up{0%{transform:translateX(-50%) scale(1.3)}100%{transform:translateX(-50%) scale(1)}}
+.pw-esc{position:absolute;left:14px;right:14px;bottom:3px;height:3px;border-radius:2px;background:rgba(242,243,245,.18);overflow:hidden}
+.pw-esc i{display:block;height:100%;width:0;background:#3DDC84;border-radius:2px}
+@keyframes pw-blink{50%{opacity:.25}}
+.pw-catch{top:54px;left:50%;transform:translateX(-50%);min-width:190px;padding:7px 14px 9px;border-radius:14px;background:rgba(214,31,38,.92);text-align:center;font-size:16px;font-weight:700;letter-spacing:.04em;white-space:nowrap}
+.pw-catch div{margin-top:5px;height:6px;border-radius:3px;background:rgba(255,255,255,.3);overflow:hidden}
+.pw-catch div i{display:block;height:100%;width:0;background:#fff;border-radius:3px}
+.pw-toast{top:calc(34% + 66px);left:50%;width:max-content;max-width:calc(100% - 32px);box-sizing:border-box;padding:12px 22px;border-radius:20px;background:rgba(14,15,18,.84);font-size:21px;font-weight:700;line-height:1.3;text-align:center;opacity:0;transform:translate(-50%,-50%) scale(.9);transition:opacity .15s,transform .15s}
+.pw-toast.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+.pw-toast.red{background:#D61F26;font-size:27px;padding:16px 26px;box-shadow:0 0 0 3px #fff,0 10px 30px rgba(0,0,0,.45)}
+.pw-fade{inset:0;background:#000;opacity:0;transition:opacity .6s linear}
+.pw-jail{top:max(18%,min(196px,calc(100% - 300px)));left:50%;transform:translateX(-50%);width:min(88%,330px);box-sizing:border-box;padding:16px 18px 18px;border-radius:22px;background:rgba(14,15,18,.9);text-align:center;pointer-events:auto;box-shadow:0 10px 30px rgba(0,0,0,.4)}
+.pw-jail small{display:block;font-size:14px;color:#C6CAD1;letter-spacing:.08em}
+.pw-jail .cnt{display:block;margin:4px 0 8px;font-size:34px;font-weight:900;letter-spacing:.04em}
+.pw-jail .cnt em{font:700 44px/1 ${COND};font-style:normal;color:#FFD23F;margin:0 4px;font-variant-numeric:tabular-nums}
+.pw-jbar{height:8px;border-radius:4px;background:rgba(242,243,245,.16);overflow:hidden;margin:0 4px 14px}
+.pw-jbar i{display:block;height:100%;width:100%;background:#FFD23F;border-radius:4px}
+.pw-pay{display:block;width:100%;min-height:52px;border:0;border-radius:999px;background:#FF6A1F;color:#1A0F07;font:700 18px/1.2 ${SANS};letter-spacing:.03em;box-shadow:0 5px 0 #9E4213;cursor:pointer;touch-action:manipulation}
+.pw-pay:active{transform:translateY(4px);box-shadow:0 1px 0 #9E4213}
+.pw-pay:disabled{background:#3A3D44;color:#9AA1AC;box-shadow:0 5px 0 #23262D;cursor:default}
+.pw-pay:focus-visible{outline:3px solid #F2F3F5;outline-offset:3px}
+.pw-jail p{margin:10px 0 0;font-size:14px;line-height:1.5;color:#C6CAD1}
+.pw-host .dv-chip,.pw-host .dv-act,.pw-host .dv-map,.pw-host .dv-cam,.pw-host .wk-chip,.pw-host .wk-act,.pw-host .wk-map,.pw-host .wk-cam{transition:margin-top .2s}
+.pw-host.pw-on .dv-chip,.pw-host.pw-on .dv-act,.pw-host.pw-on .dv-map,.pw-host.pw-on .dv-cam,.pw-host.pw-on .wk-chip,.pw-host.pw-on .wk-act,.pw-host.pw-on .wk-map,.pw-host.pw-on .wk-cam{margin-top:46px}
+@media (prefers-reduced-motion:reduce){.pw-want.lost .st,.pw-want.up{animation:none}.pw-toast{transition:none}.pw-fade{transition:opacity .2s linear}}
+`;
+
+// ---- 路面種類（village.js 的 surfaceAt）：2 公尺一格，第一次問到才算（之後查表，不再叫 surfaceAt）----
+function makeSurf(V) {
+  const f = typeof V.surfaceAt === 'function' ? V.surfaceAt : null;
+  if (!f) return () => 0;
+  const b = V.bounds || { x0: -1100, x1: 20, z0: -540, z1: 540 }, CS = 2, x0 = b.x0 - 40, z0 = b.z0 - 40;
+  const nx = Math.ceil((b.x1 - b.x0 + 80) / CS), nz = Math.ceil((b.z1 - b.z0 + 80) / CS), A = new Uint8Array(nx * nz).fill(255);
+  return (x, z) => {
+    const i = Math.floor((x - x0) / CS), j = Math.floor((z - z0) / CS);
+    if (i < 0 || j < 0 || i >= nx || j >= nz) return f(x, z);
+    const k = j * nx + i; let v = A[k];
+    if (v === 255) v = A[k] = f(x0 + (i + 0.5) * CS, z0 + (j + 0.5) * CS);
+    return v;
+  };
+}
+
+// ==== 警察 ====
+function createPolice(o = {}) {
+  const V = o.world || {}, scene = o.scene || null, T = { ...TUNE, ...(o.tune || {}), add: { ...TUNE.add, ...((o.tune && o.tune.add) || {}) } };
+  const hasDoc = typeof document !== 'undefined' && !!o.hudParent && typeof o.hudParent.append === 'function';
+  const G = policeNavGraph(V), R = makeRouter(G);
+  const allCols = (V.colliders || []).concat(o.colliders || []);
+  const solid = makeGrid(allCols, 1.6); // 車、人撞的（線段測試胖 1.6 公尺以內都找得到）
+  const tall = makeGrid(allCols, 0, (c) => (c.h ?? 9) >= 2.4 && (c.t === 'box' || c.r >= 0.6)); // 擋住視線的（房子、牆、大樹）
+  const surf = makeSurf(V);
+  const places = V.places || {};
+  let rs = (o.seed >>> 0) || 0x9e3779b9; const rnd = () => { rs ^= rs << 13; rs ^= rs >>> 17; rs ^= rs << 5; return ((rs >>> 0) % 100000) / 100000; };
+
+  // ---- 警察局：拘留室、門口、停車場、警車從哪裡出來（police.js 放在 V.places.police；頁面也可以用 jail 給）----
+  const PP = places.police || {};
+  const pose = (p) => (p && isFinite(p.x) && isFinite(p.z) ? { x: +p.x, z: +p.z, heading: +(p.heading ?? p.ry ?? 0) } : null);
+  const J = o.jail || {};
+  const station = {
+    cell: pose(J.cell) || pose(PP.cell),
+    door: pose(J.door) || pose(PP.door) || pose(PP.spawn),
+    yard: pose(J.yard) || pose(PP.yard) || pose(PP.park) || pose(PP.spawn),
+    spawn: pose(J.spawn) || pose(PP.carSpawn) || pose(PP.exit) || pose(PP.spawn),
+    setCellDoor: typeof J.setCellDoor === 'function' ? J.setCellDoor : typeof PP.setCellDoor === 'function' ? PP.setCellDoor : null,
+  };
+
+  // ---- 玩家（每一幀讀一次）：躲起來（hidden）、在店裡（off）的時候位置不動＝警察只知道你最後在哪裡 ----
+  const PL_IN = { mode: 'off', x: 0, z: 0, heading: 0, v: 0, car: null, safe: false, hidden: false };
+  const P = { mode: 'off', x: 0, z: 0, th: 0, v: 0, fx: 1, fz: 0, rx: 0, rz: 1, vx: 0, vz: 0, spd: 0, cx: 0, cz: 0, hl: 2.2, hw: 0.9, carCx: 0, safe: false, hidden: false, hwy: false, ok: false, px: 0, pz: 0 };
+  function readPlayer(dt) {
+    let p = null; try { p = o.getPlayer ? o.getPlayer(PL_IN) : null; } catch { p = null; }
+    if (!p || !isFinite(p.x) || !isFinite(p.z)) { P.ok = false; return; }
+    P.mode = p.mode === 'walk' || p.mode === 'off' ? p.mode : 'drive';
+    P.safe = !!p.safe; P.hidden = !!p.hidden;
+    if ((P.hidden || P.mode === 'off') && P.ok) { P.vx = 0; P.vz = 0; P.v = 0; P.spd = 0; return; }
+    const first = !P.ok; P.ok = true;
+    P.th = +p.heading || 0; P.fx = Math.cos(P.th); P.fz = -Math.sin(P.th); P.rx = -P.fz; P.rz = P.fx;
+    const car = P.mode === 'drive' ? p.car || null : null;
+    P.hl = car ? +car.hx || 2.2 : 0.3; P.hw = car ? +car.hz || 0.9 : 0.3; P.carCx = car ? +car.cx || 0 : 0;
+    P.x = +p.x; P.z = +p.z; P.cx = P.x + P.fx * P.carCx; P.cz = P.z + P.fz * P.carCx; // 車身中心
+    if (!first && dt > 0) { const vx = (P.cx - P.px) / dt, vz = (P.cz - P.pz) / dt, k = 1 - Math.exp(-dt * 8); if (vx * vx + vz * vz < 150 * 150) { P.vx += (vx - P.vx) * k; P.vz += (vz - P.vz) * k; } }
+    else { P.vx = 0; P.vz = 0; }
+    P.px = P.cx; P.pz = P.cz;
+    P.v = isFinite(p.v) ? +p.v : Math.hypot(P.vx, P.vz); P.spd = Math.abs(P.v);
+    P.hwy = surf(P.cx, P.cz) === 4;
+  }
+
+  // ---- 腳印（你走過、開過的地方；警察看不到你就照這個追）：每 1.2 公尺一點，最多 256 點 ----
+  const CR = 256, crX = new Float64Array(CR), crZ = new Float64Array(CR); let crN = 0, crH = 0;
+  function crumb() {
+    const last = (crH - 1 + CR) % CR;
+    if (crN && Math.hypot(P.cx - crX[last], P.cz - crZ[last]) < 1.2) return;
+    crX[crH] = P.cx; crZ[crH] = P.cz; crH = (crH + 1) % CR; if (crN < CR) crN++;
+  }
+
+  // ---- 狀態 ----
+  let everSeen = false, huntT = 0; // 第 3 批（b3-int）：這次通緝警察看到過你沒有、還沒看到過的秒數（甩開的計時從被看到才開始）
+  let enabled = true, alive = true, state = 'free', wanted = 0, heat = 0, seenNow = false, lastX = 0, lastZ = 0, catchP = 0, T0 = 0, spawnT = 0, safeT = 0;
+  let phaseT = 0, jailLeft = 0, jailFine = 0, jailStars = 0, paid = false, hudFaded = false, relDone = false, slotT = 0, sndT = 0, yardT = 0, dropped = false;
+  const lastCrime = {}, crimes = []; let arrests = 0, escapes = 0;
+  const perf = { n: 0, sum: 0, max: 0, last: 0 };
+
+  // 警車（固定 MAXC 台，重複用）；police.js 的車（或替身）第一次用到才做
+  const cars = [];
+  for (let i = 0; i < MAXC; i++) cars.push({
+    id: i, on: false, model: null, group: null, hl: 2.35, hw: 0.92, L: 2.8,
+    x: 0, z: 0, th: 0, v: 0, steer: 0, pitch: 0, roll: 0,
+    mode: 'go', path: mkPath(900), rt: 0, losT: 0, seen: false, clear: false, d: 999, role: -1, slot: -1, slotDone: false,
+    stuck: 0, exitCool: 0, offT: 0, offOk: true, manOn: false, manT: 0, manN: 0, manD: 0, manS: 0, manB: 0, manCool: 0, ancX: 0, ancZ: 0, ancT: 0, wantV: 0, waitT: 0, touch: 0, pathOff: 0,
+    officer: null, siren: null, lights: false, hitCool: 0, homeT: 0, age: 0, dist: 0,
+    stats: { stuckMax: 0, relocs: 0, bumps: 0, recov: 0, stuckSec: 0, manSec: 0, shots: 0 },
+  });
+  const offs = []; // 警察（一台一個）
+  for (let i = 0; i < MAXC; i++) offs.push({ id: i, car: cars[i], ch: null, pose: { speed: 0, state: 'idle' }, on: false, st: 'in', x: 0, z: 0, th: 0, v: 0, thinkT: 0, tx: 0, tz: 0, seen: false, direct: false, final: false, downT: 0, backT: 0, wp: mkPath(400), wn: 0, wi: 0, planT: 0, gx: 0, gz: 0 });
+  for (let i = 0; i < MAXC; i++) cars[i].officer = offs[i];
+  // 給 drive.js／walk.js 的碰撞、小地圖的點（固定的物件，每幀改值）
+  const colOut = [], colPool = [];
+  const movers = []; for (let i = 0; i < MAXC; i++) movers.push({ t: 'box', x: 0, z: 0, hx: 0, hz: 0, rot: 0, h: 1.6, police: true });
+  for (let i = 0; i < MAXC; i++) movers.push({ t: 'circle', x: 0, z: 0, r: 0, h: 1.8, police: true });
+  const npcCars = []; for (let i = 0; i < MAXC; i++) npcCars.push({ id: 'police' + i, x: 1e6, z: 1e6, heading: 0, v: 0, hx: 2.3, hz: 0.9, ai: true, police: true }); // npc.js 的車的格式（沒出來的放很遠）
+  const markers = []; for (let i = 0; i < MAXC; i++) markers.push({ x: 0, z: 0, fill: '#FF3B30', ring: '#FFFFFF', r: 5, on: false });
+  const markerList = []; // 現在有的（drive.setMarkers／walker.setMarkers 讀這個陣列）
+
+  // ---- 犯罪 ----
+  const CRIME_MSG = { punch: '你揍人了！警察來了', hit: '你撞到人了！警察來了', cop: '你惹到警察了！', shoot: '你開槍打人了！警察全部出動', shootCop: '你開槍打警察了！', gunfire: '你開槍了！警察來了' };
+  function nearestPolice(x, z) {
+    let best = Infinity;
+    for (const c of cars) if (c.on) { const d = Math.hypot(c.x - x, c.z - z); if (d < best) best = d; }
+    for (const f of offs) if (f.on) { const d = Math.hypot(f.x - x, f.z - z); if (d < best) best = d; }
+    return best;
+  }
+  function crime(type, pos) {
+    if (!alive || !enabled || state === 'caught' || state === 'jail' || state === 'release') return wanted; // 第 3 批（b3-int）：關掉的時候（比賽中）沒人管
+    const add = T.add[type]; if (add == null) return wanted;
+    const x = pos && isFinite(pos.x) ? +pos.x : P.cx, z = pos && isFinite(pos.z) ? +pos.z : P.cz;
+    if (type === 'gunfire' && !(nearestPolice(x, z) <= T.gunfireR)) return wanted; // 附近沒有警察：沒人管
+    if (lastCrime[type] != null && T0 - lastCrime[type] < T.cool) return wanted; // 同一件事好幾幀、連發：算一次
+    lastCrime[type] = T0;
+    const before = wanted;
+    wanted = type === 'shoot' ? 3 : Math.min(3, wanted + add);
+    crimes.push({ t: +T0.toFixed(2), type, x: +x.toFixed(1), z: +z.toFixed(1), stars: wanted }); if (crimes.length > 40) crimes.shift();
+    lastX = x; lastZ = z; heat = 0; dropped = false;
+    if (state === 'free') { state = 'wanted'; spawnT = 0.3; everSeen = false; huntT = 0; }
+    if (wanted > before) { hud.flash(); toast(CRIME_MSG[type] || '警察來了！', 2200); }
+    return wanted;
+  }
+
+  // ---- 警車：做、放、收 ----
+  function ensureModel(c) {
+    if (c.model) return;
+    let m = null; try { m = o.makePoliceCar ? o.makePoliceCar() : null; } catch (e) { console.warn('police: makePoliceCar', e); m = null; }
+    if (!m || !m.group) m = placeholderPoliceCar();
+    c.model = m; c.group = m.group; c.group.rotation.order = 'YXZ';
+    c.group.position.set(0, 0, 0); c.group.rotation.set(0, 0, 0); c.group.updateMatrixWorld(true);
+    const b = new THREE.Box3().setFromObject(c.group); // 車子大小：放在原點量
+    if (isFinite(b.min.x) && b.max.x - b.min.x > 2) { c.hl = (b.max.x - b.min.x) / 2; c.hw = Math.min(1.2, Math.max(0.7, (b.max.z - b.min.z) / 2)); }
+    c.L = c.hl * 1.2;
+    c.group.visible = false;
+    if (scene) scene.add(c.group);
+  }
+  function footprintFree(x, z, th, hl, hw, self) {
+    const fx = Math.cos(th), fz = -Math.sin(th), r = Math.hypot(hl, hw) + 0.3;
+    const list = solid.near(x - r, z - r, x + r, z + r);
+    for (let i = 0; i < list.length; i++) { const c = list[i]; if (c.box ? boxPush(x, z, fx, fz, hl + 0.2, hw + 0.2, c) : circlePush(x, z, fx, fz, hl + 0.2, hw + 0.2, c.x, c.z, c.r)) return false; }
+    for (const c of cars) if (c.on && c !== self && Math.hypot(c.x - x, c.z - z) < hl + c.hl + 1.5) return false;
+    if (P.ok && Math.hypot(P.cx - x, P.cz - z) < hl + P.hl + 2) return false;
+    return true;
+  }
+  function placeCar(c, x, z, th, v) {
+    ensureModel(c);
+    c.on = true; c.x = x; c.z = z; c.th = th; c.v = v; c.steer = 0; c.mode = 'go'; c.rt = 0; c.losT = rnd() * 0.25; c.stuck = 0; c.manOn = false; c.manT = 0; c.manN = 0; c.slot = -1; c.age = 0; c.homeT = 0;
+    c.ancX = x; c.ancZ = z; c.ancT = 0; c.wantV = 0; c.waitT = 0; c.pathOff = 0; c.seen = false; c.clear = false; c.d = Math.hypot(P.cx - x, P.cz - z);
+    c.path.n = 0; c.path.ok = false; c.lights = true; if (c.model.setLights) c.model.setLights(true);
+    c.group.visible = enabled; poseCar(c);
+    hideOfficer(c.officer);
+  }
+  function removeCar(c) {
+    c.on = false; if (c.group) c.group.visible = false;
+    if (c.model && c.model.setLights) c.model.setLights(false); c.lights = false;
+    if (c.siren) { c.siren.stop(); c.siren = null; }
+    hideOfficer(c.officer);
+  }
+  // 生一台：警察局 600 公尺內就從警察局開出來；不然找 200–400 公尺外（照路開）、你看不到的路
+  function spawnCar() {
+    CNT.spawn++;
+    let c = null; for (const k of cars) if (!k.on) { c = k; break; }
+    if (!c || !P.ok) return false;
+    ensureModel(c);
+    const sp = station.spawn;
+    if (sp && Math.hypot(sp.x - P.cx, sp.z - P.cz) < T.stationR && footprintFree(sp.x, sp.z, sp.heading, c.hl, c.hw, c)) { placeCar(c, sp.x, sp.z, sp.heading, 4); return true; }
+    if (!R.toTarget(P.cx, P.cz, P.hwy, solid, T.spawnMax + 250)) return false;
+    let best = -1, bs = Infinity;
+    for (let n = 0; n < G.N; n++) {
+      const d = R.distOf(n); if (!(d >= 120 && d <= T.spawnMax + 200)) continue;
+      const x = G.nx[n], z = G.nz[n], sd = Math.hypot(x - P.cx, z - P.cz);
+      let s = Math.abs(d - (T.spawnMin + T.spawnMax) / 2) * (d < T.spawnMin || d > T.spawnMax ? 3 : 1);
+      if (sd < 110) s += 400; // 太近（路繞很遠、直線很近）
+      if (sd < T.seeR && !tall.blocked(P.cx, P.cz, x, z, 0)) { const a = Math.abs(wrapA(Math.atan2(-(z - P.cz), x - P.cx) - P.th)); s += a < 1.6 ? 300 : 60; } // 你看得到（前面最明顯）
+      for (const k of cars) if (k.on && Math.hypot(k.x - x, k.z - z) < 40) s += 250;
+      s += rnd() * 40;
+      if (s < bs) { const nx = R.nextOf(n); if (nx < 0) continue; const th = Math.atan2(-(G.nz[nx] - z), G.nx[nx] - x); if (!footprintFree(x, z, th, c.hl, c.hw, c)) continue; bs = s; best = n; }
+    }
+    if (best < 0) return false;
+    const nx = R.nextOf(best), th = Math.atan2(-(G.nz[nx] - G.nz[best]), G.nx[nx] - G.nx[best]);
+    placeCar(c, G.nx[best], G.nz[best], th, 14);
+    if (replan(c, P.cx, P.cz, P.hwy, true)) { const Pp = c.path; let v = 14; for (let k = 0; k < Pp.n && Pp.cum[k] < 30; k++) if (Pp.vl[k] < v) v = Pp.vl[k]; c.v = v; } // 前面有彎：一出來就慢一點
+    return true;
+  }
+  function relocate(c) { // 卡住很久、太遠：換到 200–400 公尺外的路上重新來（找不到地方就放回原地）
+    if (!c.on) return;
+    const x = c.x, z = c.z, th = c.th;
+    removeCar(c);
+    if (!spawnCar()) placeCar(c, x, z, th, 0);
+    c.stats.relocs++;
+  }
+
+  // ---- 開車（每一步 h 秒）：目標方向盤、目標速度 → 動、碰撞 ----
+  function drivePhys(c, h, steerT, vT) {
+    const vab = Math.abs(c.v), maxS = 0.55, rate = 3.2 - 2 * clamp(vab / 45, 0, 1);
+    const kmax = vab > 1 ? T.alat / (vab * vab) : Infinity, sLim = Math.min(maxS, Math.atan(kmax * c.L)); // 側向加速度不超過 alat
+    const sT = clamp(steerT, -sLim, sLim); c.steer += clamp(sT - c.steer, -rate * h, rate * h);
+    const sf = surf(c.x, c.z), cap = sf === 1 ? 50 / 3.6 : sf === 2 ? 16 / 3.6 : Infinity, vt = Math.min(vT, cap); // 草地、稻田開不快
+    let a;
+    if (c.v >= -0.1 && vt >= 0) a = vt > c.v ? Math.min(T.acc * (1 - Math.pow(clamp(c.v / (T.vfar * 1.05), 0, 1), 2)), (vt - c.v) * 3) : -Math.min(T.brake, (c.v - vt) * 4 + 1);
+    else if (vt < 0) a = vt < c.v ? -Math.min(4, (c.v - vt) * 3) : Math.min(T.brake, (vt - c.v) * 3 + 0.5); // 倒車
+    else a = Math.min(T.brake, -c.v * 3 + 0.5);
+    const v0 = c.v; c.v += a * h; if (v0 > 0 && c.v < 0 && vt >= 0) c.v = 0; if (v0 < 0 && c.v > 0 && vt <= 0) c.v = 0;
+    c.pitch += (clamp(-a * 0.004, -0.035, 0.03) - c.pitch) * Math.min(1, h * 8);
+    const k = Math.tan(c.steer) / c.L; c.th = wrapA(c.th - c.v * k * h); // 腳踏車模型：右轉 steer > 0 → heading 變小
+    c.roll += (clamp(c.v * c.v * k * 0.004, -0.05, 0.05) - c.roll) * Math.min(1, h * 6);
+    c.x += Math.cos(c.th) * c.v * h; c.z -= Math.sin(c.th) * c.v * h;
+    c.dist += Math.abs(c.v) * h;
+    collideCar(c);
+  }
+  function hitResp(c, nx, nz, vf = 0) { // 撞進去的速度吃掉、車頭往沿著牆的方向轉一點；vf：撞到的東西（你的車、別的警車）沿著這台車頭方向在走多快
+    const fx = Math.cos(c.th), fz = -Math.sin(c.th), fn = fx * nx + fz * nz;
+    const vb = fn < 0 && c.v > 0 ? clamp(vf, 0, c.v) : 0, vr = c.v - vb; // 追撞前面同方向在走的車：只吃掉比它快的那一點（不會一撞就停住）；對撞、被後面的車撞：照舊停下來（不會被推著走、還是擋在你前面）
+    if (vr * fn < 0) {
+      const w = Math.abs(vr * fn); c.v = vb + vr * Math.max(0, 1 - Math.abs(fn) * 1.05); if (w > 3 && T0 - (c.bumpT || 0) > 0.4) { c.bumpT = T0; c.stats.bumps++; }
+      const tx = -nz, tz = nx, ft = fx * tx + fz * tz;
+      if (Math.abs(ft) > 0.2) { const want = Math.atan2(-(tz * Math.sign(ft)), tx * Math.sign(ft)); c.th = wrapA(c.th + clamp(wrapA(want - c.th), -0.04, 0.04)); }
+    }
+  }
+  const TMPB = { box: true, x: 0, z: 0, hx: 1, hz: 1, ux: 1, uz: 0, wx: 0, wz: 1 };
+  function setBox(b, x, z, th, hl, hw) { b.x = x; b.z = z; b.hx = hl; b.hz = hw; b.ux = Math.cos(th); b.uz = -Math.sin(th); b.wx = Math.sin(th); b.wz = Math.cos(th); return b; }
+  function collideCar(c) {
+    for (let it = 0; it < 3; it++) {
+      const fx = Math.cos(c.th), fz = -Math.sin(c.th); let moved = false;
+      const list = solid.near(c.x - 3.5, c.z - 3.5, c.x + 3.5, c.z + 3.5);
+      for (let i = 0; i < list.length; i++) {
+        const q = list[i];
+        if (!(q.box ? boxPush(c.x, c.z, fx, fz, c.hl, c.hw, q) : circlePush(c.x, c.z, fx, fz, c.hl, c.hw, q.x, q.z, q.r))) continue;
+        c.x += OUT[0]; c.z += OUT[1]; moved = true; c.touch = 0.25; hitResp(c, OUT[2], OUT[3]);
+      }
+      for (const k of cars) { // 別的警車（各推一半）
+        if (k === c || !k.on || Math.abs(k.x - c.x) > 7 || Math.abs(k.z - c.z) > 7) continue;
+        setBox(TMPB, k.x, k.z, k.th, k.hl, k.hw);
+        if (!boxPush(c.x, c.z, fx, fz, c.hl, c.hw, TMPB)) continue;
+        c.x += OUT[0] * 0.5; c.z += OUT[1] * 0.5; k.x -= OUT[0] * 0.5; k.z -= OUT[1] * 0.5; moved = true; hitResp(c, OUT[2], OUT[3], k.v * (Math.cos(k.th) * fx - Math.sin(k.th) * fz));
+      }
+      if (P.ok && P.mode === 'drive' && Math.abs(P.cx - c.x) < 8 && Math.abs(P.cz - c.z) < 8) { // 你的車（你不會被推：推警車）
+        setBox(TMPB, P.cx, P.cz, P.th, P.hl, P.hw);
+        if (boxPush(c.x, c.z, fx, fz, c.hl, c.hw, TMPB)) { c.x += OUT[0]; c.z += OUT[1]; moved = true; hitResp(c, OUT[2], OUT[3], P.vx * fx + P.vz * fz); }
+      } else if (P.ok && P.mode === 'walk' && !P.hidden && Math.abs(P.cx - c.x) < 6 && Math.abs(P.cz - c.z) < 6) { // 走路的你：停下來、不壓過去
+        if (circlePush(c.x, c.z, fx, fz, c.hl, c.hw, P.cx, P.cz, 0.4)) { c.x += OUT[0]; c.z += OUT[1]; c.v = 0; moved = true; }
+      }
+      if (o.obstacles) { // 路上的車（traffic）
+        let ob = null; try { ob = o.obstacles(c.x, c.z, 8); } catch { ob = null; }
+        if (ob) for (let i = 0; i < ob.length; i++) { const b = ob[i]; if (!b || !(b.hx > 0) || b.police) continue; setBox(TMPB, b.x, b.z, b.rot || 0, b.hx, b.hz); if (boxPush(c.x, c.z, fx, fz, c.hl, c.hw, TMPB)) { c.x += OUT[0]; c.z += OUT[1]; moved = true; hitResp(c, OUT[2], OUT[3]); } }
+      }
+      if (!moved) break;
+    }
+  }
+
+  // ---- 追：沿著路線（pure pursuit）→ 目標方向盤、速度 ----
+  const FO = { gx: 0, gz: 0, v: 0, s: 0, t: 0, off: 0, left: 0, ld: 6 };
+  function followPath(c, out) {
+    const Pp = c.path; if (!Pp.ok) return false;
+    let bi = Pp.i, bd = Infinity; out.t = 0;
+    for (let i = Pp.i; i < Pp.n - 1 && i < Pp.i + 30; i++) { // 現在在路線上的哪裡（往前找）
+      const ax = Pp.x[i], az = Pp.z[i], dx = Pp.x[i + 1] - ax, dz = Pp.z[i + 1] - az, L2 = dx * dx + dz * dz, t = L2 > 1e-9 ? clamp(((c.x - ax) * dx + (c.z - az) * dz) / L2, 0, 1) : 0;
+      const ex = ax + dx * t - c.x, ez = az + dz * t - c.z, d = ex * ex + ez * ez;
+      if (d < bd) { bd = d; bi = i; out.t = t; }
+    }
+    Pp.i = bi; const s = Pp.cum[bi] + (Pp.cum[bi + 1] - Pp.cum[bi]) * out.t;
+    out.off = Math.sqrt(bd);
+    const Ld = clamp(4.5 + 0.42 * Math.abs(c.v), 6, 30); out.ld = Ld; // 往前看多遠
+    let j = bi; const sl = s + Ld; while (j < Pp.n - 2 && Pp.cum[j + 1] < sl) j++;
+    const sl2 = Math.min(sl, Pp.len), seg = Pp.cum[j + 1] - Pp.cum[j], tt = seg > 1e-6 ? clamp((sl2 - Pp.cum[j]) / seg, 0, 1) : 1;
+    out.gx = Pp.x[j] + (Pp.x[j + 1] - Pp.x[j]) * tt; out.gz = Pp.z[j] + (Pp.z[j + 1] - Pp.z[j]) * tt;
+    let v = Pp.vl[bi] + (Pp.vl[bi + 1] - Pp.vl[bi]) * out.t; // 速限：這一點＋前面 0.45 秒會開到的（煞車慢半拍）
+    const sv = s + Math.max(2, Math.abs(c.v) * 0.45); for (let k = bi + 1; k < Pp.n && Pp.cum[k] <= sv; k++) if (Pp.vl[k] < v) v = Pp.vl[k];
+    out.v = v; out.s = s; out.left = Pp.len - s;
+    c.pathOff = out.off;
+    return true;
+  }
+  // 路線上 s 公尺那一點（PT.x、PT.z）和方向（PT.tx、PT.tz）
+  const PT = { x: 0, z: 0, tx: 1, tz: 0 };
+  function pathAt(Pp, s) {
+    let j = 0; if (s > 0) { j = Pp.i; while (j > 0 && Pp.cum[j] > s) j--; while (j < Pp.n - 2 && Pp.cum[j + 1] < s) j++; }
+    const L = Pp.cum[j + 1] - Pp.cum[j], t = L > 1e-6 ? clamp((s - Pp.cum[j]) / L, 0, 1) : 1;
+    PT.x = Pp.x[j] + (Pp.x[j + 1] - Pp.x[j]) * t; PT.z = Pp.z[j] + (Pp.z[j + 1] - Pp.z[j]) * t;
+    PT.tx = L > 1e-6 ? (Pp.x[j + 1] - Pp.x[j]) / L : 1; PT.tz = L > 1e-6 ? (Pp.z[j + 1] - Pp.z[j]) / L : 0;
+    return PT;
+  }
+  // 往前看的點開不過去：路線上有東西（樹、柱子）→ 在那裡往旁邊閃；路線沒被擋，只是轉角切太多 → 看近一點
+  const DODGE = [1.8, -1.8, 3.0, -3.0];
+  function clearGoal(c) {
+    const r = c.hw + 0.3, Pp = c.path; // 車角轉彎會掃出去：胖一點
+    if (!solid.blocked(c.x, c.z, FO.gx, FO.gz, r)) return 0;
+    let sObs = -1; // 路線上被擋住的地方（沿著路線幾公尺）
+    pathAt(Pp, FO.s); let ax = PT.x, az = PT.z, sa = FO.s;
+    const sEnd = FO.s + FO.ld + 4;
+    for (let k = Pp.i + 1; k < Pp.n && sa < sEnd && sObs < 0; k++) {
+      const bx = Pp.x[k], bz = Pp.z[k], L = Math.hypot(bx - ax, bz - az);
+      if (L > 1e-6 && solid.blocked(ax, az, bx, bz, r)) { // 這一段被擋住：2 公尺一小段找到在哪裡
+        for (let t = 0; t < L; t += 2) { const t1 = Math.min(L, t + 2); if (solid.blocked(ax + ((bx - ax) * t) / L, az + ((bz - az) * t) / L, ax + ((bx - ax) * t1) / L, az + ((bz - az) * t1) / L, r)) { sObs = sa + t + 1; break; } }
+        if (sObs < 0) sObs = sa + L * 0.5;
+      }
+      ax = bx; az = bz; sa = Pp.cum[k];
+    }
+    if (sObs < 0) { for (let q = 0; q < 2; q++) { pathAt(Pp, FO.s + Math.max(4, FO.ld * (q === 0 ? 0.55 : 0.3))); if (!solid.blocked(c.x, c.z, PT.x, PT.z, r)) { FO.gx = PT.x; FO.gz = PT.z; return 1; } } return 1; }
+    pathAt(Pp, Math.max(sObs, FO.s + 3) + 2.5);
+    const x = PT.x, z = PT.z, tx = PT.tx, tz = PT.tz;
+    for (let q = 0; q < DODGE.length; q++) { const gx = x - tz * DODGE[q], gz = z + tx * DODGE[q]; if (!solid.blocked(c.x, c.z, gx, gz, r)) { FO.gx = gx; FO.gz = gz; FO.v = Math.min(FO.v, 9); return 2; } }
+    return 1;
+  }
+  // 沿著路線開的方向盤：Stanley（前輪到路線的距離＋跟路線方向差多少：轉角不會切太多）；路線上有東西要閃：往閃的那一點開
+  function pathSteer(c) {
+    const k = clearGoal(c);
+    if (k === 2) return steerTo(c, FO.gx, FO.gz);
+    const Pp = c.path, fx = Math.cos(c.th), fz = -Math.sin(c.th), lf = c.L * 0.5, ax0 = c.x + fx * lf, az0 = c.z + fz * lf;
+    let bi = Pp.i, bd = Infinity, bt = 0;
+    for (let i = Pp.i; i < Pp.n - 1 && i < Pp.i + 14; i++) {
+      const ax = Pp.x[i], az = Pp.z[i], dx = Pp.x[i + 1] - ax, dz = Pp.z[i + 1] - az, L2 = dx * dx + dz * dz, t = L2 > 1e-9 ? clamp(((ax0 - ax) * dx + (az0 - az) * dz) / L2, 0, 1) : 0;
+      const ex = ax + dx * t - ax0, ez = az + dz * t - az0, d = ex * ex + ez * ez;
+      if (d < bd) { bd = d; bi = i; bt = t; }
+    }
+    const px = Pp.x[bi] + (Pp.x[bi + 1] - Pp.x[bi]) * bt, pz = Pp.z[bi] + (Pp.z[bi + 1] - Pp.z[bi]) * bt, s = Pp.cum[bi] + (Pp.cum[bi + 1] - Pp.cum[bi]) * bt;
+    pathAt(Pp, s + Math.abs(c.v) * T.stanPre); // 方向盤轉得慢：看前面一點點的方向
+    const er = (px - ax0) * -fz + (pz - az0) * fx; // 路線在前輪右邊幾公尺
+    return wrapA(c.th - Math.atan2(-PT.tz, PT.tx)) + Math.atan2(T.stanK * er, Math.abs(c.v) + 1.5);
+  }
+  function steerTo(c, gx, gz) { // pure pursuit：往 (gx, gz) 的方向盤角度（右正）
+    const fx = Math.cos(c.th), fz = -Math.sin(c.th), dx = gx - c.x, dz = gz - c.z, fwd = dx * fx + dz * fz, lat = dx * -fz + dz * fx, L2 = dx * dx + dz * dz;
+    if (L2 < 1e-4) return 0;
+    if (fwd < 0 && c.v >= 0) return lat >= 0 ? 0.55 : -0.55; // 在後面：打滿轉過去
+    return Math.atan((2 * c.L * lat) / Math.max(L2, 4));
+  }
+  function pathGoal(c, vT) { // 路線前面 8 公尺那一點放在 PT（轉頭用）；往前看的點在側邊、後面：先慢下來（再倒車、轉頭）
+    if (Math.abs(wrapA(Math.atan2(-(FO.gz - c.z), FO.gx - c.x) - c.th)) > T.manIn) vT = Math.min(vT, 2);
+    pathAt(c.path, FO.s + 8);
+    return vT;
+  }
+  function curvTo(c, gx, gz) { // 開到 (gx, gz) 要轉多急（1/公尺）；在後面 → 很急
+    const fx = Math.cos(c.th), fz = -Math.sin(c.th), dx = gx - c.x, dz = gz - c.z, L2 = dx * dx + dz * dz;
+    if (L2 < 1) return 0;
+    if (dx * fx + dz * fz < 0) return 1 / 5;
+    return (2 * Math.abs(dx * -fz + dz * fx)) / L2;
+  }
+
+  // ---- 圍住的位置（你開車慢下來）：前、後、左、右 ----
+  const SLOT = new Float64Array(8), USED = new Uint8Array(4), OKS = new Uint8Array(4);
+  function slotsFor() {
+    const gF = P.hl + 2.35 + 0.9, gS = P.hw + 0.92 + 0.8;
+    SLOT[0] = P.cx + P.fx * gF; SLOT[1] = P.cz + P.fz * gF; // 前
+    SLOT[2] = P.cx - P.fx * gF; SLOT[3] = P.cz - P.fz * gF; // 後
+    SLOT[4] = P.cx - P.rx * gS; SLOT[5] = P.cz - P.rz * gS; // 左
+    SLOT[6] = P.cx + P.rx * gS; SLOT[7] = P.cz + P.rz * gS; // 右
+  }
+  function footprintFreeStatic(x, z, th, hl, hw) {
+    const fx = Math.cos(th), fz = -Math.sin(th), r = Math.hypot(hl, hw) + 0.3, list = solid.near(x - r, z - r, x + r, z + r);
+    for (let i = 0; i < list.length; i++) { const c = list[i]; if (c.box ? boxPush(x, z, fx, fz, hl, hw, c) : circlePush(x, z, fx, fz, hl, hw, c.x, c.z, c.r)) return false; }
+    return surf(x, z) !== 2;
+  }
+  function assignSlots() { // 每台找最近的空位置（近的先挑；前後比左右好）
+    for (let k = 0; k < 4; k++) { USED[k] = 0; OKS[k] = footprintFreeStatic(SLOT[k * 2], SLOT[k * 2 + 1], P.th, 2.2, 0.85) ? 1 : 0; }
+    for (let pass = 0; pass < MAXC; pass++) {
+      let c = null; for (const k of cars) if (k.on && k.mode !== 'home' && !k.slotDone && (!c || k.d < c.d)) c = k;
+      if (!c) break; c.slotDone = true;
+      let best = -1, bd = Infinity;
+      for (let k = 0; k < 4; k++) { if (USED[k] || !OKS[k]) continue; const d = Math.hypot(SLOT[k * 2] - c.x, SLOT[k * 2 + 1] - c.z) + (k === c.slot ? -4 : 0) + (k >= 2 ? 3 : 0); if (d < bd) { bd = d; best = k; } }
+      c.slot = best; if (best >= 0) USED[best] = 1;
+    }
+    for (const k of cars) k.slotDone = false;
+  }
+  // 線段 (x0, z0) → (x1, z1) 會不會穿過你的車（胖 m 公尺）
+  function crossesPlayer(x0, z0, x1, z1, m) { setBox(TMPB, P.cx, P.cz, P.th, P.hl, P.hw); return segHits(TMPB, x0, z0, x1 - x0, z1 - z0, m); }
+
+  // ---- 每台車想一下（看不看得到你、直直開不開得到：0.25 秒一次）----
+  function thinkCar(c, dt) {
+    c.d = Math.hypot(P.cx - c.x, P.cz - c.z);
+    c.losT -= dt; if (c.losT > 0) return;
+    c.losT = 0.25;
+    const look = P.ok && !P.hidden && P.mode !== 'off';
+    c.seen = look && (c.d < T.nearR || (c.d < T.seeR && !tall.blocked(c.x, c.z, P.cx, P.cz, 0)));
+    c.clear = look && c.d < 90 && arcFree(c, P.cx, P.cz) && ARC.bad <= (c.d < 25 ? 2 : 0); // 開過去的弧線上沒東西、沒有稻田（草地一點點可以）
+  }
+  // 從車子現在的位置、方向，方向盤固定轉到 (gx, gz) 的那條圓弧（慢的時候：直線）有沒有撞到東西；ARC.bad：弧線上的草地、稻田
+  // 開很快、你在側邊：弧線很大、會切過路邊的柱子、房子 → 不直直追（照路線開，路線會先減速）
+  const ARC = { bad: 0 };
+  function arcFree(c, gx, gz) {
+    ARC.bad = 0;
+    const fx = Math.cos(c.th), fz = -Math.sin(c.th), rx = -fz, rz = fx, dx = gx - c.x, dz = gz - c.z;
+    const fwd = dx * fx + dz * fz, lat = dx * rx + dz * rz, L2 = dx * dx + dz * dz, L = Math.sqrt(L2), slow = Math.abs(c.v) < 4;
+    if (L < 1) return true;
+    if (fwd <= 0 && !slow) return false; // 在後面、開很快：掉頭不能直直來
+    const al = Math.abs(lat), k = (2 * al) / L2, ang = 2 * Math.atan2(al, fwd), sg = lat >= 0 ? 1 : -1, straight = slow || k < 1e-4;
+    const n = Math.max(2, Math.min(18, Math.ceil((straight ? L : ang / k) / 5))), pOff = surf(P.cx, P.cz);
+    let px = c.x, pz = c.z;
+    for (let i = 1; i <= n; i++) {
+      let x, z;
+      if (straight) { x = c.x + (dx * i) / n; z = c.z + (dz * i) / n; }
+      else { const a = (ang * i) / n, lf = Math.sin(a) / k, ll = ((1 - Math.cos(a)) / k) * sg; x = c.x + fx * lf + rx * ll; z = c.z + fz * lf + rz * ll; }
+      if (solid.blocked(px, pz, x, z, 1.0)) return false;
+      if (i < n) { const s = surf(x, z); if (s === 2 && pOff !== 2) ARC.bad += 2; else if (s === 1 && pOff !== 1 && pOff !== 2) ARC.bad++; }
+      px = x; pz = z;
+    }
+    return true;
+  }
+  // ---- 卡住了：倒車怎麼倒（方向盤左、右、正，模擬一下：倒得出去、之後往前開得到目標方向的那個）----
+  function poseFree(c, x, z, th) { // 車子放在這裡會不會撞到東西（房子、樹、別的警車、你的車）
+    const fx = Math.cos(th), fz = -Math.sin(th), hl = c.hl - 0.05, hw = c.hw - 0.05, r = Math.hypot(hl, hw) + 0.3;
+    const list = solid.near(x - r, z - r, x + r, z + r);
+    for (let i = 0; i < list.length; i++) { const q = list[i]; if (q.box ? boxPush(x, z, fx, fz, hl, hw, q) : circlePush(x, z, fx, fz, hl, hw, q.x, q.z, q.r)) return false; }
+    for (const k of cars) { if (k === c || !k.on || Math.abs(k.x - x) > 6 || Math.abs(k.z - z) > 6) continue; setBox(TMPB, k.x, k.z, k.th, k.hl, k.hw); if (boxPush(x, z, fx, fz, hl, hw, TMPB)) return false; }
+    if (P.ok && P.mode === 'drive' && Math.abs(P.cx - x) < 7 && Math.abs(P.cz - z) < 7) { setBox(TMPB, P.cx, P.cz, P.th, P.hl, P.hw); if (boxPush(x, z, fx, fz, hl, hw, TMPB)) return false; }
+    return true;
+  }
+  // 慢慢開一小段（dir +1 往前、−1 倒車；方向盤固定 sT，pp＝往 (gx, gz) 轉）→ RP：撞到之前停在哪裡、走了多遠、幾秒、有沒有撞到
+  const RP = { x: 0, z: 0, th: 0, st: 0, d: 0, t: 0, hit: false };
+  function simDrive(c, x, z, th, st, sT, dir, tMax, gx, gz, pp) {
+    let v = 0, d = 0, t = 0; const hs = 0.1; RP.hit = false;
+    for (; t < tMax - 1e-6; t += hs) {
+      let want = sT;
+      if (pp) { const fx = Math.cos(th), fz = -Math.sin(th), ex = gx - x, ez = gz - z, fw = ex * fx + ez * fz, lt = ex * -fz + ez * fx, l2 = ex * ex + ez * ez; want = fw < 0 ? (lt >= 0 ? 0.55 : -0.55) : clamp(Math.atan((2 * c.L * lt) / Math.max(l2, 4)), -0.55, 0.55); }
+      st += clamp(want - st, -0.32, 0.32); v = dir * Math.min(3.2, Math.abs(v) + 0.4);
+      const nth = wrapA(th - v * (Math.tan(st) / c.L) * hs), nx = x + Math.cos(nth) * v * hs, nz = z - Math.sin(nth) * v * hs;
+      if (!poseFree(c, nx, nz, nth)) { RP.hit = true; break; }
+      x = nx; z = nz; th = nth; d += Math.abs(v) * hs;
+    }
+    RP.x = x; RP.z = z; RP.th = th; RP.st = st; RP.d = d; RP.t = t;
+  }
+  // ---- 慢慢倒車、轉頭（三點掉頭）：要去的地方在旁邊、後面，或卡住了 ----
+  // 每一小段：往前／倒車 × 方向盤左、右、正（往前多一個：往目標轉）模擬 1.3 秒，挑轉完最對準目標、離目標近、沒撞到的
+  const MAN_S = [0.55, -0.55, 0, 9];
+  function planManeuver(c, gx, gz) {
+    CNT.plan++;
+    let bs = -Infinity, bd = 0, bS = 0, bt = 0;
+    for (let dir = 1; dir >= -1; dir -= 2) for (let q = 0; q < 4; q++) {
+      const pp = MAN_S[q] === 9; if (pp && dir < 0) continue;
+      simDrive(c, c.x, c.z, c.th, c.steer, pp ? 0 : MAN_S[q], dir, 1.3, gx, gz, pp);
+      if (RP.d < 0.3) continue;
+      const e = Math.abs(wrapA(Math.atan2(-(gz - RP.z), gx - RP.x) - RP.th)), dist = Math.hypot(gx - RP.x, gz - RP.z);
+      const sc = -1.6 * e - 0.12 * dist + (dir > 0 ? 0.25 : 0) + 0.1 * RP.d - (RP.hit ? 0.3 : 0);
+      if (sc > bs) { bs = sc; bd = dir; bS = pp ? 9 : MAN_S[q]; bt = RP.t; }
+    }
+    c.manN++;
+    if (bs === -Infinity) { c.manT = 0; return false; }
+    c.manD = bd; c.manS = bS; c.manT = Math.max(0.3, bt * 0.92); c.manB = 0;
+    return true;
+  }
+  function maneuver(c, h, gx, gz) { // true＝這一步在倒車、轉頭（已經開了）
+    if (c.manT > 0) {
+      c.manT -= h;
+      c.manB = Math.abs(c.v) < 0.3 ? c.manB + h : 0; // 被擋住了：換下一段
+      if (c.manB > 0.35) c.manT = 0;
+      else { drivePhys(c, h, c.manS === 9 ? steerTo(c, gx, gz) : c.manS, c.manD * 3); return true; }
+    }
+    const err = Math.abs(wrapA(Math.atan2(-(gz - c.z), gx - c.x) - c.th));
+    if ((err < T.manOut && c.manN > 0) || c.manN > 10) { c.manOn = false; c.manN = 0; c.rt = 0; return false; } // 轉好了（或試太多次）：照平常開
+    if (!planManeuver(c, gx, gz)) { c.manCool = 0.6; c.manOn = false; c.manN = 0; return false; }
+    drivePhys(c, h, c.manS === 9 ? steerTo(c, gx, gz) : c.manS, c.manD * 3);
+    return true;
+  }
+  const TMPP = mkPath(900), MX = new Float64Array(900), MZ = new Float64Array(900), RO = { solid: null, onHwy: false, tHwy: false, lane: 0, uturn: 0, toTarget: true }; // 重算路線用（大家輪流用）
+  function replan(c, tx, tz, tHwy, toTarget) {
+    CNT.replan++;
+    const Pp = c.path; let keep = false, sx = c.x, sz = c.z, sth = c.th, m = 0;
+    if (Pp.ok && Math.abs(c.v) > 1 && followPath(c, FO) && FO.off < 3) { // 還在路線上：前面這一段照舊（轉彎轉到一半不會換路）
+      const ahead = clamp(Math.abs(c.v) * 0.9, 6, 30), s0 = FO.s + ahead;
+      if (FO.left > ahead + 4) {
+        MX[m] = c.x; MZ[m] = c.z; m++;
+        let k = Pp.i + 1; for (; k < Pp.n && Pp.cum[k] < s0 && m < 400; k++) { MX[m] = Pp.x[k]; MZ[m] = Pp.z[k]; m++; }
+        const L = Pp.cum[k] - Pp.cum[k - 1], t = L > 1e-6 ? clamp((s0 - Pp.cum[k - 1]) / L, 0, 1) : 1;
+        sx = Pp.x[k - 1] + (Pp.x[k] - Pp.x[k - 1]) * t; sz = Pp.z[k - 1] + (Pp.z[k] - Pp.z[k - 1]) * t; sth = Math.atan2(-(Pp.z[k] - Pp.z[k - 1]), Pp.x[k] - Pp.x[k - 1]);
+        keep = true;
+      }
+    }
+    const onHwy = surf(sx, sz) === 4, opt = RO; opt.solid = solid; opt.onHwy = onHwy; opt.tHwy = tHwy; opt.lane = onHwy ? 0 : 1.6; opt.uturn = Math.abs(c.v) > 8 ? 60 : 12; opt.toTarget = toTarget;
+    opt.tth = P.ok && P.mode === 'drive' && P.spd > 2 && Math.hypot(tx - P.cx, tz - P.cz) < 30 ? P.th : NaN; opt.far = 300; // 追開車的你：投影到你開的那條路上
+    let ok = false;
+    if (keep && R.route(TMPP, sx, sz, sth, tx, tz, opt)) { // 舊的前面那一段＋新的
+      Pp.n = 0; for (let i = 0; i < m; i++) pathAdd(Pp, MX[i], MZ[i]);
+      for (let i = 0; i < TMPP.n; i++) pathAdd(Pp, TMPP.x[i], TMPP.z[i]);
+      Pp.tx = tx; Pp.tz = tz; ok = Pp.n > 1;
+    } else { opt.onHwy = surf(c.x, c.z) === 4; opt.lane = opt.onHwy ? 0 : 1.6; ok = R.route(Pp, c.x, c.z, c.th, tx, tz, opt); }
+    const endFar = ok && toTarget && Math.hypot(Pp.x[Pp.n - 1] - tx, Pp.z[Pp.n - 1] - tz) > 8; // 路線到不了你旁邊（最後一段被擋住）
+    if ((!ok || endFar) && toTarget && Math.hypot(tx - c.x, tz - c.z) < 400 && !solid.blocked(c.x, c.z, tx, tz, c.hw + 0.2)) { // 你在路網外面（田裡、賽道上），直直開得到：直直開過去
+      Pp.n = 0; pathAdd(Pp, c.x, c.z); pathAdd(Pp, tx, tz); Pp.tx = tx; Pp.tz = tz; ok = true;
+    }
+    if (ok) pathFinish(Pp, T.alat * 0.8, T.comf, T.vfar); else { Pp.n = 0; Pp.ok = false; }
+    c.rt = 2.5 + rnd() * 0.6;
+    return ok;
+  }
+  const CNT = { spawn: 0, replan: 0, plan: 0 }; // 測試用：做了幾次比較貴的事
+  function homeRoute(c) { // 回警察局；沒有警察局：開去離你 250–480 公尺的路上（看不到了就收掉）
+    c.rt = 3;
+    const hp = station.spawn;
+    if (hp) { replan(c, hp.x, hp.z, false, true); return; }
+    if (!P.ok || !R.toTarget(P.cx, P.cz, P.hwy, solid, 480)) return;
+    let best = -1, bs = Infinity;
+    for (let n = 0; n < G.N; n++) { const d = R.distOf(n); if (!(d >= 250 && d <= 480)) continue; const s = Math.hypot(G.nx[n] - c.x, G.nz[n] - c.z) + rnd() * 30; if (s < bs) { bs = s; best = n; } }
+    if (best >= 0) replan(c, G.nx[best], G.nz[best], G.nHwy[best] === 1, false);
+  }
+
+  function stepCar(c, h) {
+    const f = c.officer;
+    let sT = 0, vT = 0, mg = false, mgx = 0, mgz = 0; // mg：要去的地方（慢慢倒車、轉頭的時候用）
+    const vcap = !c.seen && c.d > 220 ? T.vfar : T.vmax; // 離很遠、看不到你：快一點追上來
+    c.touch -= h; c.manCool -= h;
+    if (c.mode === 'home') {
+      if (followPath(c, FO)) { sT = pathSteer(c); vT = Math.min(FO.v, 16, Math.sqrt(2 * T.comf * Math.max(0, FO.left - 3))); vT = pathGoal(c, vT); mg = true; mgx = PT.x; mgz = PT.z; }
+    } else if (!P.ok || P.mode === 'off' || state !== 'wanted' || f.on) {
+      vT = 0; // 你在店裡、被抓了、警察下車了：車停著
+    } else if (P.mode === 'walk' || P.hidden) { // 走路的你（或躲起來了：開到最後看到的地方）：停在 9 公尺外
+      if (c.clear && c.d < 60) { sT = steerTo(c, P.cx, P.cz); vT = c.d < 9.5 ? 0 : Math.min(vcap, Math.sqrt(2 * T.comf * (c.d - 9))); mg = true; mgx = P.cx; mgz = P.cz; }
+      else if (followPath(c, FO)) { sT = pathSteer(c); vT = Math.min(FO.v, vcap, Math.sqrt(2 * T.comf * Math.max(0, FO.left - 10))); vT = pathGoal(c, vT); mg = true; mgx = PT.x; mgz = PT.z; }
+    } else if (c.clear && c.d < 70) { // 開車的你，近了、直直開得到
+      if (P.spd < 4 && c.slot >= 0) { // 你慢下來了：開到自己的位置，前後左右圍住
+        let gx = SLOT[c.slot * 2], gz = SLOT[c.slot * 2 + 1];
+        const ds = Math.hypot(gx - c.x, gz - c.z);
+        if (ds < 1.2) { sT = steerTo(c, gx + P.fx * 3, gz + P.fz * 3); vT = 0; }
+        else {
+          if (crossesPlayer(c.x, c.z, gx, gz, c.hw + 0.5)) { // 位置在你的車的另一邊：先開到旁邊
+            const sd = (c.x - P.cx) * P.rx + (c.z - P.cz) * P.rz >= 0 ? 1 : -1, lon = clamp((gx - P.cx) * P.fx + (gz - P.cz) * P.fz, -P.hl, P.hl) * 0.6, w = P.hw + c.hw + 1.4;
+            gx = P.cx + P.rx * sd * w + P.fx * lon; gz = P.cz + P.rz * sd * w + P.fz * lon;
+          }
+          sT = steerTo(c, gx, gz); vT = Math.min(vcap, 1.2 + Math.sqrt(2 * T.comf * Math.max(0, ds - 0.6)));
+          if (c.d < c.hl + P.hl + 0.6) vT = Math.min(vT, 2.5);
+          mg = true; mgx = gx; mgz = gz;
+        }
+      } else {
+        const role = c.role, lead = clamp(c.d / Math.max(6, Math.abs(c.v) + 2), 0, 1.3);
+        let gx = P.cx + P.vx * lead, gz = P.cz + P.vz * lead;
+        const ahead = (c.x - P.cx) * P.fx + (c.z - P.cz) * P.fz, sd = (c.x - P.cx) * P.rx + (c.z - P.cz) * P.rz >= 0 ? 1 : -1; // ahead 負的＝在你後面
+        const close = Math.max(0, c.d - (c.hl + P.hl + 1.2));
+        vT = Math.min(vcap, Math.max(0, P.spd + Math.min(close * 1.2, Math.sqrt(12 * close), 30))); // 追上來：離越近越接近你的速度（煞得住，不會一直撞上去）
+        const px = gx, pz = gz, v0 = vT;
+        if (role === 1 && P.spd > 3) { // 第二台：從旁邊超過去、切到你前面
+          if (ahead < P.hl + c.hl + 5) { const w = P.hw + c.hw + 1.3; gx += P.rx * sd * w + P.fx * (8 + 0.5 * P.spd); gz += P.rz * sd * w + P.fz * (8 + 0.5 * P.spd); vT = Math.min(vcap, P.spd + 7); }
+          else { gx += P.fx * (6 + 0.4 * P.spd); gz += P.fz * (6 + 0.4 * P.spd); vT = Math.max(0, P.spd - 1.5); } // 在你前面了：慢一點擋住你
+        } else if (role === 2) { gx += P.rx * sd * 3.2; gz += P.rz * sd * 3.2; } // 第三台：從旁邊夾
+        else if (c.d < 14 && ahead < 0) vT = Math.min(vT, P.spd + 2.5); // 第一台：貼在後面，不要用力撞
+        if (role >= 1 && (gx !== px || gz !== pz)) { // 旁邊、前面那一點直直開過去會撞到東西（柱子、路燈）：先跟在你後面
+          c.offT -= h; if (c.offT <= 0) { c.offT = 0.12; c.offOk = !solid.blocked(c.x, c.z, gx, gz, c.hw + 0.15); }
+          if (!c.offOk) { gx = px; gz = pz; vT = v0; }
+        }
+        sT = steerTo(c, gx, gz); mg = true; mgx = gx; mgz = gz;
+        const kk = curvTo(c, gx, gz); if (kk > 1e-4) vT = Math.min(vT, Math.max(4, Math.sqrt((T.alat * 0.85) / kk))); // 要轉的彎太急：先減速
+      }
+    } else if (followPath(c, FO)) { // 沿著路開過來
+      sT = pathSteer(c); vT = Math.min(FO.v, vcap);
+      if (FO.left < 30) vT = Math.min(vT, P.spd + Math.sqrt(2 * T.comf * Math.max(0, FO.left - 4)));
+      vT = pathGoal(c, vT); mg = true; mgx = PT.x; mgz = PT.z;
+    }
+    // 慢、要去的地方在側邊或後面（或卡住了）：一小段一小段倒車、轉頭
+    if (mg && vT > 1) {
+      if (!c.manOn && c.manCool <= 0 && Math.abs(c.v) < 2.5 && Math.abs(wrapA(Math.atan2(-(mgz - c.z), mgx - c.x) - c.th)) > T.manIn) { c.manOn = true; c.manT = 0; c.manN = 0; }
+      if (c.manOn && maneuver(c, h, mgx, mgz)) { c.wantV = 2; return; }
+    } else if (c.manOn) { c.manOn = false; c.manN = 0; c.manT = 0; }
+    const fx = Math.cos(c.th), fz = -Math.sin(c.th);
+    for (const k of cars) { // 前面有別的警車：跟車
+      if (k === c || !k.on) continue;
+      const dx = k.x - c.x, dz = k.z - c.z, ah = dx * fx + dz * fz, lat = Math.abs(dx * -fz + dz * fx);
+      if (ah > 0 && ah < 16 && lat < 2.4) vT = Math.min(vT, Math.max(0, Math.max(0, k.v * Math.cos(k.th - c.th)) + (ah - c.hl - k.hl - 2) * 0.8));
+    }
+    if (o.obstacles && vT > 2) { // 路上的車：從左邊超過去（左邊擋住換右邊；都擋住就跟在後面）
+      const la = 7 + Math.abs(c.v) * 0.9;
+      let ob = null; try { ob = o.obstacles(c.x + fx * la * 0.5, c.z + fz * la * 0.5, la * 0.5 + 3); } catch { ob = null; }
+      let bA = Infinity, bx = 0, bz = 0, bw = 0, bg = 0;
+      if (ob) for (let i = 0; i < ob.length; i++) {
+        const b = ob[i]; if (!b || !(b.hx > 0) || b.police) continue;
+        const dx = b.x - c.x, dz = b.z - c.z, ah = dx * fx + dz * fz, lat = dx * -fz + dz * fx, rel = (b.rot || 0) - c.th, cr = Math.abs(Math.cos(rel)), sr = Math.abs(Math.sin(rel));
+        const wl = b.hx * sr + b.hz * cr, hlg = b.hx * cr + b.hz * sr;
+        if (ah <= 0 || ah - hlg - c.hl > la || Math.abs(lat) > c.hw + wl + 0.4) continue;
+        if (ah < bA) { bA = ah; bx = b.x; bz = b.z; bw = wl; bg = ah - hlg - c.hl; }
+      }
+      if (bA < Infinity) {
+        const w = c.hw + bw + 0.9; let ok = false;
+        for (let q = 0; q < 2 && !ok; q++) {
+          const sd = q === 0 ? -1 : 1, gx = bx - fz * sd * w, gz = bz + fx * sd * w;
+          if (!solid.blocked(c.x, c.z, gx, gz, c.hw + 0.1)) { sT = steerTo(c, gx + fx * 4, gz + fz * 4); ok = true; }
+        }
+        if (!ok) vT = Math.min(vT, Math.max(0, bg - 2) * 0.9);
+      }
+    }
+    c.wantV = vT;
+    drivePhys(c, h, sT, vT);
+  }
+
+  // ---- 警察（下車跑）----
+  function ensureOfficer(f) {
+    if (f.ch) return;
+    let ch = null; try { ch = o.makeOfficer ? o.makeOfficer() : null; } catch (e) { console.warn('police: makeOfficer', e); ch = null; }
+    if (!ch || !ch.group) ch = placeholderOfficer();
+    f.ch = ch; f.ch.group.visible = false; if (scene) scene.add(ch.group);
+  }
+  function hideOfficer(f) { f.on = false; f.st = 'in'; f.v = 0; if (f.ch) f.ch.group.visible = false; }
+  // 先把 3 台警車、3 個警察做好：沒事的時候（沒有星星）每 0.25 秒做一個；或載入的時候叫 police.preload() 一次做完 → 第一次犯罪那一幀不會卡一下
+  let warmI = 0, warmT = 1.5;
+  function warmOne() { if (warmI >= MAXC * 2) return false; const k = warmI++; if (k < MAXC) ensureModel(cars[k]); else ensureOfficer(offs[k - MAXC]); return true; }
+  function preload(renderer, camera) { // renderer, camera（可省略）：順便編譯 shader（先暫時打開、compile、再藏起來）
+    while (warmOne()) { /* 全部做好 */ }
+    if (!renderer || !renderer.compile || !scene || !camera) return;
+    const vis = [];
+    for (const c of cars) if (c.group && !c.group.visible) { c.group.visible = true; if (c.model.setLights) c.model.setLights(true); vis.push(c); }
+    for (const f of offs) if (f.ch && !f.ch.group.visible) { f.ch.group.visible = true; vis.push(f); }
+    try { renderer.compile(scene, camera); } catch (e) { console.warn('police: compile', e); }
+    for (const q of vis) { if (q.group) { q.group.visible = false; if (q.model.setLights) q.model.setLights(false); } else q.ch.group.visible = false; }
+  }
+  function personFree(x, z, r) {
+    const list = solid.near(x - r, z - r, x + r, z + r);
+    for (let i = 0; i < list.length; i++) { const c = list[i]; if (c.box ? circleVsBox(x, z, r, c) : Math.hypot(x - c.x, z - c.z) < r + c.r) return false; }
+    return true;
+  }
+  function officerOut(f) { // 駕駛座那邊（左）下車；擋住就右邊
+    ensureOfficer(f);
+    const c = f.car, fx = Math.cos(c.th), fz = -Math.sin(c.th), rx = -fz, rz = fx;
+    let x = c.x - rx * (c.hw + 0.55) + fx * 0.3, z = c.z - rz * (c.hw + 0.55) + fz * 0.3;
+    if (!personFree(x, z, 0.3)) { x = c.x + rx * (c.hw + 0.55) + fx * 0.3; z = c.z + rz * (c.hw + 0.55) + fz * 0.3; }
+    f.on = true; f.st = 'out'; f.x = x; f.z = z; f.th = Math.atan2(-(P.cz - z), P.cx - x); f.v = 0; f.thinkT = 0; f.tx = P.cx; f.tz = P.cz; f.backT = 0; f.seen = true;
+    f.ch.group.visible = enabled;
+  }
+  function collidePerson(f, r) {
+    for (let it = 0; it < 3; it++) {
+      let moved = false;
+      const list = solid.near(f.x - r - 0.1, f.z - r - 0.1, f.x + r + 0.1, f.z + r + 0.1);
+      for (let i = 0; i < list.length; i++) {
+        const c = list[i];
+        if (c.box) { if (circleVsBox(f.x, f.z, r, c)) { f.x += OUT[0]; f.z += OUT[1]; moved = true; } }
+        else { const dx = f.x - c.x, dz = f.z - c.z, d = Math.hypot(dx, dz), rr = r + c.r; if (d < rr && d > 1e-6) { f.x += (dx / d) * (rr - d); f.z += (dz / d) * (rr - d); moved = true; } }
+      }
+      for (const k of cars) { if (!k.on || Math.abs(k.x - f.x) > 4 || Math.abs(k.z - f.z) > 4) continue; setBox(TMPB, k.x, k.z, k.th, k.hl, k.hw); if (circleVsBox(f.x, f.z, r, TMPB)) { f.x += OUT[0]; f.z += OUT[1]; moved = true; } }
+      for (const g of offs) { if (g === f || !g.on || g.st === 'in') continue; const dx = f.x - g.x, dz = f.z - g.z, d = Math.hypot(dx, dz); if (d < 2 * r && d > 1e-6) { f.x += (dx / d) * (2 * r - d) * 0.5; f.z += (dz / d) * (2 * r - d) * 0.5; } }
+      if (P.ok && P.mode === 'drive' && Math.abs(P.cx - f.x) < 5 && Math.abs(P.cz - f.z) < 5) { setBox(TMPB, P.cx, P.cz, P.th, P.hl, P.hw); if (circleVsBox(f.x, f.z, r, TMPB)) { f.x += OUT[0]; f.z += OUT[1]; moved = true; } }
+      if (!moved) break;
+    }
+  }
+  // ---- 警察跑步的路線：牆擋住、你的腳印也都擋住 → 身邊 38 公尺的格子（0.6 公尺一格）找路（A*）----
+  const GN = 64, GC = 0.6, GR = 0.36, GNN = GN * GN;
+  const gOcc = new Uint8Array(GNN), gG = new Float32Array(GNN), gPrev = new Int32Array(GNN), gSeen = new Int32Array(GNN), gDone = new Int32Array(GNN);
+  const gHN = new Int32Array(GNN * 4), gHK = new Float32Array(GNN * 4), gPath = new Int32Array(GNN); let gSt = 0, gHs = 0;
+  const gPush = (n, k) => { if (gHs >= gHN.length) return; let i = gHs++; while (i > 0) { const p = (i - 1) >> 1; if (gHK[p] <= k) break; gHN[i] = gHN[p]; gHK[i] = gHK[p]; i = p; } gHN[i] = n; gHK[i] = k; };
+  const gPop = () => { const top = gHN[0]; gHs--; if (gHs > 0) { const n = gHN[gHs], k = gHK[gHs]; let i = 0; for (;;) { let c = 2 * i + 1; if (c >= gHs) break; if (c + 1 < gHs && gHK[c + 1] < gHK[c]) c++; if (gHK[c] >= k) break; gHN[i] = gHN[c]; gHK[i] = gHK[c]; i = c; } gHN[i] = n; gHK[i] = k; } return top; };
+  function gMark(x0, z0, q) { // 碰撞物（胖 GR）蓋到的格子
+    const ex = q.ex + GR, ez = q.ez + GR;
+    const i0 = Math.max(0, Math.floor((q.x - ex - x0) / GC)), i1 = Math.min(GN - 1, Math.floor((q.x + ex - x0) / GC)), j0 = Math.max(0, Math.floor((q.z - ez - z0) / GC)), j1 = Math.min(GN - 1, Math.floor((q.z + ez - z0) / GC));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const cx = x0 + (i + 0.5) * GC - q.x, cz = z0 + (j + 0.5) * GC - q.z;
+      if (q.box ? Math.abs(cx * q.ux + cz * q.uz) <= q.hx + GR && Math.abs(cx * q.wx + cz * q.wz) <= q.hz + GR : cx * cx + cz * cz <= (q.r + GR) * (q.r + GR)) gOcc[j * GN + i] = 1;
+    }
+  }
+  function pedBlocked(x0, z0, x1, z1) { // 人直直跑過去會不會撞到東西（房子、牆、警車）
+    if (solid.blocked(x0, z0, x1, z1, 0.25)) return true;
+    const dx = x1 - x0, dz = z1 - z0;
+    for (const k of cars) { if (!k.on) continue; setBox(TMPB, k.x, k.z, k.th, k.hl, k.hw); if (segHits(TMPB, x0, z0, dx, dz, 0.3)) return true; }
+    return false;
+  }
+  function footPath(f, tx, tz) { // 找到路：f.wp 放路上的轉彎點（拉直過的），回傳 true
+    f.wn = 0; f.wi = 0;
+    if (Math.abs(tx - f.x) > GN * GC - 3 || Math.abs(tz - f.z) > GN * GC - 3) return false; // 太遠：格子放不下
+    const x0 = (f.x + tx) / 2 - (GN * GC) / 2, z0 = (f.z + tz) / 2 - (GN * GC) / 2;
+    gOcc.fill(0);
+    const list = solid.near(x0, z0, x0 + GN * GC, z0 + GN * GC);
+    for (let i = 0; i < list.length; i++) gMark(x0, z0, list[i]);
+    for (const k of cars) if (k.on) { setBox(TMPB, k.x, k.z, k.th, k.hl, k.hw); TMPB.ex = Math.abs(TMPB.ux) * k.hl + Math.abs(TMPB.wx) * k.hw; TMPB.ez = Math.abs(TMPB.uz) * k.hl + Math.abs(TMPB.wz) * k.hw; gMark(x0, z0, TMPB); }
+    const cell = (x, z) => clamp(Math.floor((x - x0) / GC), 0, GN - 1) + clamp(Math.floor((z - z0) / GC), 0, GN - 1) * GN;
+    let s0 = cell(f.x, f.z); const s1 = cell(tx, tz);
+    if (gOcc[s0]) { let best = -1, bd = Infinity; const si = s0 % GN, sj = (s0 / GN) | 0; for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++) { const i = si + di, j = sj + dj; if (i < 0 || j < 0 || i >= GN || j >= GN || gOcc[j * GN + i]) continue; const d = di * di + dj * dj; if (d < bd) { bd = d; best = j * GN + i; } } if (best < 0) return false; s0 = best; }
+    gOcc[s1] = 0; // 你站的那一格一定可以
+    gSt++; gHs = 0; gG[s0] = 0; gSeen[s0] = gSt; gPrev[s0] = -1; gPush(s0, 0);
+    const ti = s1 % GN, tj = (s1 / GN) | 0; let found = false;
+    while (gHs > 0) {
+      const u = gPop(); if (gDone[u] === gSt) continue; gDone[u] = gSt;
+      if (u === s1) { found = true; break; }
+      const ui = u % GN, uj = (u / GN) | 0;
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        if (!di && !dj) continue;
+        const i = ui + di, j = uj + dj; if (i < 0 || j < 0 || i >= GN || j >= GN) continue;
+        const v = j * GN + i; if (gOcc[v] || gDone[v] === gSt) continue;
+        if (di && dj && (gOcc[uj * GN + i] || gOcc[j * GN + ui])) continue; // 斜的：不能切牆角
+        const g = gG[u] + (di && dj ? 1.4142 : 1);
+        if (gSeen[v] !== gSt || g < gG[v]) { gSeen[v] = gSt; gG[v] = g; gPrev[v] = u; const hx = Math.abs(i - ti), hz = Math.abs(j - tj); gPush(v, g + Math.max(hx, hz) + 0.4142 * Math.min(hx, hz)); }
+      }
+    }
+    if (!found) return false;
+    let n = 0; for (let u = s1; u >= 0 && n < GNN; u = gPrev[u]) gPath[n++] = u; // 倒著的
+    // 拉直：從現在的點，能直直跑到的最遠那一格 → 下一個轉彎點
+    let ax = f.x, az = f.z, k = n - 1;
+    while (k > 0 && f.wn < 24) {
+      let best = k - 1;
+      for (let q = 0; q < k; q++) { const c = gPath[q], cx = q === 0 ? tx : x0 + ((c % GN) + 0.5) * GC, cz = q === 0 ? tz : z0 + (((c / GN) | 0) + 0.5) * GC; if (!pedBlocked(ax, az, cx, cz)) { best = q; break; } }
+      const c = gPath[best]; ax = x0 + ((c % GN) + 0.5) * GC; az = z0 + (((c / GN) | 0) + 0.5) * GC;
+      if (best === 0) { ax = tx; az = tz; }
+      f.wp.x[f.wn] = ax; f.wp.z[f.wn] = az; f.wn++; k = best;
+    }
+    return f.wn > 0;
+  }
+  const WRO = { solid: null, onHwy: false, tHwy: false, lane: 0, uturn: 0, toTarget: true };
+  function roadFootPath(f, tx, tz) { // 遠的：沿著路跑（跟警車一樣的路網，不靠右）
+    WRO.solid = solid; f.wn = 0; f.wi = 0;
+    if (!R.route(f.wp, f.x, f.z, f.th, tx, tz, WRO)) return false;
+    f.wn = f.wp.n; return f.wn > 0;
+  }
+  function officerThink(f) { // 看得到你、直直跑得過去 → 一直跑向你（每一幀你在哪裡）；不然照你的腳印（最新的、跑得過去的那一點）；都擋住：找路繞過去
+    f.thinkT = 0.2; f.direct = false; f.final = false; f.planT -= 0.2;
+    let tx, tz;
+    if (f.st === 'back') { const c = f.car, fx = Math.cos(c.th), fz = -Math.sin(c.th); tx = c.x + fz * (c.hw + 0.55); tz = c.z - fx * (c.hw + 0.55); f.seen = false; f.final = true; } // 回車上：駕駛座的門（左邊）
+    else if (P.hidden || P.mode === 'off') { tx = P.cx; tz = P.cz; f.seen = false; f.final = true; } // 最後看到你的地方
+    else {
+      const d = Math.hypot(P.cx - f.x, P.cz - f.z);
+      f.seen = d < T.nearR || (d < T.seeR && !tall.blocked(f.x, f.z, P.cx, P.cz, 0));
+      if (!pedBlocked(f.x, f.z, P.cx, P.cz)) { f.tx = P.cx; f.tz = P.cz; f.direct = true; f.wn = 0; return; }
+      // 你的腳印：警察在腳印旁邊（12 公尺內）→ 比他旁邊那個新的、跑得過去的最新那一個（不會往回跑到很舊的腳印）
+      const nn = crN < 80 ? crN : 80; let kn = -1, dn = 12;
+      for (let k = 0; k < nn; k++) { const i = (crH - 1 - k + CR * 2) % CR, dd = Math.hypot(crX[i] - f.x, crZ[i] - f.z); if (dd < dn) { dn = dd; kn = k; } }
+      for (let k = 0; k < kn; k++) {
+        const i = (crH - 1 - k + CR * 2) % CR;
+        if (Math.hypot(crX[i] - P.cx, crZ[i] - P.cz) > 1.5 && Math.hypot(crX[i] - f.x, crZ[i] - f.z) > 1.5 && !pedBlocked(f.x, f.z, crX[i], crZ[i])) { f.tx = crX[i]; f.tz = crZ[i]; f.wn = 0; return; }
+      }
+      tx = P.cx; tz = P.cz;
+    }
+    if (!pedBlocked(f.x, f.z, tx, tz)) { f.tx = tx; f.tz = tz; f.wn = 0; return; }
+    // 擋住了：找路（0.8 秒找一次；目標跑掉 2 公尺也重找）
+    if (f.wn === 0 || f.planT <= 0 || Math.hypot(tx - f.gx, tz - f.gz) > 2) { // 0.8 秒找一次；目標跑掉 2 公尺也重找：近的用格子，遠的（或格子找不到）沿著路
+      f.planT = 0.8; f.gx = tx; f.gz = tz;
+      if (!footPath(f, tx, tz) && !roadFootPath(f, tx, tz)) { f.tx = tx; f.tz = tz; return; } // 都找不到：直直跑（沿著牆滑）
+    }
+    const W = f.wp;
+    while (f.wi < f.wn - 1 && (Math.hypot(W.x[f.wi] - f.x, W.z[f.wi] - f.z) < 0.7 || !pedBlocked(f.x, f.z, W.x[f.wi + 1], W.z[f.wi + 1]))) f.wi++;
+    f.tx = W.x[f.wi]; f.tz = W.z[f.wi]; f.final = f.final && f.wi === f.wn - 1;
+  }
+  function stepOfficer(f, dt) {
+    const ps = f.pose;
+    if (f.st === 'down' || f.st === 'getup') { // 被撞倒、被揍倒：躺一下再爬起來
+      f.downT -= dt; ps.speed = 0; ps.state = f.st === 'down' ? 'fall' : 'getup';
+      if (f.st === 'down' && f.downT <= 0) { f.st = 'getup'; f.downT = 1.2; }
+      else if (f.st === 'getup' && f.downT <= 0) { f.st = P.mode === 'walk' && state === 'wanted' ? 'out' : 'back'; f.thinkT = 0; f.backT = 0; }
+    } else {
+      f.thinkT -= dt; if (f.thinkT <= 0) officerThink(f);
+      if (f.direct) { f.tx = P.cx + P.vx * 0.25; f.tz = P.cz + P.vz * 0.25; } // 直直跑得到：追你現在的位置（多算一點點你往哪裡跑）
+      const dx = f.tx - f.x, dz = f.tz - f.z, d = Math.hypot(dx, dz);
+      const vmax = f.st === 'back' ? 4.2 : T.runV, vT = state === 'caught' || d < 0.3 ? 0 : f.final && d < 2 ? Math.min(vmax, d * 2.5) : vmax;
+      f.v += clamp(vT - f.v, -12 * dt, 8 * dt);
+      if (d > 1e-3) { const want = Math.atan2(-dz, dx); f.th = wrapA(f.th + clamp(wrapA(want - f.th), -8 * dt, 8 * dt)); }
+      f.x += Math.cos(f.th) * f.v * dt; f.z -= Math.sin(f.th) * f.v * dt;
+      collidePerson(f, 0.3);
+      if (P.ok && P.mode !== 'drive' && !P.hidden) { // 不要跑進你身體裡：最近 0.75 公尺（抓到你以後站在你旁邊）
+        const ex = f.x - P.cx, ez = f.z - P.cz, e = Math.hypot(ex, ez);
+        if (e < 0.75) { if (e > 1e-4) { f.x = P.cx + (ex / e) * 0.75; f.z = P.cz + (ez / e) * 0.75; } f.v = Math.min(f.v, 1); }
+      }
+      ps.speed = f.v; ps.state = f.v > 2.6 ? 'run' : f.v > 0.2 ? 'walk' : 'idle';
+      if (f.st === 'back') {
+        f.backT += dt;
+        if (Math.hypot(f.car.x - f.x, f.car.z - f.z) < f.car.hl + 1.2 || (f.backT > 25 && !f.seen)) { hideOfficer(f); f.car.rt = 0; return; } // 上車了
+      }
+    }
+    f.ch.group.position.set(f.x, 0, f.z); f.ch.group.rotation.set(0, f.th, 0);
+    f.ch.update(dt, ps);
+  }
+  function knockOfficer(f, dx, dz) { f.st = 'down'; f.downT = 2.4; f.v = 0; const l = Math.hypot(dx, dz); if (l > 1e-6) f.th = Math.atan2(dz / l, -dx / l); } // 臉朝撞過來的方向、往後倒
+
+  // ---- 被抓、關、放出來 ----
+  function caught(how) {
+    if (state !== 'wanted') return;
+    state = 'caught'; phaseT = 0; arrests++; catchP = 1;
+    jailStars = wanted; jailFine = T.fine * Math.max(1, wanted); jailLeft = T.jailS; paid = false;
+    toast(how === 'surrender' ? '自首：警察帶你去拘留室' : '被警察抓到了！', 2400, true); // 第 3 批（b3-int）：自己走進警察局＝自首
+    if (o.onCaught) try { o.onCaught({ stars: jailStars, fine: jailFine, seconds: T.jailS, mode: P.mode, how }); } catch (e) { console.warn(e); }
+  }
+  function toJail() {
+    state = 'jail'; wanted = 0; heat = 0; catchP = 0; phaseT = 0;
+    for (const c of cars) removeCar(c);
+    const door = station.door || (P.ok ? { x: P.cx, z: P.cz, heading: P.th } : null), cell = station.cell || door;
+    if (station.setCellDoor) try { station.setCellDoor(false); } catch { /* 算了 */ }
+    if (o.onArrest) try { o.onArrest({ cell, door, yard: station.yard, fine: jailFine, seconds: T.jailS, stars: jailStars }); } catch (e) { console.warn(e); }
+    hud.jail(true);
+  }
+  function release() { state = 'release'; phaseT = 0; relDone = false; hud.fade(true); }
+  function payFine() {
+    if (state !== 'jail' || !o.money) return false;
+    let ok = false; try { ok = (+o.money.get() || 0) >= jailFine && o.money.spend(jailFine) !== false; } catch { ok = false; }
+    if (!ok) { hud.jailTick(true); return false; }
+    paid = true; release(); return true;
+  }
+
+  // ---- HUD ----
+  const hud = (() => {
+    const nop = () => {};
+    if (!hasDoc) return { flash: nop, tick: nop, jail: nop, jailTick: nop, fade: nop, toast: nop, show: nop, dispose: nop };
+    if (!document.getElementById('pw-style')) { const s = document.createElement('style'); s.id = 'pw-style'; s.textContent = CSS; document.head.append(s); }
+    const host = o.hudParent; host.classList.add('pw-host');
+    const root = document.createElement('div'); root.className = 'pw';
+    root.innerHTML = '<div class="pw-want" hidden role="status" aria-live="polite"><span class="st"></span><b>通緝中</b><span class="pw-esc" hidden><i></i></span></div>'
+      + '<div class="pw-catch" hidden><span>快跑！警察要抓你了</span><div><i></i></div></div>'
+      + '<div class="pw-toast" role="status"></div><div class="pw-fade" hidden></div>'
+      + '<div class="pw-jail" hidden><small>警察局 · 拘留室</small><span class="cnt">關 <em>30</em> 秒</span><div class="pw-jbar"><i></i></div><button type="button" class="pw-pay"></button><p></p></div>';
+    host.append(root);
+    const q = (s) => root.querySelector(s);
+    const H = { want: q('.pw-want'), st: q('.pw-want .st'), lab: q('.pw-want b'), esc: q('.pw-esc'), escI: q('.pw-esc i'), cat: q('.pw-catch'), catT: q('.pw-catch span'), catI: q('.pw-catch i'), toast: q('.pw-toast'), fade: q('.pw-fade'),
+      jail: q('.pw-jail'), cnt: q('.pw-jail .cnt em'), jbar: q('.pw-jbar i'), pay: q('.pw-pay'), note: q('.pw-jail p'), last: {} };
+    const onPay = (e) => { e.preventDefault(); payFine(); };
+    H.pay.addEventListener('click', onPay);
+    const set = (k, v, f) => { if (H.last[k] !== v) { H.last[k] = v; f(v); } };
+    let tt = 0;
+    return {
+      flash() { H.want.classList.remove('up'); void H.want.offsetWidth; H.want.classList.add('up'); },
+      toast(text, ms, red) { H.toast.textContent = text; H.toast.classList.toggle('red', !!red); H.toast.classList.add('show'); clearTimeout(tt); tt = setTimeout(() => H.toast.classList.remove('show'), ms); },
+      tick() {
+        const show = enabled && wanted > 0 && state === 'wanted';
+        set('show', show, (v) => { H.want.hidden = !v; host.classList.toggle('pw-on', v); });
+        if (show) {
+          const lost = !seenNow;
+          set('stars', wanted, (n) => { H.st.innerHTML = '★'.repeat(n) + '<i>' + '★'.repeat(3 - n) + '</i>'; });
+          set('lost', lost, (v) => { H.want.classList.toggle('lost', v); H.esc.hidden = !v; }); // 字一直是「通緝中」；看不到你的時候：星星慢慢閃、下面綠色的條＝甩開的進度
+          set('aria', `${wanted}|${lost}`, () => H.want.setAttribute('aria-label', `通緝中，${wanted} 顆星${lost ? '，警察看不到你' : ''}`));
+          if (lost) { const base = dropped ? T.lose - T.loseNext : 0, k = Math.round(clamp((heat - base) / (T.lose - base), 0, 1) * 100); set('esc', k, (v) => (H.escI.style.width = v + '%')); } // 甩開的進度（下一顆星）
+          set('blue', !lost && Math.floor(T0 * 3) % 2 === 1, (v) => H.want.classList.toggle('b', v));
+        }
+        const cp = state === 'wanted' && catchP > 0.02 ? Math.round(catchP * 100) : 0;
+        set('cat', cp > 0, (v) => (H.cat.hidden = !v));
+        if (cp > 0) set('catp', cp, (v) => (H.catI.style.width = v + '%'));
+      },
+      fade(on) { H.fade.hidden = false; void H.fade.offsetWidth; H.fade.style.opacity = on ? '1' : '0'; },
+      jail(on) { H.jail.hidden = !on; H.last.jl = null; H.last.can = null; if (on) this.jailTick(); },
+      jailTick(nope) {
+        const left = Math.max(0, Math.ceil(jailLeft));
+        set('jl', left, (v) => { H.cnt.textContent = String(v); });
+        set('jb', Math.round(clamp(jailLeft / T.jailS, 0, 1) * 200), (v) => (H.jbar.style.width = `${v / 2}%`));
+        const m = o.money ? +o.money.get() || 0 : 0, can = !!o.money && m >= jailFine;
+        set('can', `${can}|${jailFine}`, () => {
+          H.pay.disabled = !can; H.pay.hidden = !o.money;
+          H.pay.textContent = can ? `繳罰款 NT$ ${jailFine} 萬，馬上出去` : `罰款 NT$ ${jailFine} 萬（錢不夠）`;
+          H.note.textContent = !o.money ? '等時間到就放你出去' : can ? `罰款：每顆星 ${T.fine} 萬。不繳也可以，時間到就放你出去` : '錢不夠：等時間到就放你出去';
+        });
+        if (nope) H.note.textContent = '錢不夠：等時間到就放你出去';
+      },
+      show(on) { root.hidden = !on; if (!on) host.classList.remove('pw-on'); H.last.show = null; },
+      dispose() { clearTimeout(tt); H.pay.removeEventListener('click', onPay); root.remove(); host.classList.remove('pw-on', 'pw-host'); },
+    };
+  })();
+  function toast(text, ms = 1800, red = false) {
+    let done = false; if (o.toast) try { done = o.toast(text, ms, red) === true; } catch { done = false; } // 第 3 批（b3-int）：頁面自己說（跟走路、開車的提示同一個地方，不會兩個疊在一起）
+    if (!done) hud.toast(text, ms, red); if (o.onToast) try { o.onToast(text, red); } catch { /* 算了 */ }
+  }
+
+  // ---- 警笛 ----
+  const SND = o.sound || null;
+  function audioCtx() { if (!SND) return null; try { const c = typeof SND.ctx === 'function' ? SND.ctx() : SND.ctx; return c && c.state === 'running' ? c : null; } catch { return null; } }
+  function sirens() {
+    const ctx = audioCtx(), muted = SND && typeof SND.muted === 'function' ? !!SND.muted() : false, base = SND ? SND.gain ?? 0.22 : 0;
+    for (const c of cars) {
+      const want = c.on && c.lights && c.mode !== 'home' && (state === 'wanted' || state === 'caught') && ctx && !muted && enabled;
+      if (!want) { if (c.siren) { c.siren.stop(); c.siren = null; } continue; }
+      if (!c.siren) c.siren = makeSiren(ctx, SND.out || ctx.destination, c.id);
+      if (!c.siren) continue;
+      const d = Math.hypot(c.x - P.cx, c.z - P.cz), near = clamp(1 - d / 320, 0, 1), gain = base * near * near * (state === 'caught' ? 0.6 : 1);
+      const ang = Math.atan2(-(c.z - P.cz), c.x - P.cx) - P.th, pan = clamp(-Math.sin(ang) * 0.75, -0.8, 0.8);
+      const ux = d > 1e-3 ? (c.x - P.cx) / d : 0, uz = d > 1e-3 ? (c.z - P.cz) / d : 0;
+      const vr = (Math.cos(c.th) * c.v - P.vx) * ux + (-Math.sin(c.th) * c.v - P.vz) * uz; // 正的＝離你越來越遠
+      c.siren.set(gain, 900 + 6500 * near, pan, clamp(-1200 * Math.log2(1 + vr / 343), -260, 260));
+    }
+  }
+
+  // ---- 每一幀 ----
+  function update(dt) {
+    if (!alive || !(dt > 0)) return;
+    const t0 = tnow();
+    dt = Math.min(dt, 0.1); T0 += dt;
+    readPlayer(dt);
+    if (!enabled) { perfEnd(t0); return; }
+    if (warmI < MAXC * 2 && state === 'free') { warmT -= dt; if (warmT <= 0) { warmT = 0.25; warmOne(); } }
+    if (P.ok && !P.hidden && P.mode !== 'off') crumb();
+    // 躲回自己的車庫、鐵捲門關了：星星清掉
+    if (state === 'wanted' && P.safe) { safeT += dt; if (safeT > 0.6) clearStars('躲回車庫了，警察找不到你！'); } else safeT = 0;
+    // 幾顆星幾台（隔 2.5 秒一台；回家路上的先叫回來）
+    let active = 0, vtop = 20;
+    for (const c of cars) { if (!c.on) continue; if (c.mode !== 'home') active++; const a = Math.abs(c.v); if (a > vtop) vtop = a; }
+    if (state === 'wanted' && P.ok) {
+      const want = Math.min(MAXC, wanted);
+      spawnT -= dt;
+      if (active < want && spawnT <= 0 && P.mode !== 'off') {
+        let home = null; for (const c of cars) if (c.on && c.mode === 'home' && (!home || c.d < home.d)) home = c;
+        if (home) goChase(home); else spawnCar();
+        spawnT = T.stagger;
+      } else if (active > want) { let far = null; for (const c of cars) if (c.on && c.mode !== 'home' && (!far || c.d > far.d)) far = c; if (far) goHome(far); }
+    }
+    const n = Math.max(1, Math.ceil((dt * vtop) / 0.6)), h = dt / n; // 物理每步最多走 0.6 公尺
+    seenNow = false;
+    if (state === 'wanted' || state === 'free') {
+      // 角色：最近的那台咬著（0），第二近繞到前面（1），第三近從旁邊夾（2）
+      for (const c of cars) { c.role = -1; if (!c.on || c.mode === 'home') continue; let r = 0; for (const k of cars) if (k !== c && k.on && k.mode !== 'home' && (k.d < c.d || (k.d === c.d && k.id < c.id))) r++; c.role = r; }
+      if (P.mode === 'drive' && P.ok) { slotsFor(); slotT -= dt; if (slotT <= 0) { slotT = 0.5; if (P.spd < 4) assignSlots(); else for (const c of cars) c.slot = -1; } }
+      for (const c of cars) {
+        if (!c.on) continue;
+        c.age += dt; c.hitCool -= dt;
+        thinkCar(c, dt);
+        if (c.seen && c.mode !== 'home') seenNow = true;
+        c.rt -= dt;
+        if (c.mode === 'home') { if (c.rt <= 0 && !c.path.ok) homeRoute(c); }
+        else if (state === 'wanted' && P.ok && P.mode !== 'off' && (!c.clear || c.d >= 70)) { // 路線（沿著路開的時候）：你跑遠了（離路線的終點）、車子離路線太遠、或 2.5 秒一次
+          const endD = c.path.ok ? Math.hypot(c.path.tx - P.cx, c.path.tz - P.cz) : Infinity;
+          if (!c.path.ok || c.rt <= 0 || endD > 6 + c.d * 0.08 || c.pathOff > 5) replan(c, P.cx, P.cz, P.hwy, true);
+        }
+        // 卡住：想走卻一直不動 → 倒車 1.2 秒再重算
+        if (c.manOn) c.stats.manSec += dt;
+        if (c.wantV > 2.5 && Math.abs(c.v) < 0.8) { c.stuck += dt * (c.touch > 0 ? 2 : 1); c.stats.stuckSec += dt; } else c.stuck = Math.max(0, c.stuck - dt * 2); // 想走卻不動（頂著牆：快一點發現）
+        if (c.stuck > 1.3 && !c.manOn) { // 卡住了：慢慢倒車、轉頭（stepCar → maneuver）
+          c.manOn = true; c.manT = 0; c.manN = 0; c.stuck = 0; c.stats.recov++;
+          if (DBG.onRecover) DBG.onRecover(c, { clear: c.clear, seen: c.seen, d: c.d, pathOk: c.path.ok, mode: c.mode, pmode: P.mode, slot: c.slot, role: c.role });
+        }
+        // 沒進度：想走（wantV > 1）卻一直在 5 公尺內打轉 → 8 秒（你看不到的時候）換個地方；20 秒一定換
+        if (c.wantV < 1) { c.ancX = c.x; c.ancZ = c.z; c.ancT = 0; }
+        else { c.ancT += dt; if (Math.hypot(c.x - c.ancX, c.z - c.ancZ) > 5) { c.ancX = c.x; c.ancZ = c.z; c.ancT = 0; } }
+        if (c.ancT > c.stats.stuckMax) c.stats.stuckMax = c.ancT;
+        if ((c.ancT > 8 && !c.seen) || c.ancT > 20) { if (c.mode === 'home') removeCar(c); else relocate(c); continue; }
+        // 太遠、看不到：換到近一點的地方（追得上）
+        if (state === 'wanted' && c.mode !== 'home' && !c.seen && c.d > 520 && c.age > 6) { relocate(c); continue; }
+        // 回家：到了、或看不到又離你很遠 → 收掉
+        if (c.mode === 'home') {
+          c.homeT += dt;
+          const arrived = c.path.ok && Math.hypot(c.x - c.path.tx, c.z - c.path.tz) < 8;
+          if ((arrived || (!c.seen && c.d > 140) || c.homeT > 60) && !(c.seen && c.d < 60 && !arrived)) { removeCar(c); continue; }
+        }
+      }
+      for (let k = 0; k < n; k++) for (const c of cars) if (c.on) stepCar(c, h);
+    }
+    // 警察：走路的你 → 車停了、看得到你、近了（或車開不過去）→ 下車追；你上車了 → 跑回車上
+    for (const f of offs) {
+      const c = f.car;
+      if (!c.on) { if (f.on) hideOfficer(f); continue; }
+      if (state === 'wanted' && !f.on && P.mode === 'walk' && !P.hidden && c.mode !== 'home' && c.seen && Math.abs(c.v) < 0.8) {
+        c.waitT += dt; c.exitCool -= dt; if (c.d < 20 || (c.exitCool <= 0 && (c.d < 34 || (c.d < 90 && c.waitT > 1.2)))) officerOut(f);
+      } else if (!f.on) c.waitT = 0;
+      if (f.on && f.st === 'out' && (P.mode !== 'walk' || (state !== 'wanted' && state !== 'caught') || c.mode === 'home' || (state === 'wanted' && Math.hypot(P.cx - f.x, P.cz - f.z) > 60))) { f.st = 'back'; f.thinkT = 0; f.backT = 0; c.exitCool = 5; } // 你跑太遠了：回車上開車追
+      if (f.on) { stepOfficer(f, dt); if (f.on && f.seen && f.st === 'out') seenNow = true; }
+    }
+    if (state === 'wanted') {
+      // 看到你了 → 記住在哪裡；一直沒看到：25 秒掉一顆星，之後每 10 秒再掉一顆
+      if (seenNow) { heat = 0; dropped = false; lastX = P.cx; lastZ = P.cz; everSeen = true; }
+      else if (!everSeen && !P.hidden && P.mode !== 'off' && (huntT += dt) < T.hunt) { /* 第 3 批（b3-int）：警察還在路上、還沒看到過你：不算甩開（躲起來、或找了 45 秒還沒找到才開始算） */ }
+      else {
+        let any = false; for (const c of cars) if (c.on && c.mode !== 'home') any = true;
+        heat += dt * (any || P.hidden || P.mode === 'off' ? 1 : 0.5);
+        if (heat >= T.lose) { wanted--; heat = T.lose - T.loseNext; dropped = true; if (wanted <= 0) clearStars('甩掉警察了！'); else toast(`甩開了一點！剩 ${wanted} 顆星`, 1600); }
+      }
+      if (state === 'wanted') catchTick(dt);
+    }
+    if (state === 'wanted' || state === 'free') copHits();
+    if (state === 'caught') {
+      phaseT += dt;
+      for (const c of cars) if (c.on) { c.v *= Math.exp(-dt * 3); c.x += Math.cos(c.th) * c.v * dt; c.z -= Math.sin(c.th) * c.v * dt; }
+      if (phaseT > 1.7 && !hudFaded) { hudFaded = true; hud.fade(true); }
+      if (phaseT > 2.4) { hudFaded = false; toJail(); hud.fade(false); }
+    } else if (state === 'jail') {
+      jailLeft -= dt; hud.jailTick();
+      if (jailLeft <= 0) release();
+    } else if (state === 'release') {
+      phaseT += dt;
+      if (phaseT > 0.7 && !relDone) {
+        relDone = true; hud.jail(false);
+        if (station.setCellDoor) try { station.setCellDoor(true); } catch { /* 算了 */ }
+        let towed = true; // 第 3 批（b3-int）：onRelease 回傳 false＝車子沒拖到停車場（走路被抓）：不說「你的車停在⋯」
+        if (o.onRelease) try { towed = o.onRelease({ door: station.door, yard: station.yard, paid }) !== false; } catch (e) { console.warn(e); }
+        hud.fade(false);
+        toast(paid ? `繳了 ${jailFine} 萬罰款，放你出去了` : '時間到，放你出去了！', 2600);
+        if (station.yard && towed) yardT = 2.8;
+      }
+      if (phaseT > 1.3) { state = 'free'; wanted = 0; heat = 0; catchP = 0; }
+    }
+    if (yardT > 0) { yardT -= dt; if (yardT <= 0 && state === 'free') toast('你的車停在警察局的停車場', 2400); }
+    // 畫面：車子擺好、燈、小地圖的點、碰撞給別人
+    for (const c of cars) if (c.on) { poseCar(c); if (c.model.update) c.model.update(dt); }
+    syncOut();
+    sndT -= dt; if (sndT <= 0) { sndT = 0.1; sirens(); }
+    hud.tick();
+    perfEnd(t0);
+  }
+  function perfEnd(t0) { const ms = tnow() - t0; perf.n++; perf.sum += ms; if (ms > perf.max) perf.max = ms; perf.last = ms; }
+  function catchTick(dt) {
+    let rate = 0, near = 0;
+    if (P.mode === 'drive' && !P.hidden) {
+      for (const c of cars) { if (!c.on || c.mode === 'home') continue; const g = Math.hypot(c.x - P.cx, c.z - P.cz); if (g < T.boxR) near++; if (g < T.catchR) rate = 1 / T.catchT; }
+      if (near >= 2) rate = 1 / T.boxT;
+      if (P.spd > T.catchV) rate = 0;
+      catchP = rate > 0 ? catchP + rate * dt : Math.max(0, catchP - dt * 0.8);
+      if (catchP >= 1) caught(near >= 2 ? 'box' : 'car');
+    } else if (P.mode === 'walk' && !P.hidden) { // 走路：警察跑到 1.2 公尺以內；進度條＝警察多近
+      let dm = Infinity; for (const f of offs) if (f.on && f.st === 'out') { const d = Math.hypot(f.x - P.cx, f.z - P.cz); if (d < dm) dm = d; }
+      catchP = dm < Infinity ? clamp(1 - (dm - T.footR) / 8, 0, 0.99) : Math.max(0, catchP - dt);
+      if (dm < T.footR) caught('foot');
+    } else catchP = Math.max(0, catchP - dt);
+  }
+  function copHits() { // 你開車撞警車（你往它撞過去、撞得夠快）→ +1 顆星
+    if (!P.ok || P.mode !== 'drive') return;
+    setBox(TMPB, P.cx, P.cz, P.th, P.hl + 0.35, P.hw + 0.35);
+    for (const c of cars) {
+      if (!c.on || c.hitCool > 0 || Math.abs(c.x - P.cx) > 8 || Math.abs(c.z - P.cz) > 8) continue;
+      if (!boxPush(c.x, c.z, Math.cos(c.th), -Math.sin(c.th), c.hl, c.hw, TMPB)) continue;
+      const dx = c.x - P.cx, dz = c.z - P.cz, d = Math.hypot(dx, dz) || 1, cvx = Math.cos(c.th) * c.v, cvz = -Math.sin(c.th) * c.v;
+      const into = ((P.vx - cvx) * dx + (P.vz - cvz) * dz) / d, mine = (P.vx * dx + P.vz * dz) / d;
+      if (into > 3 && mine > 2.5) { c.hitCool = 3; crime('cop', { x: c.x, z: c.z }); }
+    }
+  }
+  function goChase(c) { c.mode = 'go'; c.rt = 0; c.path.ok = false; c.homeT = 0; c.ancT = 0; c.lights = true; if (c.model && c.model.setLights) c.model.setLights(true); }
+  function goHome(c) {
+    c.mode = 'home'; c.path.ok = false; c.rt = 0; c.slot = -1; c.lights = false; if (c.model && c.model.setLights) c.model.setLights(false);
+    if (c.siren) { c.siren.stop(); c.siren = null; }
+    const f = c.officer; if (f.on && f.st === 'out') { f.st = 'back'; f.thinkT = 0; f.backT = 0; }
+  }
+  function clearStars(msg) {
+    wanted = 0; heat = 0; catchP = 0; state = 'free'; escapes++;
+    for (const c of cars) if (c.on) goHome(c);
+    if (msg) toast(msg, 2400);
+  }
+  function poseCar(c) { c.group.position.set(c.x, 0, c.z); c.group.rotation.set(c.roll, c.th, c.pitch); }
+  function syncOut() {
+    markerList.length = 0;
+    for (let i = 0; i < MAXC; i++) {
+      const c = cars[i], m = movers[i], mk = markers[i];
+      const nc = npcCars[i]; if (c.on) { nc.x = c.x; nc.z = c.z; nc.heading = c.th; nc.v = c.v; nc.hx = c.hl; nc.hz = c.hw; } else { nc.x = 1e6; nc.z = 1e6; nc.v = 0; }
+      if (c.on) { m.x = c.x; m.z = c.z; m.hx = c.hl; m.hz = c.hw; m.rot = c.th; mk.x = c.x; mk.z = c.z; mk.fill = c.mode === 'home' ? '#8A9099' : Math.floor(T0 * 4 + i) % 2 ? '#2F7BFF' : '#FF3B30'; mk.on = true; markerList.push(mk); }
+      else { m.hx = 0; m.hz = 0; mk.on = false; }
+      const f = offs[i], mo = movers[MAXC + i];
+      if (f.on && (f.st === 'out' || f.st === 'back')) { mo.x = f.x; mo.z = f.z; mo.r = 0.3; } else mo.r = 0;
+    }
+  }
+
+  const DBG = { cars, offs, G, R, station, P, solid, tall, T, surf, spawnCar, relocate, onRecover: null, CNT }; // 測試用
+  // ---- 給別的模組 ----
+  function colliders(x, z, r) { // 現在的警車（長方形；陣列、物件都是重複用的）
+    colOut.length = 0;
+    for (const c of cars) {
+      if (!c.on || (x != null && Math.hypot(c.x - x, c.z - z) > r + c.hl)) continue;
+      const b = colPool[colOut.length] || (colPool[colOut.length] = { t: 'box', x: 0, z: 0, hx: 1, hz: 1, rot: 0, h: 1.6, police: true });
+      b.x = c.x; b.z = c.z; b.hx = c.hl; b.hz = c.hw; b.rot = c.th; colOut.push(b);
+    }
+    return colOut;
+  }
+  const isDown = (p) => p.down || p.mode === 'fall' || p.mode === 'lie' || p.mode === 'getup'; // 倒在地上的（npc.js 的居民用 mode）
+  function punch(me, people, knock) { // 揍：前面 1.2 公尺、±60° 以內最近的那一個（警察也算）
+    if (!me) me = { x: P.x, z: P.z, heading: P.th };
+    const fx = Math.cos(me.heading || 0), fz = -Math.sin(me.heading || 0);
+    let best = null, bd = T.footR + 0.05, isCop = false;
+    for (const f of offs) {
+      if (!f.on || f.st === 'down' || f.st === 'getup' || f.st === 'in') continue;
+      const dx = f.x - me.x, dz = f.z - me.z, d = Math.hypot(dx, dz); if (d > bd || d < 1e-3) continue;
+      if ((dx * fx + dz * fz) / d < 0.5) continue; best = f; bd = d; isCop = true;
+    }
+    if (people) for (let i = 0; i < people.length; i++) {
+      const p = people[i]; if (!p || isDown(p) || p.age === 'kid') continue; // 小孩永遠打不到
+      const dx = p.x - me.x, dz = p.z - me.z, d = Math.hypot(dx, dz); if (d > bd || d < 1e-3) continue;
+      if ((dx * fx + dz * fz) / d < 0.5) continue; best = p; bd = d; isCop = false;
+    }
+    if (!best) return null;
+    if (isCop) { knockOfficer(best, best.x - me.x, best.z - me.z); crime('cop', best); }
+    else { if (knock) try { knock(best, best.x - me.x, best.z - me.z); } catch (e) { console.warn(e); } crime('punch', best); }
+    return best;
+  }
+  function carHit(people, knock) { // 開車撞人：車身（胖 0.25）碰到人、車速 > 2 m/s
+    if (!P.ok || P.mode !== 'drive' || P.spd < 2) return null;
+    let hit = null;
+    setBox(TMPB, P.cx, P.cz, P.th, P.hl + 0.25, P.hw + 0.25);
+    for (const f of offs) {
+      if (!f.on || f.st === 'down' || f.st === 'getup' || f.st === 'in') continue;
+      if (Math.abs(f.x - P.cx) > 5 || Math.abs(f.z - P.cz) > 5 || !circleVsBox(f.x, f.z, 0.3, TMPB)) continue;
+      knockOfficer(f, f.x - P.cx, f.z - P.cz); crime('cop', f); hit = f;
+    }
+    if (people) for (let i = 0; i < people.length; i++) {
+      const p = people[i]; if (!p || isDown(p) || p.age === 'kid' || Math.abs(p.x - P.cx) > 5 || Math.abs(p.z - P.cz) > 5 || !circleVsBox(p.x, p.z, 0.3, TMPB)) continue;
+      if (knock) try { knock(p, p.x - P.cx, p.z - P.cz); } catch (e) { console.warn(e); }
+      crime('hit', p); hit = p;
+    }
+    return hit;
+  }
+  // 開槍打到警察（guns.js 的 gunTargets.police）：hit＝{ x, z（打到的點）, dx, dz（子彈的方向）}；打到的那個警察倒下去、再爬起來
+  //   犯罪 guns.js 自己報（'shootCop'），這裡不報（不然會多一顆星）；回傳倒下去的那個警察（沒有＝null）
+  function shot(hit) {
+    if (!hit || !isFinite(hit.x) || !isFinite(hit.z)) return null;
+    let best = null, bd = 0.9;
+    for (const f of offs) {
+      if (!f.on || f.st === 'down' || f.st === 'getup' || f.st === 'in') continue;
+      const d = Math.hypot(f.x - hit.x, f.z - hit.z); if (d < bd) { bd = d; best = f; }
+    }
+    if (best) knockOfficer(best, hit.dx || best.x - P.cx, hit.dz || best.z - P.cz);
+    return best;
+  }
+  const carObject = (i) => { const c = cars[i]; return c && c.on && c.group ? c.group : null; }; // 警車 i（police.movers 的第 i 個）的 Object3D：彈孔貼在上面
+  function shotCar(i, hit) { const c = cars[i]; if (!c || !c.on) return false; c.stats.shots++; void hit; return true; } // 警車被打到：只記下來（警車照樣追；犯罪 guns.js 報）
+  function clear() {
+    wanted = 0; heat = 0; catchP = 0; state = 'free'; hudFaded = false; relDone = false; phaseT = 0;
+    for (const c of cars) removeCar(c);
+    hud.jail(false); hud.show(enabled);
+    if (hasDoc) { const fd = o.hudParent.querySelector('.pw-fade'); if (fd) fd.style.opacity = '0'; }
+  }
+  function setEnabled(on) {
+    enabled = !!on;
+    for (const c of cars) { if (c.group) c.group.visible = enabled && c.on; const f = c.officer; if (f.ch) f.ch.group.visible = enabled && f.on; }
+    if (!enabled) for (const c of cars) if (c.siren) { c.siren.stop(); c.siren = null; }
+    hud.show(enabled);
+  }
+  function dispose() {
+    if (!alive) return; alive = false;
+    for (const c of cars) { removeCar(c); if (c.model && c.model.dispose) c.model.dispose(); else if (c.group) c.group.removeFromParent(); }
+    for (const f of offs) if (f.ch) { if (f.ch.dispose) f.ch.dispose(); else f.ch.group.removeFromParent(); }
+    hud.dispose();
+  }
+  function telemetry() { // 測試、除錯用（會新增物件，不要每一幀叫）
+    return {
+      wanted, state, seen: seenNow, everSeen, hunt: +huntT.toFixed(1), heat: +heat.toFixed(2), catch: +catchP.toFixed(3), last: { x: +lastX.toFixed(1), z: +lastZ.toFixed(1) }, enabled,
+      player: { mode: P.mode, x: +P.cx.toFixed(1), z: +P.cz.toFixed(1), kmh: Math.round(P.spd * 3.6), hidden: P.hidden, safe: P.safe },
+      cars: cars.filter((c) => c.on).map((c) => ({ id: c.id, mode: c.mode, x: +c.x.toFixed(1), z: +c.z.toFixed(1), th: +c.th.toFixed(2), kmh: Math.round(c.v * 3.6), d: +c.d.toFixed(1), seen: c.seen, clear: c.clear, role: c.role, slot: c.slot,
+        stuck: +c.ancT.toFixed(2), stuckMax: +c.stats.stuckMax.toFixed(2), recov: c.stats.recov, relocs: c.stats.relocs, bumps: c.stats.bumps, path: c.path.ok ? c.path.n : 0, officer: c.officer.on ? c.officer.st : 'in', ox: +c.officer.x.toFixed(1), oz: +c.officer.z.toFixed(1), siren: !!c.siren })),
+      jail: state === 'jail' || state === 'release' ? { left: +jailLeft.toFixed(1), fine: jailFine, paid } : null,
+      arrests, escapes, crimes: crimes.slice(-8), ms: { avg: perf.n ? +(perf.sum / perf.n).toFixed(4) : 0, max: +perf.max.toFixed(3), last: +perf.last.toFixed(4), frames: perf.n },
+      graph: { nodes: G.N, segs: G.M },
+    };
+  }
+  return {
+    update, crime, punch, carHit, shot, carObject, shotCar, colliders, movers, npcCars, markers: markerList, clear, setEnabled, dispose, telemetry, payFine, preload,
+    surrender: () => { if (state !== 'wanted') return false; caught('surrender'); return true; }, // 第 3 批（b3-int）：通緝中自己走進警察局＝自首（一樣關、一樣罰）
+    get wanted() { return wanted; }, get state() { return state; }, get enabled() { return enabled; },
+    resetPerf() { perf.n = 0; perf.sum = 0; perf.max = 0; },
+    _dbg: DBG,
+  };
+}
+
+return { createPolice, placeholderPoliceCar, placeholderOfficer, OFFICER_LOOK, policeNavGraph };
+})();
+
+// ---- guns.js ----
+// ---- 槍（第 3 批）：槍店買的槍、子彈；下車走路的時候拿槍、瞄準、開槍、換彈匣 ----
+// Nick 2026-09-28 07:19：「有店可以買槍   子彈」
+// 規矩（整個遊戲一樣）：卡通、不血腥：沒有血；打到人只會跌倒，過幾秒自己爬起來；警察不開槍（只會追、抓）
+//   槍都是虛構的（沒有真的牌子、商標、型號）：名字就叫手槍、衝鋒槍、霰彈槍、步槍
+// 世界座標跟 village.js、walk.js 一樣：x 往東、y 往上、z 往南；heading＝rotation.y（0 朝 +x、π/2 朝北 −z）
+//
+// 【API】
+//   GUNS[id]：槍的資料；GUN_IDS：店裡的順序（便宜的在前面）＝['pistol' 手槍, 'smg' 衝鋒槍, 'shotgun' 霰彈槍, 'rifle' 步槍]
+//     { id, name, tag（半自動／全自動／泵動式）, desc, hold: 'one'｜'two', auto（按住一直射）, interval（兩發之間幾秒）, mag（彈匣幾發）,
+//       reload（換彈匣幾秒；霰彈槍一顆一顆裝：shellStart＋shell 秒一顆）, knock（打到人一發推多少，累積到 1 就跌倒）, carDmg, pellets（一次幾顆：霰彈槍 8）,
+//       spread／aimSpread（散布角，度：沒瞄準／瞄準）, range（公尺）, zoom（瞄準時放大幾倍：步槍有瞄準鏡）, recoil（鏡頭往上跳幾弧度）,
+//       price（萬）, ammo: { price（一盒幾萬）, count（一盒幾發）, max（身上最多帶幾發備用） }, stats: { power, rate, range, aim }（店裡的 1–5 格） }
+//   存檔：GAME.guns（整個物件直接放進存檔 JSON；garage.src.html 的 save() 多存一個 guns: GAME.guns）
+//     { owned: ['pistol', …]（買了哪幾把，照 GUN_IDS 的順序）, ammo: { pistol: 48 }（備用子彈，不含彈匣裡的）, mag: { pistol: 12 }（彈匣裡現在幾發）,
+//       cur: 'pistol' | null（上次拿的那把：下次「拿槍」拿這把；null＝還沒有槍）,
+//       range: { best: { pistol: 6 }（靶場一輪最多打倒幾個）, time: { pistol: 9.8 }（完美一輪最快幾秒）, paid: { pistol: 1 }（完美獎金領過了） } }
+//     gunSave.fresh() → 空的；gunSave.load(存檔的 guns) → 檢查過的（舊存檔沒有 guns → 空的；不認識的槍、負的、太多的子彈、超過彈匣的都修好）
+//   gunShop（純邏輯：槍店畫面、測試都用這個；錢是 GAME.money，單位「萬」、整數）
+//     gunShop.buyGun(GAME, id) → { ok, cost, msg, need }   錢夠、還沒買 → 扣錢、送一個裝滿的彈匣；還沒有槍的話 cur 變這把
+//     gunShop.buyAmmo(GAME, id, boxes = 1) → { ok, cost, added, msg }   要先有這把槍；帶滿了買不了（帶不下一整盒：裝到滿為止）
+//     gunShop.ammoRoom(G, id)（還能帶幾發）、gunShop.total(G, id)（彈匣＋備用）
+//     gunShop.rangeResult(GAME, id, { hits, total, time }) → { best（新紀錄）, reward（萬，完美一輪第一次：RANGE_REWARD）, msg }
+//   buildGunModel(id, { flash }) → THREE.Group：原點＝右手握的地方、槍管朝 +x、上面 +y、右邊 +z（公尺，真實大小）；兩個網格（金屬、塑膠／木頭）
+//     userData：{ id, muzzle, eject, grip2（左手扶的地方）, butt（槍托底：雙手槍靠肩膀）, eye（瞄準的眼睛位置）, length, flash（槍口火光的 group，開槍時亮）}
+//   createGunAudio({ context, muted: () => bool, volume = 0.8 }) → { resume(), play(key, { gain, pan, rate }), shot(id), dry(), step(id, 'out'|'in'|'rack'|'shell'|'pump'),
+//                         ding(pan), glass(pan), thud(pan), clank(pan), pow(pan), tink(), hold(on), dispose() }
+//     Web Audio 當場合成（沒有錄音檔，第一次用到才算好放著）；跟引擎聲共用同一個 AudioContext（sound.js 的共用紀錄）
+//   const gunner = createGunner({
+//     scene, camera, renderer,      效果（火光、彈道、火花、彈孔、彈殼）加在 scene；renderer 算粒子大小（可省略）
+//     walker,                       walk.js 的 createWalker()：鏡頭方向、人在哪裡、走路中嗎；setCamera 拉近鏡頭（瞄準）
+//     character,                    角色（character.js／charstub.js）：有 character.hand（右手的掛點）就把槍放在手上、update 收到 state 'aim'、aimPitch、
+//                                   weapon（'pistol'｜'long'）、support（長槍左手在握把前面幾公尺）；開槍叫 character.recoil()；
+//                                   沒有的話：自己算手的位置（替身 charstub 的手臂會被擺成拿槍的樣子）
+//     GAME,                         GAME.guns 在這裡（沒有就建一個空的）
+//     hudParent: stage,             準星、子彈、開槍／瞄準／換彈匣按鈕放在這裡（要 position: relative；跟 walk.js 的 HUD 疊在一起、在它上面）
+//     onChange(kind),               子彈、換槍有變（'ammo'｜'equip'｜'range'）：頁面存檔 save()
+//     onEquip(id | null),           拿槍／收起來（頁面：拿槍的時候把「揍」的按鈕收掉，收起來再放回去）
+//     onCrime(kind, info),          'gunfire' 在外面開槍｜'shoot' 打到人／路上的車｜'shootCop' 打到警察／警車；info＝{ x, z }（直接接 police.crime）
+//     world: { scene, colliders, ceiling, raycast, rule, crime, name },   現在在哪裡（村子／槍店）：見 setWorld
+//     targets: { peds: [人的來源], cars: [車的來源] } 或 [來源…],   打得到的人、車（gunTargets 幫你接 npc.js、police-ai.js、停著的車）
+//     damage,                       damage.js（有的話）：damage.shoot(carObject, { x, y, z, nx, ny, nz, dx, dy, dz, power, glass }) → true＝它畫了（彈孔、玻璃），這裡就不畫
+//     keyboard: true,               F 開槍（按住連發）、右鍵 瞄準（按著時左鍵開槍）、V 瞄準（切換）、R 換彈匣、Q 換下一把、1–4 選槍、X 收起來
+//     aimAssist: true,              沒瞄準（直接按開槍）的時候：準星附近 7° 以內的人自動對準
+//   });
+//   每一幀：walker.update(dt) 之後叫 gunner.update(dt)，再 render（鏡頭、角色是 walker 這一格放好的）
+//   gunner.setWorld({ scene, colliders, ceiling, raycast(ox, oy, oz, dx, dy, dz, maxT, out) → t, rule(x, z) → null | '不能開槍的原因', crime: true, name })
+//       換地方（走進槍店、走出來）：效果搬到那個 scene、彈孔清掉；colliders＝子彈會打到的牆（跟 walk.js 同一種格式，h＝高度）
+//       raycast：另外打得到的東西（靶場的靶）：打到回傳距離 t，填 out.nx/ny/nz、out.ref、out.kind（'target'…）、out.onHit(hit)；rule：這裡可不可以開槍
+//   gunner.setTargets({ peds, cars } 或 [來源…])（有 box 的來源算車、其他算人：gunTargets.police(police) 回傳的兩個直接放進去）、setWalker(walker)、setCharacter(ch)
+//   gunner.draw(id?)（拿槍：沒給＝上次那把）、holster()（收起來）、next()（換下一把）、reload()、setAim(on)、setTrigger(on)（程式按開槍，測試用）
+//   gunner.refresh()（槍店買了東西：HUD 重畫）、setEnabled(on)（開車、看商店的時候 false）、toast(text)
+//   gunner.telemetry() → { drawn, cur, mag, reserve, reloading, reload（0–1）, aiming, zoom, shots, hits, knocks, last: { kind, x, y, z }, crimes, aimKind, fx }
+//   gunner.probe(ox, oy, oz, dx, dy, dz, { maxT, precise }) → { kind, t, x, y, z, nx, ny, nz, glass, ref }（測試用：子彈會打到哪裡）
+//   gunner.fx（效果：spark(x, y, z, …)、dust、decal、stuck(obj)＝貼在那台車上的彈孔幾個；測試用）、gunner.dispose()
+//   gunTargets：接別人的模組（都是「來源」物件，打到的時候叫它們）
+//     gunTargets.pedestrians(peds)   npc.js createPedestrians()：people 裡的人（小孩打不到）；打倒＝peds.knock(p, dx, dz, 力道)；開槍＝peds.scare(x, z, r)（附近的人跑掉）
+//     gunTargets.traffic(traffic)    npc.js createTraffic()：cars 裡的車（機車也算）；打到＝traffic.shot(c, hit)，沒有這個函式就 c.stun（停下來按喇叭）
+//     gunTargets.police(police)      police-ai.js createPolice()：police.movers 的警車（長方形）、下車的警察（圓）；打到報 'shootCop'；
+//                                   打倒警察＝police.shot(hit)、警車的彈孔貼在 police.carObject(i)、police.shotCar(i, hit)（b3-police 17:56 的 police-ai.js 已經有了）；
+//                                   舊版沒有 shot 的話借 police.punch（站在子彈來的方向「揍」他：一樣倒下去、爬起來，police-ai.js 自己報 'cop'）
+//     gunTargets.boxes(() => list, { kind })   停著的車（車庫車位、車店展示）：[{ x, z, hx, hz, rot, h, obj }]（obj＝那台車的 Object3D，彈孔貼在上面）
+//     車的來源都有 obj(c)（那台車的 Object3D）：開槍打到長方形以後對它的網格再打一次（名字有 glass 的網格＝玻璃：carlod.js 的 lod-glass）；fine(c) 回傳 false＝只用長方形
+//       （網格加起來超過 3 萬個三角形＝開車的那台完整的車：只用長方形，玻璃照位置猜；那台最好交給 damage.shoot）
+// 效能：子彈用算的（長方形、圓柱跟射線直接算）；只有真的打到車的長方形，才對那台車的網格打一次（彈孔貼在真的車殼上、分得出玻璃；
+//       網格先做成 BVH：準星對到車就開始做，每一格最多 1.5 毫秒，做好以前照長方形）；牆放在 8 公尺的格子裡；效果都是事先開好的池子
+//       （彈道 1 個 draw call、火花 1、煙塵 1、彈孔 2、彈殼 1、火光 1）；每一幀不新增物件（音效的節點除外：Web Audio 的節點本來就是一次性的）
+//
+// 【接到遊戲裡：別的檔要加的東西】（guns-test.html 就是照這樣接的，可以直接抄）
+//   打包：build-art.mjs、build-app.mjs 的清單把 guns.js、gunshop.js 接在 character.js、npc.js、police-ai.js 後面（gunshop.js 用 guns.js 的名字：guns.js 在前）
+//   存檔（garage.src.html）：save() 多存 guns: GAME.guns；讀檔 GAME.guns = gunSave.load(存檔.guns)（舊存檔沒有 → 空的）；重新開始 → gunSave.fresh()
+//   town.src.js：
+//     makeWalker() 後面：gunner = createGunner({ scene: TR.scene, camera: dcam, renderer, walker, character: 走路的那個角色, GAME, hudParent: stage, keyboard: true,
+//       world: { scene: TR.scene, colliders: [...VIL.colliders, ...stripColliders()], crime: true }, targets: [gunTargets.pedestrians(peds), gunTargets.traffic(traffic), gunTargets.police(police)],
+//       onChange: () => save(), onEquip: (id) => 拿槍的時候「揍」的按鈕收掉、收起來放回去, onCrime: (kind, info) => police.crime(kind, info) })
+//     每一格（driveStep 裡）：walker.update(dt) 後面 gunner.update(dt)；下車 leaveCar() → gunner.setEnabled(true)
+//     上車、交給賽道、打開改車廠／車店（panelOpen）、回車庫頁 → gunner.setEnabled(false)（槍自己收起來、HUD 藏起來）
+//     atDoor(b)：槍店那棟（VIL.places.gunshop）→ 走進槍店（gunshop.js 的【接到遊戲裡】）；在店裡：gunner.setWalker(店裡的 walker)、setWorld(店裡)、setTargets([])
+//     警察抓到你（onCaught）→ gunner.holster()；錢包（renderWallet）在槍店買東西、靶場獎金之後重畫
+//   walk.js：瞄準的時候人要面向準星（現在 guns.js 在 character.update 前面自己轉身體、放開瞄準再 teleport 對齊）
+//     → 建議加 walker.setFacing(yaw | null)：人朝 yaw、搖桿變成橫著走（不轉身）；null＝回到正常。有了就不用 teleport
+//   character.js：已經有 hand、handL、recoil()、update 的 state 'aim'｜'shoot'、aimPitch、weapon 'long'｜'pistol'、support
+//     長槍：手放在眼睛前面 0.14 公尺，槍托（butt）比 0.26 公尺長會穿過頭 → 現在 guns.js 自己把槍往前推（STOCK_REACH）；建議 update 收 p.stock（槍托多長）自己把手放前面
+//   npc.js：traffic.shot(c, hit)（路上的車被打到：停下來、司機跑掉⋯）；沒有的話用 c.stun。peds.knock、peds.scare 已經有了
+//   damage.js：damage.shoot(carObject, hit) → true（它自己畫彈孔、玻璃裂開）；沒有的話 guns.js 自己貼彈孔、裂痕（貼在車上，跟著車動）
+//   police-ai.js：police.shot(hit)（打倒警察：跟裡面的 knockOfficer 一樣）、police.carObject(i)（警車的 Object3D）、police.shotCar(i, hit)（警車被打到）
+//     → b3-police 17:56 的版本已經有了（guns-test.html?pol=latest 試過：打倒警察、+1★、彈孔跟著警車走）
+//     舊版沒有的話：借 police.punch（站在子彈來的方向揍他）、police._dbg.cars[i].group；'shoot'／'shootCop'／'gunfire' 三種犯罪 police-ai.js 已經有了
+
+// 打包（build-art.mjs、build-app.mjs）會拿掉 import、把 export 變成一般宣告、所有檔接在同一個 script 裡：這個檔全部包在一個函式裡，只露出下面幾個名字
+const { GUNS, GUN_IDS, gunSave, gunShop, buildGunModel, createGunAudio, createGunner, gunTargets, GUN_ICONS, createGunArms, GUN_RANGE_REWARD } = (() => {
+const TAU = Math.PI * 2, D2R = Math.PI / 180;
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const wrapA = (a) => { a = (a + Math.PI) % TAU; return a < 0 ? a + Math.PI : a - Math.PI; };
+const smooth01 = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+const toInt = (v, a, b) => { const n = Math.floor(+v); return Number.isFinite(n) ? clamp(n, a, b) : a; };
+const hasDoc = () => typeof document !== 'undefined' && !!document.createElement;
+const SANS = '"Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif', COND = '"Barlow Condensed", "Arial Narrow", sans-serif';
+
+// ---- 槍的資料（價錢跟比賽獎金比：第一個對手贏一次 5 萬，買得起手槍；贏到「送貨小哥」25 萬，買得起霰彈槍）----
+const GUNS = {
+  pistol: { id: 'pistol', name: '手槍', tag: '半自動', desc: '輕、準，一發就能把人打倒', hold: 'one', auto: false, interval: 0.2, mag: 12, reload: 1.35,
+    knock: 1, carDmg: 1, pellets: 1, spread: 1.6, aimSpread: 0.45, range: 60, zoom: 1.2, recoil: 0.028, kick: 1,
+    price: 3, ammo: { price: 1, count: 48, max: 240 }, stats: { power: 3, rate: 2, range: 3, aim: 4 } },
+  smg: { id: 'smg', name: '衝鋒槍', tag: '全自動', desc: '按住一直射，射得快但比較散', hold: 'two', auto: true, interval: 0.075, mag: 30, reload: 1.9,
+    knock: 0.5, carDmg: 0.6, pellets: 1, spread: 3.4, aimSpread: 1.7, range: 45, zoom: 1.2, recoil: 0.009, kick: 0.55,
+    price: 12, ammo: { price: 1, count: 90, max: 450 }, stats: { power: 2, rate: 5, range: 2, aim: 2 } },
+  shotgun: { id: 'shotgun', name: '霰彈槍', tag: '泵動式', desc: '一次射出 8 顆小彈丸，近的時候最強', hold: 'two', auto: false, interval: 0.85, mag: 6, reload: 0, shellStart: 0.3, shell: 0.45,
+    knock: 0.36, carDmg: 0.45, pellets: 8, spread: 6.5, aimSpread: 4.6, range: 28, zoom: 1.12, recoil: 0.06, kick: 1.7,
+    price: 18, ammo: { price: 1, count: 24, max: 120 }, stats: { power: 5, rate: 1, range: 1, aim: 1 } },
+  rifle: { id: 'rifle', name: '步槍', tag: '全自動', desc: '射得最遠最準，上面有瞄準鏡', hold: 'two', auto: true, interval: 0.105, mag: 30, reload: 2.2,
+    knock: 1, carDmg: 1.4, pellets: 1, spread: 1.8, aimSpread: 0.2, range: 150, zoom: 1.9, recoil: 0.013, kick: 0.8,
+    price: 30, ammo: { price: 2, count: 90, max: 360 }, stats: { power: 4, rate: 4, range: 5, aim: 5 } },
+};
+const GUN_IDS = ['pistol', 'smg', 'shotgun', 'rifle'];
+const RANGE_REWARD = 2; // 靶場完美一輪（全部打倒）：每把槍第一次給幾萬
+
+// 槍的側面剪影（HUD、槍店用；viewBox 0 0 64 24，fill currentColor）
+const GUN_ICONS = {
+  pistol: '<svg viewBox="0 0 64 24" aria-hidden="true"><path d="M15 4.5h36.5l1.5 1.6V11H34.5v1.2c0 2.9-1.9 4.6-4.6 4.6h-2.6L26 22.5h-9.6l3.1-11.3-4.5-.7z"/><path d="M28.2 12.2h2.6c0 1.6-.8 2.5-2.2 2.5z" fill="none"/></svg>',
+  smg: '<svg viewBox="0 0 64 24" aria-hidden="true"><path d="M3 7.3h6.2l1-1.1h32.3V4.8h3.2v1.4h5.8v2.2H62v2.2h-10.5v2.2H43.9l.4 1.6-2.8 1v5.8h-4.8v-6.9l-4.2.1c-.4 1.9-1.8 3-3.8 3h-1.2L26 22.5h-5.6l2.1-9.1H11.4l-4.9 2.3H3z"/></svg>',
+  shotgun: '<svg viewBox="0 0 64 24" aria-hidden="true"><path d="M1.5 12.6 13.3 8.3h11.9V6.4h37.3v2.8h-24v1.6h13.7v2.5H38.8c-1.2 0-1.4 1.2-2.6 1.2H26.9c-.3 1.7-1.6 2.5-3.3 2.5h-1.4l-.9-2.6h-5.9L3 18.4z"/></svg>',
+  rifle: '<svg viewBox="0 0 64 24" aria-hidden="true"><path d="M1.5 10.8 11 7.7h9.4V6.2h4.2V3.4h13.2v2.8h3.7V8h8.7v-.9H56V8h7v2.1h-7v1H43.6v2.4H33.4l2.7 8.3h-4.7l-2.4-8.4h-2.6c-.1 1.7-1.4 2.7-3.1 2.7h-1.8l-2.2 4.9h-4.9l2.2-5.5-2.9-1.5-10.4 3.2z"/></svg>',
+  none: '<svg viewBox="0 0 64 24" aria-hidden="true"><path d="M26 6.5c0-1.4 1.1-2.5 2.5-2.5s2.5 1.1 2.5 2.5V11h1V5.2c0-1.4 1.1-2.5 2.5-2.5S37 3.8 37 5.2V11h1V6.6c0-1.4 1.1-2.5 2.5-2.5S43 5.2 43 6.6V15c0 4.4-3.6 8-8 8h-2.6c-2.6 0-5-1.2-6.5-3.3l-5.4-7.4c-.8-1.1-.5-2.6.6-3.4 1-.7 2.4-.5 3.2.4L26 11.6z"/></svg>',
+};
+
+// ---- 存檔 ----
+const gunSave = {
+  fresh() { return { owned: [], ammo: {}, mag: {}, cur: null, range: { best: {}, time: {}, paid: {} } }; },
+  load(raw) {
+    const G = gunSave.fresh();
+    if (!raw || typeof raw !== 'object') return G;
+    const own = Array.isArray(raw.owned) ? raw.owned : [];
+    for (const id of GUN_IDS) if (own.includes(id)) G.owned.push(id);
+    for (const id of G.owned) {
+      const g = GUNS[id];
+      G.ammo[id] = toInt(raw.ammo && raw.ammo[id], 0, g.ammo.max);
+      G.mag[id] = toInt(raw.mag && raw.mag[id], 0, g.mag);
+    }
+    G.cur = G.owned.includes(raw.cur) ? raw.cur : G.owned[0] || null;
+    const r = raw.range && typeof raw.range === 'object' ? raw.range : {};
+    for (const id of GUN_IDS) {
+      const b = toInt(r.best && r.best[id], 0, 99); if (b > 0) G.range.best[id] = b;
+      const t = +(r.time && r.time[id]); if (Number.isFinite(t) && t > 0 && t < 600) G.range.time[id] = Math.round(t * 10) / 10;
+      if (r.paid && r.paid[id]) G.range.paid[id] = 1;
+    }
+    return G;
+  },
+};
+const gunsOf = (GAME) => (GAME.guns && Array.isArray(GAME.guns.owned) ? GAME.guns : (GAME.guns = gunSave.fresh()));
+
+// ---- 買槍、買子彈（純邏輯）----
+const gunShop = {
+  total: (G, id) => (G.mag[id] || 0) + (G.ammo[id] || 0),
+  ammoRoom: (G, id) => Math.max(0, GUNS[id].ammo.max - (G.ammo[id] || 0)),
+  buyGun(GAME, id) {
+    const g = GUNS[id]; if (!g) return { ok: false, cost: 0, msg: '沒有這種槍' };
+    const G = gunsOf(GAME);
+    if (G.owned.includes(id)) return { ok: false, cost: 0, msg: `${g.name}已經買過了` };
+    const money = Math.floor(+GAME.money || 0);
+    if (money < g.price) return { ok: false, cost: g.price, need: g.price - money, msg: `${g.name}要 ${g.price} 萬，還差 ${g.price - money} 萬` };
+    GAME.money = money - g.price;
+    G.owned.push(id); G.owned.sort((a, b) => GUN_IDS.indexOf(a) - GUN_IDS.indexOf(b));
+    G.mag[id] = g.mag; G.ammo[id] = G.ammo[id] || 0;
+    if (!G.cur) G.cur = id;
+    return { ok: true, cost: g.price, msg: `買到${g.name}了！送你一個裝滿的彈匣（${g.mag} 發）` };
+  },
+  buyAmmo(GAME, id, boxes = 1) {
+    const g = GUNS[id]; if (!g) return { ok: false, cost: 0, added: 0, msg: '沒有這種子彈' };
+    const G = gunsOf(GAME);
+    if (!G.owned.includes(id)) return { ok: false, cost: 0, added: 0, msg: `要先買${g.name}才能買它的子彈` };
+    boxes = Math.max(1, Math.floor(+boxes || 1));
+    const room = gunShop.ammoRoom(G, id);
+    if (room <= 0) return { ok: false, cost: 0, added: 0, msg: `${g.name}的子彈帶滿了（最多 ${g.ammo.max} 發）` };
+    const n = Math.min(boxes, Math.ceil(room / g.ammo.count)), cost = n * g.ammo.price, money = Math.floor(+GAME.money || 0);
+    if (money < cost) return { ok: false, cost, added: 0, need: cost - money, msg: `一盒要 ${g.ammo.price} 萬，還差 ${cost - money} 萬` };
+    const added = Math.min(room, n * g.ammo.count);
+    GAME.money = money - cost; G.ammo[id] = (G.ammo[id] || 0) + added;
+    return { ok: true, cost, added, msg: added < n * g.ammo.count ? `只帶得下 ${added} 發，裝滿了` : `買了 ${added} 發${g.name}子彈` };
+  },
+  rangeResult(GAME, id, res) {
+    const G = gunsOf(GAME), g = GUNS[id], out = { best: false, reward: 0, perfect: false, msg: '' };
+    if (!g || !res) return out;
+    const hits = toInt(res.hits, 0, 99), total = toInt(res.total, 1, 99), time = +res.time || 0;
+    if (hits > (G.range.best[id] || 0)) { G.range.best[id] = hits; out.best = true; }
+    out.perfect = hits >= total;
+    if (out.perfect) {
+      const t = Math.round(time * 10) / 10;
+      if (!G.range.time[id] || t < G.range.time[id]) { G.range.time[id] = t; out.best = true; }
+      if (!G.range.paid[id]) { G.range.paid[id] = 1; out.reward = RANGE_REWARD; GAME.money = Math.floor(+GAME.money || 0) + RANGE_REWARD; }
+    }
+    out.msg = out.perfect ? (out.reward ? `全部打倒！${g.name}第一次完美，獎金 ${out.reward} 萬` : `全部打倒！${time.toFixed(1)} 秒`) : `打倒 ${hits} / ${total} 個`;
+    return out;
+  },
+};
+
+// ---- 手上的槍：子彈、換彈匣、射速（純邏輯：不管畫面，開槍的時候叫 ev.shot）----
+// ev：shot(id)、dry(id)、reloadStart(id)、step(id, 'out'|'in'|'rack'|'shell'|'pump')、reloadEnd(id)、change()
+function createArms(getG, ev = {}) {
+  const R = { drawn: false, trig: false, want: false, wantT: 0, cd: 0, reloading: false, rT: 0, rDur: 0, steps: 0, drawT: 0, emptyT: -1, dryLatch: false, shots: 0 };
+  const call = (k, ...a) => { if (ev[k]) ev[k](...a); };
+  const G = () => getG();
+  const cur = () => (R.drawn ? G().cur : null);
+  function cancelReload() { if (R.reloading) { R.reloading = false; R.rT = 0; } }
+  function draw(id) {
+    const g = G(); id = id || g.cur;
+    if (!id || !g.owned.includes(id)) return false;
+    if (R.drawn && g.cur === id) return true;
+    cancelReload(); g.cur = id; R.drawn = true; R.drawT = 0.35; R.cd = 0; R.want = false; R.emptyT = -1; R.dryLatch = false;
+    call('change'); return true;
+  }
+  function holster() { if (!R.drawn) return; cancelReload(); R.drawn = false; R.trig = false; R.want = false; call('change'); }
+  function next(dir = 1) { // 空手 → 第一把 → … → 最後一把 → 空手
+    const g = G(), list = [null, ...g.owned], i = list.indexOf(cur());
+    const n = list[(i + dir + list.length) % list.length];
+    if (n) draw(n); else holster();
+    return n;
+  }
+  function startReload() {
+    const id = cur(); if (!id || R.reloading || R.drawT > 0) return false;
+    const g = G(), W = GUNS[id];
+    if ((g.mag[id] || 0) >= W.mag || !(g.ammo[id] > 0)) return false;
+    R.reloading = true; R.rT = 0; R.steps = 0; R.rDur = W.shell ? W.shellStart : W.reload; R.want = false;
+    call('reloadStart', id); return true;
+  }
+  function setTrigger(on) {
+    on = !!on;
+    if (on && !R.trig) { R.want = true; R.wantT = 0.4; R.dryLatch = false; } // 按一下記 0.4 秒（還在拿出來、人還在轉身：等一下就射；太早按的泵動式不會晚半秒才射）
+    R.trig = on;
+  }
+  // 一格：回傳這一格射了幾發（ready＝人轉過去了、可以射）
+  function update(dt, ready = true) {
+    const n = step(dt, ready);
+    if (R.want && (R.wantT -= dt) <= 0) R.want = false;
+    if (R.cd < 0) R.cd = 0; // 沒在射的時候不累積（不然停一下再按會一次射兩發、半自動可以按得比射速快）
+    return n;
+  }
+  function step(dt, ready) {
+    const id = cur(); let shots = 0;
+    if (!id) return 0;
+    const g = G(), W = GUNS[id];
+    if (R.drawT > 0) R.drawT = Math.max(0, R.drawT - dt);
+    R.cd -= dt; // 連發的時候留著零頭（射速跟每秒幾格無關）
+    // 換彈匣
+    if (R.reloading) {
+      if (!W.shell) R.want = false; // 換彈匣的時候按開槍不算（霰彈槍：按了就停下來射）
+      if (W.shell) { // 霰彈槍：一顆一顆塞；中間按開槍（裡面有子彈）就停下來射
+        if ((R.trig || R.want) && (g.mag[id] || 0) > 0) { R.reloading = false; call('step', id, 'pump'); }
+        else {
+          R.rT += dt;
+          while (R.reloading && R.rT >= R.rDur) {
+            R.rT -= R.rDur; R.rDur = W.shell;
+            if ((g.mag[id] || 0) < W.mag && g.ammo[id] > 0) { g.mag[id] = (g.mag[id] || 0) + 1; g.ammo[id]--; call('step', id, 'shell'); call('ammo'); }
+            if ((g.mag[id] || 0) >= W.mag || !(g.ammo[id] > 0)) { R.reloading = false; call('step', id, 'pump'); call('reloadEnd', id); }
+          }
+        }
+      } else {
+        R.rT += dt; const k = R.rT / R.rDur;
+        const marks = id === 'pistol' ? [[0.12, 'out'], [0.55, 'in'], [0.82, 'rack']] : [[0.1, 'out'], [0.58, 'in'], [0.86, 'rack']];
+        while (R.steps < marks.length && k >= marks[R.steps][0]) { call('step', id, marks[R.steps][1]); R.steps++; }
+        if (R.rT >= R.rDur) {
+          const n = Math.min(W.mag - (g.mag[id] || 0), g.ammo[id] || 0);
+          g.mag[id] = (g.mag[id] || 0) + n; g.ammo[id] = (g.ammo[id] || 0) - n; R.reloading = false; R.rT = 0;
+          call('reloadEnd', id); call('ammo');
+        }
+      }
+      if (R.reloading) return 0;
+    }
+    // 彈匣空了：有備用就自己換（等最後一發的聲音 0.3 秒）
+    if (!(g.mag[id] > 0)) {
+      if (g.ammo[id] > 0) {
+        if (R.emptyT < 0) R.emptyT = 0.3;
+        R.emptyT -= dt; if (R.emptyT <= 0) { R.emptyT = -1; startReload(); }
+      } else if ((R.want || R.trig) && !R.dryLatch) { R.dryLatch = true; R.want = false; call('dry', id); }
+      return 0;
+    }
+    R.emptyT = -1;
+    if (R.drawT > 0 || !ready) return 0;
+    const pull = W.auto ? R.trig || R.want : R.want;
+    if (R.want && R.cd < 0) R.cd = 0; // 剛按下去：從這一格開始算
+    while (pull && R.cd <= 0 && g.mag[id] > 0 && shots < 3) {
+      g.mag[id]--; R.cd += W.interval; shots++; R.shots++; R.want = false;
+      call('shot', id);
+      if (!W.auto) break;
+      if (!R.trig) break;
+    }
+    if (shots) call('ammo');
+    return shots;
+  }
+  return {
+    draw, holster, next, reload: startReload, setTrigger, update, cancelReload,
+    get cur() { return cur(); }, get drawn() { return R.drawn; }, get reloading() { return R.reloading; }, get trig() { return R.trig; },
+    get reloadK() { const id = cur(); if (!R.reloading || !id) return 0; const W = GUNS[id], g = G(); return W.shell ? clamp(((g.mag[id] || 0) + R.rT / R.rDur) / W.mag, 0, 1) : clamp(R.rT / R.rDur, 0, 1); },
+    get drawing() { return R.drawT > 0; }, get shots() { return R.shots; }, R,
+  };
+}
+
+// ---- 槍的模型（程式做的：側面輪廓擠出來＋圓柱，照材質併成兩個網格）----
+const MODEL_MATS = {};
+function modelMats() {
+  if (!MODEL_MATS.metal) {
+    MODEL_MATS.metal = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.34, metalness: 0.78, envMapIntensity: 1.1 });
+    MODEL_MATS.matte = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0.06 });
+    MODEL_MATS.metal.name = 'gun-metal'; MODEL_MATS.matte.name = 'gun-matte';
+  }
+  return MODEL_MATS;
+}
+const COL = {};
+const col = (hex) => COL[hex] || (COL[hex] = new THREE.Color(hex));
+function outline(pts, holes) {
+  const s = new THREE.Shape(); s.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) s.lineTo(pts[i][0], pts[i][1]); s.closePath();
+  for (const h of holes || []) { const p = new THREE.Path(); p.moveTo(h[0][0], h[0][1]); for (let i = 1; i < h.length; i++) p.lineTo(h[i][0], h[i][1]); p.closePath(); s.holes.push(p); }
+  return s;
+}
+function extrude(pts, w, bev = 0.0015, holes) {
+  const b = Math.min(bev, w * 0.3), g = new THREE.ExtrudeGeometry(outline(pts, holes), { depth: Math.max(0.0004, w - b * 2), bevelEnabled: b > 0, bevelThickness: b, bevelSize: b * 0.8, bevelSegments: 1, curveSegments: 4, steps: 1 });
+  g.translate(0, 0, -(w - b * 2) / 2); return g;
+}
+const boxG = (sx, sy, sz, x, y, z) => new THREE.BoxGeometry(sx, sy, sz).translate(x, y, z);
+function cylX(r, x0, x1, y, z = 0, seg = 12, r1) { // 沿著 x 的圓柱（x0 → x1）
+  const g = new THREE.CylinderGeometry(r1 ?? r, r, Math.abs(x1 - x0), seg, 1); g.rotateZ(-Math.PI / 2); g.translate((x0 + x1) / 2, y, z); return g;
+}
+function cylY(r, y0, y1, x, z = 0, seg = 10) { const g = new THREE.CylinderGeometry(r, r, Math.abs(y1 - y0), seg, 1); g.translate(x, (y0 + y1) / 2, z); return g; }
+// 併起來（每個零件一個顏色）：[{ g, c }] → 一個不帶索引的網格（位置、法線、頂點顏色）
+function mergeParts(parts) {
+  let n = 0; const gs = parts.map((p) => { const g = p.g.index ? p.g.toNonIndexed() : p.g; n += g.attributes.position.count; return g; });
+  const P = new Float32Array(n * 3), N = new Float32Array(n * 3), C = new Float32Array(n * 3);
+  let o = 0;
+  gs.forEach((g, i) => {
+    const c = parts[i].c, pa = g.attributes.position.array, na = g.attributes.normal.array, k = g.attributes.position.count;
+    P.set(pa.subarray(0, k * 3), o * 3); N.set(na.subarray(0, k * 3), o * 3);
+    for (let j = 0; j < k; j++) { C[(o + j) * 3] = c.r; C[(o + j) * 3 + 1] = c.g; C[(o + j) * 3 + 2] = c.b; }
+    o += k; if (g !== parts[i].g) g.dispose(); parts[i].g.dispose();
+  });
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(P, 3)); out.setAttribute('normal', new THREE.BufferAttribute(N, 3)); out.setAttribute('color', new THREE.BufferAttribute(C, 3));
+  out.computeBoundingSphere();
+  return out;
+}
+// 扳機護弓：U 形（前面圓一點），x0…x1、上面 y0、下面 y1
+const guard = (x0, x1, y0, y1, w, t = 0.004) => extrude([[x0, y0], [x1, y0], [x1 + 0.004, y0 - 0.006], [x1, y1 + 0.004], [x1 - 0.008, y1], [x0 + 0.006, y1], [x0 - 0.002, y1 + 0.006]], w, 0.0012,
+  [[[x0 + t, y0 - 0.001], [x1 - t * 0.6, y0 - 0.001], [x1 - t * 0.2, y0 - 0.006], [x1 - t, y1 + t + 0.003], [x1 - 0.008 - t * 0.4, y1 + t], [x0 + 0.006, y1 + t], [x0 + t, y1 + t + 0.005]]]);
+
+const MODEL_CACHE = {};
+function gunParts(id) { // → { metal: [{g, c}], matte: [{g, c}], ud }
+  const M = [], T = [], m = (g, c) => M.push({ g, c: col(c) }), t = (g, c) => T.push({ g, c: col(c) });
+  const V = (x, y, z = 0) => new THREE.Vector3(x, y, z);
+  let ud = null;
+  if (id === 'pistol') {
+    const F = '#1c1d20', S = '#454a52', D = '#0d0e10';
+    t(extrude([[0.150, -0.005], [0.150, 0.018], [-0.036, 0.018], [-0.050, 0.012], [-0.056, 0.0], [-0.071, -0.088], [-0.067, -0.100], [-0.021, -0.100], [-0.017, -0.090], [-0.004, -0.024], [0.004, -0.008], [0.064, -0.008], [0.070, -0.005]], 0.026, 0.002), F); // 槍身＋握把
+    t(guard(0.002, 0.062, -0.006, -0.038, 0.012), F);
+    t(extrude([[0.021, -0.009], [0.028, -0.009], [0.027, -0.022], [0.021, -0.030], [0.018, -0.028], [0.022, -0.020]], 0.006, 0.0008), D); // 扳機
+    t(boxG(0.050, 0.007, 0.030, -0.044, -0.1025, 0), D); // 彈匣底
+    for (let i = 0; i < 6; i++) t(boxG(0.003, 0.05, 0.0275, -0.030 - i * 0.0055 + (i % 2) * 0.0003, -0.05 - i * 0.004, 0).rotateZ(0.16), '#26282c'); // 握把防滑紋
+    m(extrude([[-0.052, 0.0175], [0.160, 0.0175], [0.165, 0.024], [0.165, 0.045], [0.157, 0.052], [-0.046, 0.052], [-0.052, 0.046]], 0.0255, 0.0018), S); // 滑套
+    for (let i = 0; i < 6; i++) for (const s of [-1, 1]) m(boxG(0.0016, 0.026, 0.001, -0.043 + i * 0.0042, 0.035, s * 0.0131), '#2b2e33'); // 滑套後面的防滑溝
+    m(boxG(0.040, 0.013, 0.001, 0.040, 0.041, 0.0132), D); // 退殼口
+    m(cylX(0.0068, 0.160, 0.1665, 0.0345), '#2f3237'); m(cylX(0.0042, 0.166, 0.1672, 0.0345, 0, 10), '#050506'); // 槍口
+    m(boxG(0.004, 0.006, 0.004, 0.154, 0.055, 0), D); m(boxG(0.006, 0.007, 0.007, -0.040, 0.055, -0.0065), D); m(boxG(0.006, 0.007, 0.007, -0.040, 0.055, 0.0065), D); // 準星、照門
+    ud = { muzzle: V(0.168, 0.0345), eject: V(0.040, 0.047, 0.014), grip2: V(-0.02, -0.04, -0.03), butt: null, eye: V(-0.25, 0.058), length: 0.24 };
+  } else if (id === 'smg') {
+    const B = '#26282c', P = '#1b1c1f', G2 = '#3a3e45', D = '#0b0c0d';
+    m(extrude([[-0.120, 0.0], [0.190, 0.0], [0.190, 0.074], [-0.100, 0.074], [-0.120, 0.060]], 0.048, 0.003), B); // 機匣
+    m(boxG(0.25, 0.008, 0.024, 0.045, 0.080, 0), G2); for (let i = 0; i < 10; i++) m(boxG(0.012, 0.004, 0.026, -0.065 + i * 0.024, 0.086, 0), G2); // 上面的滑軌
+    m(cylX(0.021, 0.19, 0.30, 0.040, 0, 12), B); for (let i = 0; i < 4; i++) for (const s of [-1, 1]) m(boxG(0.014, 0.006, 0.004, 0.215 + i * 0.022, 0.040, s * 0.020), D); // 槍管外罩（散熱孔）
+    m(cylX(0.0095, 0.30, 0.334, 0.040), '#303338'); m(cylX(0.005, 0.333, 0.335, 0.040, 0, 10), '#050506');
+    m(boxG(0.005, 0.02, 0.005, 0.285, 0.068, 0), D); m(boxG(0.01, 0.014, 0.022, -0.085, 0.086, 0), D); // 準星、照門
+    m(boxG(0.052, 0.016, 0.002, 0.060, 0.050, 0.0245), D); // 退殼口
+    t(extrude([[-0.033, 0.002], [0.012, 0.002], [0.002, -0.098], [-0.020, -0.106], [-0.047, -0.100]], 0.032, 0.003), P); // 握把
+    t(guard(0.014, 0.075, 0.0, -0.034, 0.014), P);
+    t(extrude([[0.036, -0.003], [0.042, -0.003], [0.041, -0.018], [0.035, -0.024], [0.032, -0.022], [0.036, -0.015]], 0.006, 0.0008), D);
+    t(extrude([[0.082, 0.002], [0.122, 0.002], [0.138, -0.185], [0.098, -0.190]], 0.026, 0.002), '#222326'); // 彈匣
+    t(cylY(0.0145, -0.085, 0.0, 0.245, 0, 10), P); t(boxG(0.034, 0.012, 0.03, 0.245, -0.004, 0), P); // 前握把
+    for (const s of [-1, 1]) m(boxG(0.25, 0.008, 0.008, -0.245, 0.046, s * 0.019).rotateZ(0), G2); // 折疊槍托：兩根
+    m(boxG(0.014, 0.10, 0.046, -0.372, 0.003, 0), G2); t(boxG(0.018, 0.105, 0.048, -0.381, 0.003, 0), P); // 托板
+    ud = { muzzle: V(0.336, 0.040), eject: V(0.06, 0.06, 0.025), grip2: V(0.245, -0.045, 0), butt: V(-0.39, 0.0), eye: V(-0.36, 0.088), length: 0.73 };
+  } else if (id === 'shotgun') {
+    const B = '#222427', W = '#6e4424', W2 = '#5a371d', D = '#0b0c0d';
+    m(extrude([[0.020, -0.004], [0.245, -0.004], [0.245, 0.070], [0.050, 0.070], [0.020, 0.058]], 0.046, 0.003), B); // 機匣
+    m(cylX(0.0118, 0.245, 0.795, 0.053, 0, 14), '#26292d'); m(cylX(0.0072, 0.794, 0.797, 0.053, 0, 12), '#050506'); // 槍管
+    m(cylX(0.0112, 0.245, 0.690, 0.022, 0, 12), '#2c2f33'); m(cylX(0.0122, 0.686, 0.700, 0.022, 0, 12), B); // 下面的彈倉管
+    m(boxG(0.02, 0.012, 0.010, 0.690, 0.037, 0), B); // 管箍
+    m(new THREE.SphereGeometry(0.0035, 8, 6).translate(0.785, 0.067, 0), '#d8d4c8'); // 準星珠
+    m(boxG(0.070, 0.022, 0.002, 0.150, 0.045, 0.0235), D); // 退殼口
+    m(guard(0.028, 0.098, -0.002, -0.040, 0.014), B);
+    m(extrude([[0.052, -0.006], [0.058, -0.006], [0.057, -0.020], [0.051, -0.026], [0.048, -0.024], [0.052, -0.017]], 0.006, 0.0008), D);
+    t(cylX(0.0245, 0.335, 0.525, 0.022, 0, 12), W); for (let i = 0; i < 7; i++) t(cylX(0.0262, 0.35 + i * 0.024, 0.358 + i * 0.024, 0.022, 0, 12), W2); // 泵動護木（有溝）
+    t(extrude([[0.022, 0.064], [-0.020, 0.058], [-0.405, 0.048], [-0.405, -0.078], [-0.365, -0.082], [-0.120, -0.036], [-0.040, -0.030], [0.022, -0.004]], 0.040, 0.004), W); // 槍托
+    t(boxG(0.016, 0.132, 0.044, -0.412, -0.015, 0), '#141416'); // 托底板（橡膠）
+    ud = { muzzle: V(0.800, 0.053), eject: V(0.15, 0.05, 0.024), grip2: V(0.43, 0.02, 0), butt: V(-0.42, -0.012), eye: V(-0.26, 0.07), length: 1.22 };
+  } else if (id === 'rifle') {
+    const B = '#2a2c30', B2 = '#33363b', TN = '#8a7a58', D = '#0b0c0d';
+    m(extrude([[-0.070, 0.012], [0.190, 0.012], [0.190, 0.066], [0.172, 0.076], [-0.070, 0.076]], 0.036, 0.0025), B); // 上機匣
+    m(extrude([[-0.050, 0.013], [0.130, 0.013], [0.130, -0.010], [0.104, -0.030], [-0.028, -0.030], [-0.050, -0.012]], 0.034, 0.0025), B2); // 下機匣
+    m(boxG(0.40, 0.008, 0.022, 0.125, 0.080, 0), B); for (let i = 0; i < 16; i++) m(boxG(0.010, 0.004, 0.024, -0.065 + i * 0.025, 0.086, 0), B); // 上面的滑軌
+    t(cylX(0.027, 0.19, 0.47, 0.045, 0, 8), TN); for (let i = 0; i < 4; i++) for (const s of [-1, 1]) t(boxG(0.030, 0.008, 0.004, 0.23 + i * 0.058, 0.045, s * 0.0255), '#5e5340'); // 護木（有孔）
+    m(cylX(0.0086, 0.47, 0.62, 0.045, 0, 10), '#303338'); m(cylX(0.0122, 0.605, 0.665, 0.045, 0, 10), B); m(cylX(0.0065, 0.664, 0.666, 0.045, 0, 10), '#050506'); // 槍管、槍口制退器
+    for (const s of [-1, 1]) m(boxG(0.022, 0.004, 0.003, 0.635, 0.045, s * 0.012), D);
+    m(extrude([[0.455, 0.070], [0.475, 0.070], [0.472, 0.100], [0.462, 0.100]], 0.006, 0.001), B); // 準星
+    m(boxG(0.060, 0.016, 0.002, 0.080, 0.050, 0.0185), D); // 退殼口
+    t(extrude([[0.078, -0.022], [0.088, -0.120], [0.119, -0.214], [0.080, -0.228], [0.050, -0.124], [0.037, -0.022]], 0.026, 0.002), '#2b2c2f'); // 彎彈匣
+    t(extrude([[-0.030, -0.026], [0.006, -0.026], [-0.018, -0.124], [-0.042, -0.128], [-0.060, -0.120]], 0.030, 0.003), TN); // 握把
+    t(guard(0.008, 0.070, -0.026, -0.052, 0.014), B2);
+    t(extrude([[0.030, -0.028], [0.036, -0.028], [0.035, -0.040], [0.029, -0.046], [0.026, -0.044], [0.030, -0.037]], 0.006, 0.0008), D);
+    m(cylX(0.0145, -0.25, -0.07, 0.046, 0, 10), B); // 緩衝管
+    t(extrude([[-0.135, 0.068], [-0.330, 0.068], [-0.342, 0.058], [-0.342, -0.070], [-0.300, -0.076], [-0.220, -0.018], [-0.140, 0.022]], 0.036, 0.004), TN); // 槍托
+    t(boxG(0.012, 0.136, 0.038, -0.347, -0.004, 0), '#141416');
+    // 瞄準鏡
+    m(cylX(0.0142, -0.030, 0.150, 0.114, 0, 14), '#1d1f22'); m(cylX(0.0205, 0.150, 0.200, 0.114, 0, 14, 0.0145), '#1d1f22'); m(cylX(0.0205, 0.200, 0.214, 0.114, 0, 14), '#1d1f22');
+    m(cylX(0.0175, -0.068, -0.030, 0.114, 0, 14, 0.0142), '#1d1f22');
+    m(cylY(0.0075, 0.114, 0.134, 0.06, 0, 8), '#1d1f22'); m(new THREE.CylinderGeometry(0.0075, 0.0075, 0.02, 8).rotateX(Math.PI / 2).translate(0.06, 0.114, 0.018), '#1d1f22'); // 旋鈕
+    for (const x of [0.02, 0.12]) m(boxG(0.018, 0.022, 0.03, x, 0.094, 0), B);
+    t(cylX(0.0188, 0.2135, 0.2145, 0.114, 0, 14), '#6fa4c8'); t(cylX(0.0165, -0.0695, -0.0685, 0.114, 0, 14), '#4d7fa6'); // 鏡片
+    m(boxG(0.018, 0.012, 0.03, -0.075, 0.074, 0), B); // 拉柄
+    ud = { muzzle: V(0.668, 0.045), eject: V(0.08, 0.05, 0.02), grip2: V(0.33, 0.02, 0), butt: V(-0.353, -0.004), eye: V(-0.14, 0.114), length: 1.02 };
+  }
+  return { metal: M, matte: T, ud };
+}
+// 槍口火光的貼圖（星形）
+let FLASH_TEX = null, FLASH_MAT = null;
+function flashMat() {
+  if (FLASH_MAT) return FLASH_MAT;
+  const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
+  const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64); gr.addColorStop(0, 'rgba(255,255,240,1)'); gr.addColorStop(0.18, 'rgba(255,236,170,0.95)'); gr.addColorStop(0.45, 'rgba(255,160,60,0.45)'); gr.addColorStop(1, 'rgba(255,100,20,0)');
+  g.fillStyle = gr; g.beginPath();
+  for (let i = 0; i < 16; i++) { const a = (i / 16) * TAU, r = i % 2 ? 22 : 62 - (i % 4 === 0 ? 0 : 14); g.lineTo(64 + Math.cos(a) * r, 64 + Math.sin(a) * r); }
+  g.closePath(); g.fill();
+  const g2 = g.createRadialGradient(64, 64, 0, 64, 64, 30); g2.addColorStop(0, 'rgba(255,255,255,1)'); g2.addColorStop(1, 'rgba(255,240,200,0)'); g.fillStyle = g2; g.fillRect(0, 0, 128, 128);
+  FLASH_TEX = new THREE.CanvasTexture(c); FLASH_TEX.colorSpace = THREE.SRGBColorSpace;
+  FLASH_MAT = new THREE.MeshBasicMaterial({ map: FLASH_TEX, color: 0xffe2b0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false, toneMapped: false });
+  return FLASH_MAT;
+}
+function buildGunModel(id, o = {}) {
+  if (!GUNS[id]) throw new Error('沒有這種槍：' + id);
+  let geo = MODEL_CACHE[id];
+  if (!geo) { const p = gunParts(id); geo = MODEL_CACHE[id] = { metal: mergeParts(p.metal), matte: mergeParts(p.matte), ud: p.ud }; }
+  const M = modelMats(), grp = new THREE.Group(); grp.name = 'gun-' + id;
+  const a = new THREE.Mesh(geo.metal, M.metal), b = new THREE.Mesh(geo.matte, M.matte); a.name = 'gun-metal'; b.name = 'gun-matte';
+  grp.add(a, b);
+  const ud = geo.ud;
+  grp.userData = { id, muzzle: ud.muzzle.clone(), eject: ud.eject.clone(), grip2: ud.grip2.clone(), butt: ud.butt ? ud.butt.clone() : null, eye: ud.eye.clone(), length: ud.length, flash: null };
+  if (o.flash && hasDoc()) { // 火光：兩片交叉（側面看得到火舌）＋一片朝前的
+    const f = new THREE.Group(), k = { pistol: 0.75, smg: 0.8, shotgun: 1.35, rifle: 1.05 }[id], mat = flashMat();
+    for (let i = 0; i < 2; i++) { const q = new THREE.Mesh(new THREE.PlaneGeometry(0.30 * k, 0.15 * k), mat); q.position.x = 0.12 * k; q.rotation.x = i * Math.PI / 2; f.add(q); }
+    const d = new THREE.Mesh(new THREE.PlaneGeometry(0.17 * k, 0.17 * k), mat); d.rotation.y = Math.PI / 2; d.position.x = 0.015; f.add(d);
+    f.position.copy(ud.muzzle); f.visible = false; f.name = 'gun-flash'; f.renderOrder = 5;
+    f.traverse((q) => { q.frustumCulled = false; });
+    grp.add(f); grp.userData.flash = f;
+  }
+  return grp;
+}
+
+// ---- 聲音：Web Audio 合成（沒有錄音檔）----
+// 樣本第一次用到才算（一個一個 Float32Array），之後每一聲只是一個 AudioBufferSourceNode
+function rngF(seed) { let s = seed >>> 0 || 1; return () => { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return ((s >>> 0) / 4294967296) * 2 - 1; }; }
+const lpK = (hz, sr) => 1 - Math.exp((-TAU * hz) / sr);
+// 槍聲：爆裂的沙沙聲（濾過的雜訊、很快衰減）＋低沉的「碰」（掃頻的正弦）＋尾巴（低通雜訊慢慢消失）＋回音；機械聲（滑套、泵動）
+const SHOT_P = {
+  pistol: { len: 0.75, crack: 0.018, crackLP: 7000, crackAmp: 1.0, body: 170, bodyEnd: 62, bodyDecay: 0.05, bodyAmp: 0.65, tail: 0.13, tailLP: 1700, tailAmp: 0.34, echo: [[0.085, 0.24], [0.2, 0.12]], clicks: [0.035], seed: 11 },
+  smg: { len: 0.5, crack: 0.012, crackLP: 8000, crackAmp: 0.9, body: 200, bodyEnd: 75, bodyDecay: 0.035, bodyAmp: 0.5, tail: 0.07, tailLP: 2100, tailAmp: 0.28, echo: [[0.07, 0.18]], clicks: [0.022], seed: 23 },
+  shotgun: { len: 1.2, crack: 0.035, crackLP: 5000, crackAmp: 1.0, body: 125, bodyEnd: 42, bodyDecay: 0.11, bodyAmp: 0.95, tail: 0.24, tailLP: 1100, tailAmp: 0.45, echo: [[0.11, 0.3], [0.26, 0.16]], clicks: [0.42, 0.56], clickAmp: 0.32, seed: 37 },
+  rifle: { len: 0.95, crack: 0.02, crackLP: 9500, crackAmp: 1.1, body: 150, bodyEnd: 55, bodyDecay: 0.06, bodyAmp: 0.7, tail: 0.19, tailLP: 2400, tailAmp: 0.4, echo: [[0.1, 0.28], [0.24, 0.15]], clicks: [0.03], seed: 51 },
+};
+function synthShot(sr, P) {
+  const n = Math.ceil(P.len * sr), out = new Float32Array(n), R = rngF(P.seed * 7919);
+  const a1 = lpK(P.crackLP, sr), ah = lpK(160, sr), a2 = lpK(P.tailLP, sr);
+  let lp = 0, hp = 0, tl = 0, ph = 0;
+  for (let i = 0; i < n; i++) {
+    const t = i / sr, w = R();
+    lp += (w - lp) * a1; hp += (lp - hp) * ah;
+    const crack = (lp - hp) * Math.exp(-t / P.crack) * (t < 0.0005 ? t / 0.0005 : 1) * P.crackAmp * 2.2;
+    const f = P.bodyEnd + (P.body - P.bodyEnd) * Math.exp(-t / 0.025); ph += (TAU * f) / sr;
+    const body = Math.sin(ph) * Math.exp(-t / P.bodyDecay) * P.bodyAmp * (t < 0.001 ? t / 0.001 : 1);
+    tl += (w - tl) * a2;
+    const tail = tl * Math.exp(-t / P.tail) * P.tailAmp * 3 * Math.min(1, t / 0.006);
+    out[i] = crack + body + tail;
+  }
+  // 回音：延遲、比較暗的複本
+  const src = out.slice(0);
+  for (const [d, g] of P.echo) {
+    const k = Math.floor(d * sr); let e = 0; const ae = lpK(1200, sr);
+    for (let i = k; i < n; i++) { e += (src[i - k] - e) * ae; out[i] += e * g; }
+  }
+  for (const ct of P.clicks || []) addClick(out, sr, ct, P.clickAmp || 0.16, 2600 + (P.seed % 5) * 300, R);
+  finish(out, 0.92);
+  return out;
+}
+function addClick(out, sr, t0, amp, ring, R) { // 金屬「喀」：一小段高頻雜訊＋共鳴
+  const i0 = Math.floor(t0 * sr), n = Math.min(out.length - i0, Math.floor(0.05 * sr));
+  let hp = 0, ph = 0; const ah = lpK(2500, sr);
+  for (let i = 0; i < n; i++) {
+    const t = i / sr, w = R(); hp += (w - hp) * ah;
+    ph += (TAU * ring) / sr;
+    out[i0 + i] += ((w - hp) * Math.exp(-t / 0.0025) * 0.9 + Math.sin(ph) * Math.exp(-t / 0.012) * 0.35) * amp;
+  }
+}
+function finish(out, peak) { // 軟削波＋正規化
+  let m = 0; for (let i = 0; i < out.length; i++) { out[i] = Math.tanh(out[i] * 1.4); m = Math.max(m, Math.abs(out[i])); }
+  if (m > 0) { const k = peak / m; for (let i = 0; i < out.length; i++) out[i] *= k; }
+  const f = Math.min(out.length, 64); for (let i = 0; i < f; i++) out[out.length - 1 - i] *= i / f; // 尾巴收乾淨
+}
+function synthFx(sr, key) {
+  const R = rngF(key.length * 131 + key.charCodeAt(0));
+  const mk = (len) => new Float32Array(Math.ceil(len * sr));
+  if (key === 'dry') { const o = mk(0.08); addClick(o, sr, 0.002, 0.8, 3400, R); finish(o, 0.5); return o; }
+  if (key === 'out' || key === 'in' || key === 'rack' || key === 'shell' || key === 'pump') {
+    const o = mk(0.35), slide = (t0, len, hz, amp) => { const i0 = Math.floor(t0 * sr), n = Math.floor(len * sr); let b1 = 0, b2 = 0; const a = lpK(hz, sr), b = lpK(hz * 0.5, sr); for (let i = 0; i < n && i0 + i < o.length; i++) { const w = R(); b1 += (w - b1) * a; b2 += (b1 - b2) * b; o[i0 + i] += (b1 - b2) * amp * Math.sin((Math.PI * i) / n); } };
+    if (key === 'out') { addClick(o, sr, 0.004, 0.7, 2900, R); slide(0.01, 0.07, 1800, 1.2); }
+    if (key === 'in') { addClick(o, sr, 0.004, 0.9, 2300, R); addClick(o, sr, 0.018, 1.0, 1900, R); slide(0.0, 0.03, 900, 1.5); }
+    if (key === 'rack') { addClick(o, sr, 0.004, 0.8, 3100, R); slide(0.008, 0.06, 2200, 1.0); addClick(o, sr, 0.12, 1.0, 2600, R); }
+    if (key === 'shell') { addClick(o, sr, 0.01, 0.5, 2000, R); slide(0.0, 0.08, 1300, 0.9); }
+    if (key === 'pump') { slide(0.0, 0.05, 1100, 1.8); addClick(o, sr, 0.05, 0.9, 1700, R); slide(0.13, 0.05, 1300, 1.6); addClick(o, sr, 0.18, 1.0, 2100, R); }
+    finish(o, 0.55); return o;
+  }
+  if (key === 'ding') { // 鋼靶「噹」
+    const o = mk(0.9), parts = [[1320, 0.5, 0.55], [2290, 0.28, 0.3], [3510, 0.18, 0.18], [4870, 0.1, 0.1]];
+    for (let i = 0; i < o.length; i++) { const t = i / sr; let v = 0; for (const [f, d, a] of parts) v += Math.sin(TAU * f * t) * Math.exp(-t / d) * a; o[i] = v * (t < 0.001 ? t / 0.001 : 1); }
+    addClick(o, sr, 0, 0.6, 3000, R); finish(o, 0.6); return o;
+  }
+  if (key === 'glass') { // 玻璃裂開：好幾個高音的「叮」＋碎碎的雜訊
+    const o = mk(0.45);
+    for (let k = 0; k < 7; k++) { const f = 3000 + Math.abs(R()) * 4500, t0 = Math.abs(R()) * 0.12, i0 = Math.floor(t0 * sr), d = 0.03 + Math.abs(R()) * 0.07; for (let i = 0; i + i0 < o.length; i++) { const t = i / sr; o[i0 + i] += Math.sin(TAU * f * t) * Math.exp(-t / d) * 0.25; } }
+    let hp = 0; const ah = lpK(4000, sr); for (let i = 0; i < Math.floor(0.15 * sr); i++) { const w = R(); hp += (w - hp) * ah; o[i] += (w - hp) * Math.exp(-i / sr / 0.04) * 0.8; }
+    finish(o, 0.5); return o;
+  }
+  if (key === 'thud') { const o = mk(0.12); let lp = 0; const a = lpK(500, sr); for (let i = 0; i < o.length; i++) { const w = R(); lp += (w - lp) * a; o[i] = lp * Math.exp(-i / sr / 0.02) * 3; } addClick(o, sr, 0, 0.25, 1500, R); finish(o, 0.45); return o; }
+  if (key === 'clank') { const o = mk(0.3); for (let i = 0; i < o.length; i++) { const t = i / sr; o[i] = (Math.sin(TAU * 1650 * t) * 0.5 + Math.sin(TAU * 2830 * t) * 0.3 + Math.sin(TAU * 4100 * t) * 0.15) * Math.exp(-t / 0.05); } addClick(o, sr, 0, 0.7, 2600, R); finish(o, 0.5); return o; }
+  if (key === 'pow') { const o = mk(0.2); let ph = 0; for (let i = 0; i < o.length; i++) { const t = i / sr, f = 110 + 260 * Math.exp(-t / 0.03); ph += (TAU * f) / sr; o[i] = Math.sin(ph) * Math.exp(-t / 0.06) * (t < 0.002 ? t / 0.002 : 1); } finish(o, 0.55); return o; }
+  if (key === 'tink') { const o = mk(0.12); const f = 5200 + Math.abs(R()) * 1500; for (let i = 0; i < o.length; i++) { const t = i / sr; o[i] = (Math.sin(TAU * f * t) + 0.5 * Math.sin(TAU * f * 1.51 * t)) * Math.exp(-t / 0.025); } finish(o, 0.3); return o; }
+  return mk(0.01);
+}
+function createGunAudio(o = {}) {
+  const REC = Symbol.for('carid.engineAudio.shared');
+  const S = { ctx: null, out: null, buf: {}, vol: o.volume ?? 0.8, held: false, gone: false };
+  const muted = typeof o.muted === 'function' ? o.muted : () => !!o.muted;
+  function ctx() {
+    if (S.ctx || S.gone) return S.ctx;
+    const g = globalThis;
+    let c = o.context || null;
+    if (!c) { // 跟引擎聲共用（sound.js 的 createEngineAudio 也會找這個）
+      const rec = g[REC] || (g[REC] = { ctx: null, hid: false, n: 0 });
+      if (rec.ctx && rec.ctx.state !== 'closed') c = rec.ctx;
+      else { const AC = g.AudioContext || g.webkitAudioContext; if (!AC) return null; try { c = new AC({ latencyHint: 'interactive' }); } catch { c = new AC(); } rec.ctx = c; rec.n = rec.n || 0; }
+    }
+    try {
+      const gain = c.createGain(), comp = c.createDynamicsCompressor();
+      gain.gain.value = S.vol; comp.threshold.value = -10; comp.knee.value = 8; comp.ratio.value = 5; comp.attack.value = 0.002; comp.release.value = 0.16;
+      gain.connect(comp); comp.connect(o.output || c.destination);
+      S.ctx = c; S.out = gain;
+    } catch { S.ctx = null; }
+    return S.ctx;
+  }
+  function buffer(key) {
+    const c = ctx(); if (!c) return null;
+    let b = S.buf[key]; if (b) return b;
+    const sr = c.sampleRate, data = SHOT_P[key] ? synthShot(sr, SHOT_P[key]) : synthFx(sr, key);
+    try { b = c.createBuffer(1, data.length, sr); b.copyToChannel ? b.copyToChannel(data, 0) : b.getChannelData(0).set(data); } catch { return null; }
+    S.buf[key] = b; return b;
+  }
+  function play(key, p = {}) {
+    try {
+      if (S.gone || muted()) return;
+      const c = ctx(); if (!c || c.state === 'closed') return;
+      const b = buffer(key); if (!b) return;
+      const src = c.createBufferSource(); src.buffer = b; src.playbackRate.value = (p.rate || 1) * (1 + (Math.random() - 0.5) * 0.06);
+      const g = c.createGain(); g.gain.value = p.gain ?? 1;
+      let last = g;
+      if (p.pan && c.createStereoPanner) { const pn = c.createStereoPanner(); pn.pan.value = clamp(p.pan, -1, 1); g.connect(pn); last = pn; }
+      src.connect(g); last.connect(S.out); src.start();
+    } catch { /* 沒有聲音就算了 */ }
+  }
+  return {
+    resume() { try { const c = ctx(); if (c && c.state === 'suspended') c.resume(); } catch { /* 算了 */ } },
+    // 拿著槍的時候算一個「在用的聲音」：sound.js 就不會讓 AudioContext 睡覺（它只在沒有聲音在用的時候睡）
+    hold(on) { const rec = globalThis[REC]; if (!rec || o.context || S.held === !!on) return; S.held = !!on; rec.n = Math.max(0, (rec.n || 0) + (on ? 1 : -1)); },
+    play, prewarm(keys) { for (const k of keys) buffer(k); },
+    shot: (id) => play(id, { gain: 1 }), dry: () => play('dry', { gain: 0.8 }), step: (id, k) => play(k, { gain: k === 'pump' ? 0.9 : 0.75 }),
+    ding: (pan) => play('ding', { gain: 0.55, pan }), glass: (pan) => play('glass', { gain: 0.6, pan }), thud: (pan) => play('thud', { gain: 0.35, pan }),
+    clank: (pan) => play('clank', { gain: 0.45, pan }), pow: (pan) => play('pow', { gain: 0.5, pan }), tink: () => play('tink', { gain: 0.12, rate: 0.9 + Math.random() * 0.3 }),
+    get context() { return S.ctx; },
+    dispose() { this.hold(false); S.gone = true; try { S.out && S.out.disconnect(); } catch { /* 算了 */ } },
+  };
+}
+
+// ---- 效果：彈道、火花、煙塵、彈孔、彈殼（全部是事先開好的池子）----
+function canvasTex(w, h, draw) { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; }
+const PT_VS = 'uniform float uScale; attribute float size; attribute vec4 rgba; varying vec4 vC; void main() { vC = rgba; vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv; gl_PointSize = size * uScale / max(0.05, -mv.z); }';
+const PT_FS = 'varying vec4 vC; void main() { vec2 q = gl_PointCoord * 2.0 - 1.0; float r = dot(q, q); if (r > 1.0 || vC.a <= 0.0) discard; gl_FragColor = vec4(vC.rgb, vC.a * (1.0 - r) * (1.0 - r * 0.5)); \n#include <colorspace_fragment>\n }';
+function createFx(o = {}) {
+  const root = new THREE.Group(); root.name = 'guns-fx';
+  const V1 = new THREE.Vector3(), V2 = new THREE.Vector3(), V3 = new THREE.Vector3(), M1 = new THREE.Matrix4(), Q1 = new THREE.Quaternion(), S1 = new THREE.Vector3(), Z = new THREE.Vector3(0, 0, 1);
+  // 彈道：一條一條會往前跑的亮線（N 條四邊形，一個網格）
+  const NT = 16, tr = [], tPos = new Float32Array(NT * 12), tCol = new Float32Array(NT * 12), tUv = new Float32Array(NT * 8), tIdx = new Uint16Array(NT * 6);
+  for (let i = 0; i < NT; i++) {
+    tr.push({ on: false, ax: 0, ay: 0, az: 0, dx: 0, dy: 0, dz: 0, len: 0, age: 0, speed: 420, w: 0.022, streak: 5 });
+    tUv.set([0, 0, 0, 1, 1, 1, 1, 0], i * 8); tIdx.set([i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3], i * 6);
+  }
+  const tGeo = new THREE.BufferGeometry();
+  tGeo.setAttribute('position', new THREE.BufferAttribute(tPos, 3).setUsage(THREE.DynamicDrawUsage)); tGeo.setAttribute('color', new THREE.BufferAttribute(tCol, 3).setUsage(THREE.DynamicDrawUsage));
+  tGeo.setAttribute('uv', new THREE.BufferAttribute(tUv, 2)); tGeo.setIndex(new THREE.BufferAttribute(tIdx, 1));
+  const tTex = canvasTex(64, 16, (g, w, h) => { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.5, 'rgba(255,255,255,1)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, w, h); });
+  const tMesh = new THREE.Mesh(tGeo, new THREE.MeshBasicMaterial({ map: tTex, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false, toneMapped: false }));
+  tMesh.frustumCulled = false; tMesh.renderOrder = 6; tMesh.name = 'fx-tracers'; root.add(tMesh);
+  // 粒子：火花（加亮）、煙塵（一般）；同一種寫法
+  function pointPool(N, additive) {
+    const pos = new Float32Array(N * 3), rgba = new Float32Array(N * 4), size = new Float32Array(N), P = [];
+    for (let i = 0; i < N; i++) P.push({ on: false, vx: 0, vy: 0, vz: 0, age: 0, life: 1, s0: 0.05, s1: 0.05, a0: 1, g: 0, drag: 0, r: 1, gg: 1, b: 1, floor: -99 });
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage)); geo.setAttribute('rgba', new THREE.BufferAttribute(rgba, 4).setUsage(THREE.DynamicDrawUsage)); geo.setAttribute('size', new THREE.BufferAttribute(size, 1).setUsage(THREE.DynamicDrawUsage));
+    const mat = new THREE.ShaderMaterial({ uniforms: { uScale: { value: 400 } }, vertexShader: PT_VS, fragmentShader: PT_FS, transparent: true, depthWrite: false, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending });
+    const pts = new THREE.Points(geo, mat); pts.frustumCulled = false; pts.renderOrder = additive ? 7 : 5; root.add(pts);
+    return { N, pos, rgba, size, P, geo, mat, pts, next: 0, hi: 0, live: 0 };
+  }
+  const SP = pointPool(200, true), DU = pointPool(110, false);
+  function emit(pool, x, y, z, vx, vy, vz, life, s0, s1, r, g, b, a0, grav, drag, floor = -99) {
+    const i = pool.next; pool.next = (i + 1) % pool.N;
+    const p = pool.P[i]; p.on = true; p.age = 0; p.life = life; p.vx = vx; p.vy = vy; p.vz = vz; p.s0 = s0; p.s1 = s1; p.r = r; p.gg = g; p.b = b; p.a0 = a0; p.g = grav; p.drag = drag; p.floor = floor;
+    pool.pos[i * 3] = x; pool.pos[i * 3 + 1] = y; pool.pos[i * 3 + 2] = z;
+    if (i + 1 > pool.hi) pool.hi = i + 1;
+  }
+  const rnd = Math.random, rs = () => rnd() * 2 - 1;
+  // 火花：從打到的點沿著法線彈出去（金屬亮、牆上少一點）
+  function sparks(x, y, z, nx, ny, nz, n = 8, speed = 6, hot = 1) {
+    for (let k = 0; k < n; k++) {
+      const vx = nx * speed * (0.4 + rnd()) + rs() * speed * 0.6, vy = ny * speed * (0.4 + rnd()) + rs() * speed * 0.6 + 1.2, vz = nz * speed * (0.4 + rnd()) + rs() * speed * 0.6;
+      emit(SP, x + nx * 0.01, y + ny * 0.01, z + nz * 0.01, vx, vy, vz, 0.12 + rnd() * 0.22, 0.035 * hot, 0.01, 1, 0.78 + rnd() * 0.2, 0.35 + rnd() * 0.3, 1, -9.8, 1.5, 0);
+    }
+  }
+  function flashPt(x, y, z, size = 0.35, life = 0.06, r = 1, g = 0.85, b = 0.55) { emit(SP, x, y, z, 0, 0, 0, life, size, size * 1.4, r, g, b, 0.9, 0, 0); }
+  // 煙塵：從牆上噴出來、慢慢變大變淡（顏色照打到什麼）
+  function dust(x, y, z, nx, ny, nz, n = 5, c = 0.62, spread = 1) {
+    for (let k = 0; k < n; k++) {
+      const sp = (0.6 + rnd() * 1.6) * spread;
+      emit(DU, x + nx * 0.03, y + ny * 0.03, z + nz * 0.03, nx * sp + rs() * 0.5, ny * sp + rs() * 0.5 + 0.35, nz * sp + rs() * 0.5, 0.5 + rnd() * 0.6, 0.07 + rnd() * 0.05, 0.3 + rnd() * 0.25, c, c * 0.97, c * 0.92, 0.55, 0.2, 2.2);
+    }
+  }
+  // 玻璃碎片：亮亮的小點掉下去
+  function shards(x, y, z, nx, ny, nz, n = 14) {
+    for (let k = 0; k < n; k++) emit(SP, x, y, z, nx * (1 + rnd() * 2) + rs() * 1.6, ny * 1.5 + rnd() * 1.5, nz * (1 + rnd() * 2) + rs() * 1.6, 0.5 + rnd() * 0.5, 0.022, 0.018, 0.75, 0.9, 1, 0.9, -9.8, 0.5, 0.02);
+  }
+  // 打到人：卡通的「碰」：一團白色的星星＋幾顆黃色的小火花＋一點灰（沒有血）
+  function pow(x, y, z, nx, ny, nz) {
+    flashPt(x, y, z, 0.45, 0.1, 1, 1, 0.9);
+    for (let k = 0; k < 7; k++) { const a = (k / 7) * TAU; emit(SP, x, y, z, Math.cos(a) * 2.6 + nx, Math.sin(a) * 2.6 + 0.6, rs() * 2 + nz, 0.22, 0.06, 0.02, 1, 0.9, 0.3, 1, -3, 2); }
+    dust(x, y, z, nx, ny, nz, 3, 0.85, 0.6);
+  }
+  // 彈孔、玻璃裂痕：貼片（InstancedMesh），可以貼在會動的東西上（車）：記住在那個東西本地的矩陣，每一格跟著動
+  const holeTex = canvasTex(64, 64, (g) => {
+    const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(8,8,9,1)'); gr.addColorStop(0.22, 'rgba(18,18,20,0.95)'); gr.addColorStop(0.34, 'rgba(70,66,60,0.75)'); gr.addColorStop(0.55, 'rgba(120,112,100,0.35)'); gr.addColorStop(1, 'rgba(120,112,100,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  });
+  const crackTex = canvasTex(128, 128, (g) => {
+    g.strokeStyle = 'rgba(255,255,255,0.95)'; g.lineWidth = 1.6; g.lineCap = 'round';
+    const R = rngF(77);
+    for (let k = 0; k < 11; k++) { let a = (k / 11) * TAU + R() * 0.3, x = 64, y = 64; g.beginPath(); g.moveTo(x, y); for (let s = 0; s < 4; s++) { a += R() * 0.35; const l = 10 + Math.abs(R()) * 10; x += Math.cos(a) * l; y += Math.sin(a) * l; g.lineTo(x, y); } g.stroke(); }
+    g.lineWidth = 1; for (const r of [14, 26, 40]) { g.beginPath(); for (let k = 0; k <= 12; k++) { const a = (k / 12) * TAU, rr = r + R() * 4; g[k ? 'lineTo' : 'moveTo'](64 + Math.cos(a) * rr, 64 + Math.sin(a) * rr); } g.globalAlpha = 0.55; g.stroke(); g.globalAlpha = 1; }
+    const gr = g.createRadialGradient(64, 64, 0, 64, 64, 9); gr.addColorStop(0, 'rgba(20,24,28,1)'); gr.addColorStop(1, 'rgba(230,240,245,0.4)'); g.fillStyle = gr; g.beginPath(); g.arc(64, 64, 9, 0, TAU); g.fill();
+  });
+  function decalPool(N, tex, blend) {
+    const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, blending: blend || THREE.NormalBlending, toneMapped: true, fog: true });
+    const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), mat, N); mesh.count = 0; mesh.frustumCulled = false; mesh.renderOrder = 3;
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); root.add(mesh);
+    const D = []; for (let i = 0; i < N; i++) D.push({ on: false, obj: null, owner: null, gen: 0, local: new THREE.Matrix4(), world: new THREE.Matrix4(), t: 0 });
+    return { N, mesh, D, next: 0 };
+  }
+  const HO = decalPool(90, holeTex), CR = decalPool(28, crackTex);
+  function decal(pool, x, y, z, nx, ny, nz, size, obj = null, owner = null) {
+    const i = pool.next; pool.next = (i + 1) % pool.N;
+    const d = pool.D[i]; d.on = true; d.t = 0; d.obj = obj; d.owner = owner; d.gen = owner && owner.frames != null ? owner.frames : 0;
+    V1.set(nx, ny, nz).normalize(); Q1.setFromUnitVectors(Z, V1);
+    V2.set(0, 0, rnd() * TAU); M1.makeRotationZ(V2.z); // 隨便轉一下（每個孔不一樣）
+    S1.set(size, size, size);
+    d.world.compose(V3.set(x + V1.x * 0.004, y + V1.y * 0.004, z + V1.z * 0.004), Q1, S1).multiply(M1);
+    if (obj) { obj.updateMatrixWorld(); d.local.copy(obj.matrixWorld).invert().multiply(d.world); }
+    pool.mesh.setMatrixAt(i, d.world); if (i + 1 > pool.mesh.count) pool.mesh.count = i + 1; pool.mesh.instanceMatrix.needsUpdate = true;
+  }
+  const HIDE = new THREE.Matrix4().makeScale(0, 0, 0);
+  function decalTick(pool) {
+    let dirty = false;
+    for (let i = 0; i < pool.mesh.count; i++) {
+      const d = pool.D[i]; if (!d.on || !d.obj) continue;
+      const o = d.obj, gone = !o.parent || o.visible === false || (d.owner && (d.owner.active === false || d.owner.gone || (d.owner.frames != null && d.owner.frames < d.gen)));
+      if (gone) { d.on = false; d.obj = null; pool.mesh.setMatrixAt(i, HIDE); dirty = true; continue; }
+      d.world.multiplyMatrices(o.matrixWorld, d.local); pool.mesh.setMatrixAt(i, d.world); dirty = true;
+    }
+    if (dirty) pool.mesh.instanceMatrix.needsUpdate = true;
+  }
+  function clearDecals() { for (const p of [HO, CR]) { for (const d of p.D) { d.on = false; d.obj = null; } p.mesh.count = 0; p.next = 0; } }
+  // 彈殼：黃銅（霰彈是紅色塑膠）小圓柱，彈出去、掉在地上彈一下、躺幾秒
+  const NS = 30, SH = [], shMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(1, 1, 1, 7, 1), new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.85, roughness: 0.32 }), NS);
+  shMesh.count = 0; shMesh.frustumCulled = false; shMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); shMesh.name = 'fx-shells'; root.add(shMesh);
+  const BRASS = new THREE.Color(0xc9a24a), RED = new THREE.Color(0xb3261e);
+  for (let i = 0; i < NS; i++) { SH.push({ on: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, rx: 0, rz: 0, wx: 0, wz: 0, age: 0, r: 0.0045, l: 0.02, floor: 0, rest: false, bounced: 0 }); shMesh.setColorAt(i, BRASS); }
+  let shNext = 0;
+  function shell(x, y, z, vx, vy, vz, kind, floor = 0) {
+    const s = SH[shNext], i = shNext; shNext = (shNext + 1) % NS;
+    Object.assign(s, { on: true, x, y, z, vx, vy, vz, rx: rnd() * TAU, rz: rnd() * TAU, wx: rs() * 30, wz: rs() * 30, age: 0, floor, rest: false, bounced: 0 });
+    if (kind === 'shotgun') { s.r = 0.0105; s.l = 0.06; shMesh.setColorAt(i, RED); } else if (kind === 'rifle') { s.r = 0.0055; s.l = 0.045; shMesh.setColorAt(i, BRASS); } else { s.r = 0.0048; s.l = 0.02; shMesh.setColorAt(i, BRASS); }
+    if (shMesh.instanceColor) shMesh.instanceColor.needsUpdate = true;
+    if (i + 1 > shMesh.count) shMesh.count = i + 1;
+  }
+  const E1 = new THREE.Euler();
+  let onTink = null;
+  function update(dt, camera, pxScale) {
+    // 彈道
+    let any = false;
+    if (camera) V3.setFromMatrixPosition(camera.matrixWorld);
+    for (let i = 0; i < NT; i++) {
+      const t = tr[i], o3 = i * 12;
+      if (!t.on) { if (tPos[o3] !== 0 || tPos[o3 + 3] !== 0) { tPos.fill(0, o3, o3 + 12); any = true; } continue; }
+      t.age += dt; const run = t.speed * t.age, head = Math.min(t.len, run), tail = Math.max(0, run - t.streak); // 頭到了打到的點就停，尾巴繼續跑到那一點＝消失
+      if (tail >= t.len - 1e-3) { t.on = false; tPos.fill(0, o3, o3 + 12); any = true; continue; }
+      const ax = t.ax + t.dx * tail, ay = t.ay + t.dy * tail, az = t.az + t.dz * tail, bx = t.ax + t.dx * head, by = t.ay + t.dy * head, bz = t.az + t.dz * head;
+      // 側邊＝彈道方向 × 看過來的方向
+      const mx = (ax + bx) / 2 - V3.x, my = (ay + by) / 2 - V3.y, mz = (az + bz) / 2 - V3.z;
+      let sx = t.dy * mz - t.dz * my, sy = t.dz * mx - t.dx * mz, sz = t.dx * my - t.dy * mx; const sl = Math.hypot(sx, sy, sz) || 1, w = t.w * (0.6 + 0.4 * Math.min(1, Math.hypot(mx, my, mz) / 6));
+      sx *= w / sl; sy *= w / sl; sz *= w / sl;
+      tPos[o3] = ax - sx; tPos[o3 + 1] = ay - sy; tPos[o3 + 2] = az - sz; tPos[o3 + 3] = ax + sx; tPos[o3 + 4] = ay + sy; tPos[o3 + 5] = az + sz;
+      tPos[o3 + 6] = bx + sx; tPos[o3 + 7] = by + sy; tPos[o3 + 8] = bz + sz; tPos[o3 + 9] = bx - sx; tPos[o3 + 10] = by - sy; tPos[o3 + 11] = bz - sz;
+      const f = 1 - smooth01(tail / Math.max(0.01, t.len) - 0.6) * 0.5, c0 = 0.12 * f, c1 = 1.0 * f;
+      tCol[o3] = c0; tCol[o3 + 1] = c0 * 0.8; tCol[o3 + 2] = c0 * 0.5; tCol[o3 + 3] = c0; tCol[o3 + 4] = c0 * 0.8; tCol[o3 + 5] = c0 * 0.5;
+      tCol[o3 + 6] = c1; tCol[o3 + 7] = c1 * 0.86; tCol[o3 + 8] = c1 * 0.55; tCol[o3 + 9] = c1; tCol[o3 + 10] = c1 * 0.86; tCol[o3 + 11] = c1 * 0.55;
+      any = true;
+    }
+    if (any) { tGeo.attributes.position.needsUpdate = true; tGeo.attributes.color.needsUpdate = true; }
+    // 粒子
+    for (const pool of [SP, DU]) {
+      pool.mat.uniforms.uScale.value = pxScale || 400;
+      let hi = 0, live = 0;
+      for (let i = 0; i < pool.hi; i++) {
+        const p = pool.P[i], i3 = i * 3, i4 = i * 4;
+        if (!p.on) { pool.size[i] = 0; pool.rgba[i4 + 3] = 0; continue; }
+        p.age += dt; if (p.age >= p.life) { p.on = false; pool.size[i] = 0; pool.rgba[i4 + 3] = 0; continue; }
+        const k = p.age / p.life, dr = Math.exp(-p.drag * dt);
+        p.vy += p.g * dt; p.vx *= dr; p.vy *= dr; p.vz *= dr;
+        pool.pos[i3] += p.vx * dt; pool.pos[i3 + 1] += p.vy * dt; pool.pos[i3 + 2] += p.vz * dt;
+        if (pool.pos[i3 + 1] < p.floor) { pool.pos[i3 + 1] = p.floor; p.vy *= -0.3; p.vx *= 0.6; p.vz *= 0.6; }
+        pool.size[i] = p.s0 + (p.s1 - p.s0) * k; pool.rgba[i4] = p.r; pool.rgba[i4 + 1] = p.gg; pool.rgba[i4 + 2] = p.b; pool.rgba[i4 + 3] = p.a0 * (1 - k) * (1 - k * 0.3);
+        hi = i + 1; live++;
+      }
+      pool.hi = hi; pool.live = live; pool.geo.setDrawRange(0, hi); pool.pts.visible = hi > 0;
+      if (hi) { pool.geo.attributes.position.needsUpdate = true; pool.geo.attributes.rgba.needsUpdate = true; pool.geo.attributes.size.needsUpdate = true; }
+    }
+    // 彈殼
+    let sd = false;
+    for (let i = 0; i < shMesh.count; i++) {
+      const s = SH[i]; if (!s.on) continue;
+      s.age += dt;
+      if (!s.rest) {
+        s.vy -= 9.8 * dt; s.x += s.vx * dt; s.y += s.vy * dt; s.z += s.vz * dt; s.rx += s.wx * dt; s.rz += s.wz * dt;
+        if (s.y < s.floor + s.r) {
+          s.y = s.floor + s.r;
+          if (s.bounced < 2 && Math.abs(s.vy) > 0.6) { s.vy = -s.vy * 0.35; s.vx *= 0.5; s.vz *= 0.5; s.wx *= 0.5; s.wz *= 0.5; s.bounced++; if (onTink && s.bounced === 1) onTink(); }
+          else { s.rest = true; s.rx = Math.PI / 2; s.wx = s.wz = 0; }
+        }
+      }
+      const fade = s.age > 6 ? Math.max(0, 1 - (s.age - 6) / 0.6) : 1;
+      if (fade <= 0) { s.on = false; shMesh.setMatrixAt(i, HIDE); sd = true; continue; }
+      E1.set(s.rx, 0, s.rz); Q1.setFromEuler(E1); S1.set(s.r * fade, s.l * fade, s.r * fade);
+      M1.compose(V1.set(s.x, s.y, s.z), Q1, S1); shMesh.setMatrixAt(i, M1); sd = true;
+    }
+    if (sd) shMesh.instanceMatrix.needsUpdate = true;
+    decalTick(HO); decalTick(CR);
+  }
+  function tracer(ax, ay, az, bx, by, bz, o2 = {}) {
+    let best = null, age = -1;
+    for (const t of tr) { if (!t.on) { best = t; break; } if (t.age > age) { age = t.age; best = t; } }
+    const dx = bx - ax, dy = by - ay, dz = bz - az, l = Math.hypot(dx, dy, dz) || 1;
+    Object.assign(best, { on: true, ax, ay, az, dx: dx / l, dy: dy / l, dz: dz / l, len: l, age: 0, speed: o2.speed || 380, w: o2.w || 0.02, streak: Math.min(l, o2.streak || 6) });
+  }
+  return {
+    root, tracer, sparks, dust, shards, pow, flashPt, shell, clearDecals,
+    hole: (x, y, z, nx, ny, nz, size = 0.07, obj, owner) => decal(HO, x, y, z, nx, ny, nz, size, obj, owner),
+    crack: (x, y, z, nx, ny, nz, size = 0.34, obj, owner) => decal(CR, x, y, z, nx, ny, nz, size, obj, owner),
+    update, set onTink(f) { onTink = f; },
+    stuck: (obj) => { let n = 0; for (const p of [HO, CR]) for (const d of p.D) if (d.on && d.obj === obj) n++; return n; }, // 貼在這台車上、還在的彈孔＋裂痕（測試用）
+    get stats() { return { tracers: tr.filter((t) => t.on).length, sparks: SP.live, dust: DU.live, holes: HO.mesh.count, cracks: CR.mesh.count, shells: SH.filter((s) => s.on).length }; },
+    dispose() { root.removeFromParent(); root.traverse((q) => { if (q.geometry) q.geometry.dispose(); if (q.material) { if (q.material.map) q.material.map.dispose(); q.material.dispose(); } }); },
+  };
+}
+
+// ---- 子彈打到什麼：牆（長方形、圓柱，放在 8 公尺的格子）、地面、天花板 ----
+function rayGrid(list) {
+  const CELL = 8, grid = new Map(), all = [];
+  const key = (gx, gz) => (gx + 32768) * 65536 + (gz + 32768);
+  for (const c of list || []) {
+    if (!c || !isFinite(c.x) || !isFinite(c.z)) continue;
+    const box = c.t === 'box'; if (box ? !(c.hx > 0 && c.hz > 0) : !(c.r > 0)) continue;
+    const rot = c.rot || 0, q = { box, x: c.x, z: c.z, hx: box ? c.hx : 0, hz: box ? c.hz : 0, r: box ? 0 : c.r, y0: c.y0 || 0, h: c.h ?? 9, u0: Math.cos(rot), u1: -Math.sin(rot), w0: Math.sin(rot), w1: Math.cos(rot), src: c, _s: 0 };
+    const ex = box ? Math.abs(q.u0) * q.hx + Math.abs(q.w0) * q.hz : q.r, ez = box ? Math.abs(q.u1) * q.hx + Math.abs(q.w1) * q.hz : q.r;
+    for (let gx = Math.floor((q.x - ex) / CELL); gx <= Math.floor((q.x + ex) / CELL); gx++) for (let gz = Math.floor((q.z - ez) / CELL); gz <= Math.floor((q.z + ez) / CELL); gz++) {
+      const k = key(gx, gz); let a = grid.get(k); if (!a) grid.set(k, (a = [])); a.push(q);
+    }
+    all.push(q);
+  }
+  let stamp = 0;
+  // 沿著射線走過的格子（2D DDA），每格的東西都算一次，找最近的
+  function cast(ox, oy, oz, dx, dy, dz, maxT, out) {
+    stamp++; let best = maxT;
+    let gx = Math.floor(ox / CELL), gz = Math.floor(oz / CELL);
+    const sx = dx > 0 ? 1 : -1, sz = dz > 0 ? 1 : -1;
+    const tdx = Math.abs(dx) > 1e-9 ? CELL / Math.abs(dx) : Infinity, tdz = Math.abs(dz) > 1e-9 ? CELL / Math.abs(dz) : Infinity;
+    let tx = Math.abs(dx) > 1e-9 ? ((dx > 0 ? (gx + 1) * CELL - ox : ox - gx * CELL) / Math.abs(dx)) : Infinity;
+    let tz = Math.abs(dz) > 1e-9 ? ((dz > 0 ? (gz + 1) * CELL - oz : oz - gz * CELL) / Math.abs(dz)) : Infinity;
+    let tc = 0;
+    for (let it = 0; it < 256 && tc <= best; it++) {
+      const a = grid.get(key(gx, gz));
+      if (a) for (let i = 0; i < a.length; i++) { const q = a[i]; if (q._s === stamp) continue; q._s = stamp; const t = hitShape(q, ox, oy, oz, dx, dy, dz, best, out); if (t < best) best = t; }
+      if (tx < tz) { tc = tx; tx += tdx; gx += sx; } else { tc = tz; tz += tdz; gz += sz; }
+    }
+    return best;
+  }
+  return { cast, count: all.length };
+}
+// 一個形狀（長方形：本地座標的三個方向各一組平面；圓柱：側面＋上下蓋）：打到回傳 t（比 best 近才填 out 的法線）
+function hitShape(q, ox, oy, oz, dx, dy, dz, best, out) {
+  const px = ox - q.x, pz = oz - q.z;
+  let t0 = -Infinity, t1 = best, nAx = 0, nS = 0;
+  if (q.box) {
+    const lu = px * q.u0 + pz * q.u1, lw = px * q.w0 + pz * q.w1, du = dx * q.u0 + dz * q.u1, dw = dx * q.w0 + dz * q.w1;
+    for (let k = 0; k < 2; k++) {
+      const p = k ? lw : lu, d = k ? dw : du, e = k ? q.hz : q.hx;
+      if (Math.abs(d) < 1e-12) { if (p > e || p < -e) return Infinity; continue; }
+      let ta = (-e - p) / d, tb = (e - p) / d, s = -1; if (ta > tb) { const x = ta; ta = tb; tb = x; s = 1; }
+      if (ta > t0) { t0 = ta; nAx = k; nS = s; } if (tb < t1) t1 = tb; if (t0 > t1) return Infinity;
+    }
+  } else {
+    const A = dx * dx + dz * dz, B = px * dx + pz * dz, C = px * px + pz * pz - q.r * q.r;
+    if (A < 1e-12) { if (C > 0) return Infinity; }
+    else { const disc = B * B - A * C; if (disc < 0) return Infinity; const sq = Math.sqrt(disc), ta = (-B - sq) / A, tb = (-B + sq) / A; if (ta > t0) { t0 = ta; nAx = 3; } if (tb < t1) t1 = tb; if (t0 > t1) return Infinity; }
+  }
+  if (Math.abs(dy) < 1e-12) { if (oy < q.y0 || oy > q.h) return Infinity; }
+  else { let ya = (q.y0 - oy) / dy, yb = (q.h - oy) / dy, s = -1; if (ya > yb) { const x = ya; ya = yb; yb = x; s = 1; } if (ya > t0) { t0 = ya; nAx = 2; nS = s; } if (yb < t1) t1 = yb; if (t0 > t1) return Infinity; }
+  if (t1 < 0) return Infinity;
+  const t = Math.max(0, t0); if (t >= best) return Infinity;
+  if (out) {
+    if (t0 < 0) { out.nx = -dx; out.ny = -dy; out.nz = -dz; } // 起點就在裡面
+    else if (nAx === 0) { out.nx = q.u0 * nS; out.ny = 0; out.nz = q.u1 * nS; }
+    else if (nAx === 1) { out.nx = q.w0 * nS; out.ny = 0; out.nz = q.w1 * nS; }
+    else if (nAx === 2) { out.nx = 0; out.ny = nS; out.nz = 0; }
+    else { const hx = px + dx * t, hz = pz + dz * t, l = Math.hypot(hx, hz) || 1; out.nx = hx / l; out.ny = 0; out.nz = hz / l; }
+    out.ref = q.src;
+  }
+  return t;
+}
+const TMPQ = { box: true, x: 0, z: 0, hx: 0, hz: 0, r: 0, y0: 0, h: 0, u0: 1, u1: 0, w0: 0, w1: 1, src: null };
+function setBoxQ(q, x, z, hx, hz, rot, y0, h, src) { q.box = true; q.x = x; q.z = z; q.hx = hx; q.hz = hz; q.y0 = y0; q.h = h; q.u0 = Math.cos(rot); q.u1 = -Math.sin(rot); q.w0 = Math.sin(rot); q.w1 = Math.cos(rot); q.src = src; return q; }
+function setCylQ(q, x, z, r, y0, h, src) { q.box = false; q.x = x; q.z = z; q.r = r; q.y0 = y0; q.h = h; q.src = src; return q; }
+// 車：長方形打到了、有模型的話再對模型的三角形打一次（只有真的開槍才做；準星每一格只用長方形）
+//   彈孔、玻璃裂痕貼在真的車殼上；從引擎蓋上面、車頂上面飛過去的不算打到
+//   玻璃＝網格或材質的名字有 glass（carlod.js 的 lod-glass、完整的車的 glass）；這台沒有分出玻璃的網格（警車：玻璃畫在貼圖上）→ glass＝null，照長方形猜
+//   回傳 t（out 填法線、glass）；Infinity＝模型沒打到；−1＝沒有可以打的網格、或網格太大（開車的那台完整的車）：照長方形算
+//   BVH（三角形分成一層一層的盒子，放在 WeakMap：同一種車共用）：準星對到車、或第一次打到那種車才開始做，每一格做一點（1.5 毫秒，不會卡）
+//   做好以前那台車照長方形算；做好了一顆子彈只看幾十個三角形，不新增物件
+const RC_MAX_TRIS = 30000; // 一台車的網格加起來超過這麼多三角形（開車的那台完整的車）：不做 BVH，照長方形算
+const GLASS_RE = /glass|window|windshield|windscreen/i;
+const matOf = (m, i) => (Array.isArray(m.material) ? m.material[i || 0] || m.material[0] : m.material);
+const rcOk = (m) => m.isMesh && !m.isSkinnedMesh && !m.isInstancedMesh && !!m.geometry && !!m.material && !!m.geometry.attributes.position // 人（有骨頭的）、一大堆一樣的東西：不算
+  && !m.geometry.morphAttributes.position && matOf(m, 0).blending !== THREE.AdditiveBlending; // 發光的貼片（霓虹燈、警示燈的光）
+const BVH = new WeakMap(), BV_PENDING = new Set(), BV_LEAF = 6, BV_STACK = new Int32Array(256);
+const nowMs = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
+const bvhReady = (g) => { const S = BVH.get(g), I = g.index; return S && S.done && S.ver === g.attributes.position.version && S.iver === (I ? I.version : 0) ? S : null; };
+// 做 ms 毫秒（Infinity＝一次做完）；回傳做好了沒（沒做完的下次接著做）
+function bvhWork(g, ms) {
+  const P = g.attributes.position, I = g.index, iv = I ? I.version : 0;
+  let S = BVH.get(g);
+  if (!S || S.ver !== P.version || S.iver !== iv) { S = { done: false, ver: P.version, iver: iv, stage: 0, i: 0, n: Math.floor((I ? I.count : P.count) / 3) }; BVH.set(g, S); }
+  if (S.done) return true;
+  const t0 = nowMs(), n = S.n, late = () => nowMs() - t0 > ms;
+  if (S.stage === 0) { S.tri = new Float32Array(n * 9); S.cen = new Float32Array(n * 3); S.ord = new Uint32Array(n); S.stage = 1; S.i = 0; }
+  if (S.stage === 1) { // 三角形抄出來（網格自己的座標）、中心點
+    const tri = S.tri, cen = S.cen, ord = S.ord, pa = !P.isInterleavedBufferAttribute && P.itemSize === 3 && !P.normalized ? P.array : null, ia = I ? I.array : null;
+    let i = S.i;
+    while (i < n) {
+      for (const e = Math.min(n, i + 2048); i < e; i++) {
+        const o = i * 9;
+        for (let k = 0; k < 3; k++) {
+          const v = ia ? ia[i * 3 + k] : i * 3 + k, q = o + k * 3;
+          if (pa) { tri[q] = pa[v * 3]; tri[q + 1] = pa[v * 3 + 1]; tri[q + 2] = pa[v * 3 + 2]; } else { tri[q] = P.getX(v); tri[q + 1] = P.getY(v); tri[q + 2] = P.getZ(v); }
+        }
+        cen[i * 3] = (tri[o] + tri[o + 3] + tri[o + 6]) / 3; cen[i * 3 + 1] = (tri[o + 1] + tri[o + 4] + tri[o + 7]) / 3; cen[i * 3 + 2] = (tri[o + 2] + tri[o + 5] + tri[o + 8]) / 3;
+        ord[i] = i;
+      }
+      if (i < n && late()) { S.i = i; return false; }
+    }
+    const maxN = 2 * n + 1; S.bb = new Float32Array(maxN * 6); S.nd = new Int32Array(maxN * 2); S.ax = new Uint8Array(maxN); S.task = [0, 0, n]; S.used = 1; S.stage = 2;
+  }
+  if (S.stage === 2) { // 一層一層切開：從最長那一邊的中間切（全部在同一邊：對半分），六個以下是葉子
+    const tri = S.tri, cen = S.cen, ord = S.ord, bb = S.bb, nd = S.nd, axs = S.ax, task = S.task;
+    let used = S.used, work = 0;
+    while (task.length) {
+      const e = task.pop(), st = task.pop(), node = task.pop();
+      let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity, cx0 = Infinity, cy0 = Infinity, cz0 = Infinity, cx1 = -Infinity, cy1 = -Infinity, cz1 = -Infinity;
+      for (let j = st; j < e; j++) {
+        const t = ord[j] * 9, c = ord[j] * 3;
+        for (let k = t, ke = t + 9; k < ke; k += 3) { const x = tri[k], y = tri[k + 1], z = tri[k + 2]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; if (z < z0) z0 = z; if (z > z1) z1 = z; }
+        const cx = cen[c], cy = cen[c + 1], cz = cen[c + 2]; if (cx < cx0) cx0 = cx; if (cx > cx1) cx1 = cx; if (cy < cy0) cy0 = cy; if (cy > cy1) cy1 = cy; if (cz < cz0) cz0 = cz; if (cz > cz1) cz1 = cz;
+      }
+      const b = node * 6; bb[b] = x0; bb[b + 1] = y0; bb[b + 2] = z0; bb[b + 3] = x1; bb[b + 4] = y1; bb[b + 5] = z1;
+      work += e - st;
+      if (e - st <= BV_LEAF) { nd[node * 2] = st; nd[node * 2 + 1] = e - st; }
+      else {
+        let ax = 0, ext = cx1 - cx0; if (cy1 - cy0 > ext) { ax = 1; ext = cy1 - cy0; } if (cz1 - cz0 > ext) { ax = 2; ext = cz1 - cz0; }
+        let mid = (st + e) >> 1;
+        if (ext > 1e-9) {
+          const sp = ax === 0 ? (cx0 + cx1) / 2 : ax === 1 ? (cy0 + cy1) / 2 : (cz0 + cz1) / 2;
+          let i = st, j = e - 1;
+          while (i <= j) { if (cen[ord[i] * 3 + ax] < sp) i++; else { const x = ord[i]; ord[i] = ord[j]; ord[j] = x; j--; } }
+          if (i > st && i < e) mid = i;
+        }
+        const L = used; used += 2;
+        nd[node * 2] = L; nd[node * 2 + 1] = 0; axs[node] = ax;
+        task.push(L, st, mid, L + 1, mid, e);
+      }
+      if (work > 8192) { work = 0; if (task.length && late()) { S.used = used; return false; } }
+    }
+    S.used = used; S.stage = 3; S.i = 0; S.T = new Float32Array(n * 9);
+  }
+  if (S.stage === 3) { // 照葉子的順序重新放（一個葉子的三角形連在一起）
+    const T = S.T, tri = S.tri, ord = S.ord;
+    let j = S.i;
+    while (j < n) {
+      for (const e = Math.min(n, j + 4096); j < e; j++) { const a = ord[j] * 9, o = j * 9; for (let k = 0; k < 9; k++) T[o + k] = tri[a + k]; }
+      if (j < n && late()) { S.i = j; return false; }
+    }
+    S.bb = S.bb.slice(0, S.used * 6); S.nd = S.nd.slice(0, S.used * 2); S.ax = S.ax.slice(0, S.used);
+    S.tri = T; S.orig = ord; S.T = null; S.cen = null; S.ord = null; S.task = null; S.stage = 4; S.done = true;
+  }
+  return true;
+}
+// 每一格：排隊的網格做一點（ms 毫秒）
+function bvhPump(ms) {
+  const t0 = nowMs();
+  for (const g of BV_PENDING) { const left = ms - (nowMs() - t0); if (left <= 0) break; if (bvhWork(g, left)) BV_PENDING.delete(g); else break; }
+}
+function triHit(T, o, ox, oy, oz, dx, dy, dz) { // Möller–Trumbore（兩面都算）
+  const ax = T[o], ay = T[o + 1], az = T[o + 2], e1x = T[o + 3] - ax, e1y = T[o + 4] - ay, e1z = T[o + 5] - az, e2x = T[o + 6] - ax, e2y = T[o + 7] - ay, e2z = T[o + 8] - az;
+  const px = dy * e2z - dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y - dy * e2x, det = e1x * px + e1y * py + e1z * pz;
+  if (det > -1e-14 && det < 1e-14) return Infinity;
+  const inv = 1 / det, sx = ox - ax, sy = oy - ay, sz = oz - az, u = (sx * px + sy * py + sz * pz) * inv; if (u < 0 || u > 1) return Infinity;
+  const qx = sy * e1z - sz * e1y, qy = sz * e1x - sx * e1z, qz = sx * e1y - sy * e1x, v = (dx * qx + dy * qy + dz * qz) * inv; if (v < 0 || u + v > 1) return Infinity;
+  return (e2x * qx + e2y * qy + e2z * qz) * inv;
+}
+function bvhCast(B, ox, oy, oz, dx, dy, dz, near, far, out) { // 網格自己的座標；回傳 t（跟世界座標的 t 一樣：方向沒有正規化），out.i＝第幾個三角形
+  const bb = B.bb, nd = B.nd, T = B.tri, ix = 1 / dx, iy = 1 / dy, iz = 1 / dz;
+  let sp = 0, best = far, hi = -1;
+  BV_STACK[sp++] = 0;
+  while (sp) {
+    const i = BV_STACK[--sp], b = i * 6;
+    let t0 = near, t1 = best, ta = (bb[b] - ox) * ix, tb = (bb[b + 3] - ox) * ix, x;
+    if (ta > tb) { x = ta; ta = tb; tb = x; } if (ta > t0) t0 = ta; if (tb < t1) t1 = tb; if (t0 > t1) continue;
+    ta = (bb[b + 1] - oy) * iy; tb = (bb[b + 4] - oy) * iy; if (ta > tb) { x = ta; ta = tb; tb = x; } if (ta > t0) t0 = ta; if (tb < t1) t1 = tb; if (t0 > t1) continue;
+    ta = (bb[b + 2] - oz) * iz; tb = (bb[b + 5] - oz) * iz; if (ta > tb) { x = ta; ta = tb; tb = x; } if (ta > t0) t0 = ta; if (tb < t1) t1 = tb; if (t0 > t1) continue;
+    const cnt = nd[i * 2 + 1];
+    if (cnt) { for (let k = nd[i * 2], e = k + cnt; k < e; k++) { const t = triHit(T, k * 9, ox, oy, oz, dx, dy, dz); if (t >= near && t < best) { best = t; hi = k; } } }
+    else if (sp < BV_STACK.length - 2) { // 近的那一邊先看（找到了，遠的那一邊多半就不用看了）
+      const L = nd[i * 2], a = B.ax[i], d = a === 0 ? dx : a === 1 ? dy : dz;
+      if (d > 0) { BV_STACK[sp++] = L + 1; BV_STACK[sp++] = L; } else { BV_STACK[sp++] = L; BV_STACK[sp++] = L + 1; }
+    }
+  }
+  out.i = hi; return hi >= 0 ? best : Infinity;
+}
+const RC_ST = { n: 0, tris: 0, pending: 0, glassMesh: false, sync: false, t: Infinity, mesh: null, B: null, i: -1, ox: 0, oy: 0, oz: 0, dx: 0, dy: 0, dz: 0, near: 0, far: 0 }, RC_OUT = { i: -1 };
+const RC_INV = new THREE.Matrix4(), RC_M3 = new THREE.Matrix3(), RC_O = new THREE.Vector3(), RC_D = new THREE.Vector3(), RC_N = new THREE.Vector3();
+function isGlass(m) {
+  if (GLASS_RE.test(m.name)) return true;
+  const M = m.material; if (!Array.isArray(M)) return GLASS_RE.test(M.name || '');
+  for (let i = 0; i < M.length; i++) if (M[i] && GLASS_RE.test(M[i].name || '')) return true;
+  return false;
+}
+const rcCount = (m) => { if (!rcOk(m)) return; const g = m.geometry; RC_ST.n++; RC_ST.tris += (g.index ? g.index.count : g.attributes.position.count) / 3; if (!bvhReady(g)) RC_ST.pending++; if (!RC_ST.glassMesh && isGlass(m)) RC_ST.glassMesh = true; };
+const rcQueue = (m) => { if (rcOk(m) && !bvhReady(m.geometry)) BV_PENDING.add(m.geometry); };
+const rcBuild = (m) => { if (rcOk(m)) bvhWork(m.geometry, Infinity); };
+// 準星對到車：先把那台車的 BVH 排進去做（等一下開槍就好了）
+function warmCar(obj) {
+  for (let o = obj; o; o = o.parent) if (!o.visible) return;
+  RC_ST.n = 0; RC_ST.tris = 0; RC_ST.pending = 0; RC_ST.glassMesh = false;
+  obj.traverseVisible(rcCount);
+  if (RC_ST.pending && RC_ST.tris <= RC_MAX_TRIS) obj.traverseVisible(rcQueue);
+}
+const rcVisit = (m) => {
+  if (!rcOk(m)) return;
+  const B = bvhReady(m.geometry); if (!B || !B.n) return;
+  RC_INV.copy(m.matrixWorld).invert(); RC_M3.setFromMatrix4(RC_INV);
+  RC_O.set(RC_ST.ox, RC_ST.oy, RC_ST.oz).applyMatrix4(RC_INV); RC_D.set(RC_ST.dx, RC_ST.dy, RC_ST.dz).applyMatrix3(RC_M3);
+  const t = bvhCast(B, RC_O.x, RC_O.y, RC_O.z, RC_D.x, RC_D.y, RC_D.z, RC_ST.near, Math.min(RC_ST.far, RC_ST.t), RC_OUT);
+  if (t < RC_ST.t && RC_ST.oy + RC_ST.dy * t > 0.08) { RC_ST.t = t; RC_ST.mesh = m; RC_ST.B = B; RC_ST.i = RC_OUT.i; } // 地上的影子不算
+};
+function refineCar(obj, ox, oy, oz, dx, dy, dz, t0, far, out) {
+  RC_ST.n = 0; RC_ST.tris = 0; RC_ST.pending = 0; RC_ST.glassMesh = false;
+  for (let o = obj; o; o = o.parent) if (!o.visible) return Infinity; // 藏起來的車（還沒載好、太遠）：打不到
+  obj.traverseVisible(rcCount); // 藏起來的零件不算
+  if (!RC_ST.n || RC_ST.tris > RC_MAX_TRIS) return -1;
+  if (RC_ST.pending) { // BVH 還沒做好：排進去，這一顆照長方形（測試的 probe：當場做完）
+    if (!RC_ST.sync) { obj.traverseVisible(rcQueue); return -1; }
+    obj.traverseVisible(rcBuild);
+  }
+  RC_ST.t = Infinity; RC_ST.mesh = null; RC_ST.B = null; RC_ST.i = -1;
+  RC_ST.ox = ox; RC_ST.oy = oy; RC_ST.oz = oz; RC_ST.dx = dx; RC_ST.dy = dy; RC_ST.dz = dz; RC_ST.near = Math.max(0, t0 - 0.05); RC_ST.far = far;
+  obj.updateMatrixWorld(true);
+  obj.traverseVisible(rcVisit);
+  const m = RC_ST.mesh; if (!m) return Infinity;
+  const T = RC_ST.B.tri, o = RC_ST.i * 9, e1x = T[o + 3] - T[o], e1y = T[o + 4] - T[o + 1], e1z = T[o + 5] - T[o + 2], e2x = T[o + 6] - T[o], e2y = T[o + 7] - T[o + 1], e2z = T[o + 8] - T[o + 2];
+  RC_N.set(e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x).applyMatrix3(RC_M3.getNormalMatrix(m.matrixWorld)).normalize();
+  if (RC_N.x * dx + RC_N.y * dy + RC_N.z * dz > 0) RC_N.negate();
+  out.nx = RC_N.x; out.ny = RC_N.y; out.nz = RC_N.z;
+  let mat = m.material;
+  if (Array.isArray(mat)) { const f = RC_ST.B.orig[RC_ST.i] * 3; let mi = 0; for (const gr of m.geometry.groups) if (f >= gr.start && f < gr.start + gr.count) { mi = gr.materialIndex || 0; break; } mat = matOf(m, mi); }
+  out.glass = RC_ST.glassMesh ? GLASS_RE.test(m.name) || GLASS_RE.test((mat && mat.name) || '') : null;
+  RC_ST.mesh = null; RC_ST.B = null;
+  return RC_ST.t;
+}
+// 沒有模型（或沒分玻璃）：照長方形猜是不是玻璃：車身上半部的車窗那一圈（前擋往後斜、後擋往前斜；引擎蓋、行李箱不算）
+function boxGlass(b, hx, hz, hy) {
+  const s = (hy / b.h - 0.64) / 0.32; if (s < 0 || s > 1) return false;
+  const lu = hx * Math.cos(b.rot) - hz * Math.sin(b.rot); // 往車頭是正的
+  return lu < b.hx * (0.42 - 0.3 * s) && lu > -b.hx * (0.62 - 0.24 * s);
+}
+
+// ---- 接別人的模組：人、車的「來源」 ----
+const BOX = { x: 0, z: 0, hx: 0, hz: 0, rot: 0, h: 1.4 };
+const gunTargets = {
+  // npc.js createPedestrians()：people 裡的人（倒在地上的不算：不會一直打倒在地上的人；小孩打不到：子彈從旁邊過去、自動瞄準也不會對到小孩）
+  pedestrians(peds) {
+    const DOWN = { fall: 1, lie: 1, getup: 1, enter: 1, sit: 0 };
+    return {
+      kind: 'ped', list: () => (peds && peds.people) || [],
+      skip: (p) => !p || p.gone || p.active === false || p.age === 'kid' || DOWN[p.mode] === 1 || (p.ch && p.ch.group && p.ch.group.visible === false),
+      r: (p) => Math.max(0.28, p.r || 0.3), h: (p) => (p.mode === 'sit' ? 1.3 : p.age === 'kid' ? 1.3 : p.ch && p.ch.height ? p.ch.height : 1.7),
+      knock: (p, hit) => { if (peds && peds.knock) peds.knock(p, hit.dx, hit.dz, 3.5 + hit.power * 3, null); },
+      scare: (x, z, r) => { if (peds && peds.scare) peds.scare(x, z, r); },
+    };
+  },
+  // npc.js createTraffic()：路上的車、機車
+  traffic(traffic) {
+    return {
+      kind: 'traffic', list: () => (traffic && traffic.cars) || [],
+      box: (c, o) => { if (!c || c.active === false) return null; o.x = c.x; o.z = c.z; o.hx = c.hx; o.hz = c.hz; o.rot = c.heading; o.h = c.kind === 'scooter' ? 1.25 : 1.45; return o; },
+      obj: (c) => c.obj || null, fine: (c) => c.kind !== 'scooter', // 機車：騎士是有骨頭的人（模型打不到）→ 照長方形
+      shot: (c, hit) => { if (traffic && traffic.shot) traffic.shot(c, hit); else { c.stun = Math.max(c.stun || 0, 2.5 + Math.random()); c.hitCool = Math.max(c.hitCool || 0, 1); } },
+    };
+  },
+  // police-ai.js createPolice()：警車、下車的警察（police.movers：前 3 個是警車的長方形、後 3 個是下車的警察的圓）
+  //   打倒警察：police.shot(hit)（hit＝{ x, z, dx, dz }；它不報犯罪 → 這裡報 'shootCop'）；舊版沒有的話借 police.punch：站在子彈來的方向 0.75 公尺「揍」他
+  //   （一樣倒下去、爬起來；police-ai.js 自己報 'cop' +1★ → knock 回傳 true，這裡就不再報 'shootCop'）
+  //   警車的彈孔貼在車上：police.carObject(i) → 那台的 Object3D；舊版沒有就用 police._dbg.cars[i].group（測試用的後門，有就用）
+  police(police) {
+    const MX = () => (police && police.movers) || [], ME = { x: 0, z: 0, heading: 0 }, NO = [];
+    const carObj = (m) => {
+      const i = MX().indexOf(m); if (i < 0) return null;
+      if (police.carObject) return police.carObject(i) || null;
+      const c = police._dbg && police._dbg.cars && police._dbg.cars[i];
+      return (c && c.group) || null;
+    };
+    return [
+      { kind: 'police', cop: true, list: MX, skip: (m) => m.t !== 'circle' || !(m.r > 0), r: () => 0.32, h: () => 1.8,
+        knock: (m, hit) => {
+          if (police.shot) { police.shot(hit); return false; }
+          if (!police.punch) return false;
+          const l = Math.hypot(hit.dx, hit.dz) || 1, ux = hit.dx / l, uz = hit.dz / l;
+          ME.x = m.x - ux * 0.75; ME.z = m.z - uz * 0.75; ME.heading = Math.atan2(-uz, ux);
+          return !!police.punch(ME, NO, null);
+        } },
+      { kind: 'police', cop: true, list: MX, box: (m, o) => { if (m.t !== 'box' || !(m.hx > 0)) return null; o.x = m.x; o.z = m.z; o.hx = m.hx; o.hz = m.hz; o.rot = m.rot; o.h = m.h || 1.6; return o; },
+        obj: carObj, shot: (m, hit) => { if (police.shotCar) police.shotCar(MX().indexOf(m), hit); } },
+    ];
+  },
+  // 停著的車：list() → [{ x, z, hx, hz, rot, h, obj }]
+  boxes(list, o = {}) {
+    return { kind: o.kind || 'parked', cop: !!o.cop, list, box: (c, b) => { b.x = c.x; b.z = c.z; b.hx = c.hx; b.hz = c.hz; b.rot = c.rot || 0; b.h = c.h || 1.35; return b; }, obj: (c) => c.obj || null, shot: o.shot || null };
+  },
+};
+
+// ---- HUD（跟 walk.js 的 .wk 同一個樣子：深色半透明、橘色）----
+const CSS = `
+.gn{position:absolute;inset:0;pointer-events:none;z-index:4;color:#F2F3F5;font-family:${SANS};-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;overflow:hidden}
+.gn[hidden],.gn [hidden]{display:none!important}
+.gn>*{position:absolute}
+.gn-x{left:50%;top:50%;width:0;height:0;--g:9px;transition:opacity .1s}
+.gn-x i{position:absolute;display:block;background:#F2F3F5;border-radius:1px;box-shadow:0 0 0 1px rgba(14,15,18,.6)}
+.gn-x i:nth-child(1){width:2px;height:9px;left:-1px;bottom:var(--g)}
+.gn-x i:nth-child(2){width:2px;height:9px;left:-1px;top:var(--g)}
+.gn-x i:nth-child(3){width:9px;height:2px;top:-1px;right:var(--g)}
+.gn-x i:nth-child(4){width:9px;height:2px;top:-1px;left:var(--g)}
+.gn-x b{position:absolute;left:-2px;top:-2px;width:4px;height:4px;border-radius:50%;background:#F2F3F5;box-shadow:0 0 0 1px rgba(14,15,18,.6)}
+.gn-x.hot i,.gn-x.hot b{background:#FF6A1F}
+.gn-x.scope::before{content:"";position:absolute;left:-46px;top:-46px;width:88px;height:88px;border-radius:50%;box-shadow:0 0 0 2px rgba(242,243,245,.7),0 0 0 3px rgba(14,15,18,.35)}
+.gn-hit{left:50%;top:50%;width:0;height:0;opacity:0;transition:opacity .16s}
+.gn-hit.on{opacity:1;transition:none}
+.gn-hit i{position:absolute;left:-1px;top:-1px;width:2.5px;height:10px;background:#F2F3F5;box-shadow:0 0 0 1px rgba(14,15,18,.5);transform-origin:1px 1px}
+.gn-hit i:nth-child(1){transform:rotate(45deg) translateY(7px)}.gn-hit i:nth-child(2){transform:rotate(135deg) translateY(7px)}
+.gn-hit i:nth-child(3){transform:rotate(225deg) translateY(7px)}.gn-hit i:nth-child(4){transform:rotate(315deg) translateY(7px)}
+.gn-hit.ko i{background:#FF6A1F}
+.gn-pill{top:196px;right:10px;display:flex;align-items:center;gap:7px;height:46px;box-sizing:border-box;padding:0 12px 0 10px;border:0;border-radius:999px;background:rgba(14,15,18,.62);color:#F2F3F5;pointer-events:auto;cursor:pointer;touch-action:manipulation;overflow:hidden}
+.gn-pill svg{flex:none;width:44px;height:17px;fill:currentColor}
+.gn-pill .n{font:700 13px/1.1 ${SANS};white-space:nowrap}
+.gn-pill .a{font:700 23px/1 ${COND};letter-spacing:.02em;font-variant-numeric:tabular-nums;white-space:nowrap}
+.gn-pill .a small{font:600 16px/1 ${COND};color:#C6CAD1;margin-left:1px}
+.gn-pill.low .a b{color:#FF6A1F}
+.gn-pill.out .a b{color:#FF5A4F}
+.gn-pill .bar{position:absolute;left:12px;right:12px;bottom:5px;height:3px;border-radius:2px;background:rgba(242,243,245,.22);overflow:hidden}
+.gn-pill .bar i{display:block;height:100%;width:0;background:#FF6A1F}
+.gn-pill.bare .a{display:none}
+.gn-pill.bare{padding-right:14px}
+.gn-wheel{top:250px;right:10px;display:flex;flex-direction:column;align-items:stretch;gap:6px;pointer-events:auto;max-height:calc(100% - 262px);overflow-y:auto;scrollbar-width:none}
+/* 被通緝（police-ai.js 在 hudParent 加 pw-on）：上面多一條星星，walk.js 右上角的小地圖、鏡頭按鈕往下推 46px；子彈的膠囊、換槍的清單也一起往下 */
+.pw-host .gn-pill,.pw-host .gn-wheel{transition:margin-top .2s}
+.pw-host.pw-on .gn-pill,.pw-host.pw-on .gn-wheel{margin-top:46px}
+.pw-host.pw-on .gn-wheel{max-height:calc(100% - 308px)}
+.gn.wheel .gn-b{display:none}
+.gn-wheel button{display:flex;align-items:center;gap:9px;height:44px;min-width:168px;padding:0 12px 0 10px;border:0;border-radius:14px;background:rgba(14,15,18,.82);color:#F2F3F5;font:700 15px ${SANS};cursor:pointer;touch-action:manipulation;text-align:left}
+.gn-wheel button svg{flex:none;width:40px;height:15px;fill:currentColor}
+.gn-wheel button small{margin-left:auto;font:600 16px ${COND};color:#C6CAD1;font-variant-numeric:tabular-nums}
+.gn-wheel button[aria-pressed="true"]{background:#FF6A1F;color:#1A0F07}
+.gn-wheel button[aria-pressed="true"] small{color:#1A0F07}
+.gn-b{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;border-radius:50%;background:rgba(14,15,18,.62);box-shadow:0 4px 0 rgba(0,0,0,.35);pointer-events:auto;touch-action:none;cursor:pointer;color:#F2F3F5}
+.gn-b svg{width:28px;height:28px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.gn-b span{font:700 13px/1 ${SANS}}
+.gn-fire{right:16px;bottom:26px;width:90px;height:90px;background:#FF6A1F;color:#1A0F07;box-shadow:0 5px 0 #9E4213}
+.gn-fire svg{width:34px;height:34px}
+.gn-fire span{font-size:15px}
+.gn-fire.on{transform:translateY(4px);box-shadow:0 1px 0 #9E4213}
+.gn-fire.empty{background:#6b6e75;box-shadow:0 5px 0 #3b3d42}
+.gn-aim{right:116px;bottom:84px;width:66px;height:66px}
+.gn-aim.on,.gn-aim[aria-pressed="true"]{background:#F2F3F5;color:#1A0F07}
+.gn-rel{right:24px;bottom:132px;width:52px;height:52px}
+.gn-rel svg{width:22px;height:22px}
+.gn-rel span{font-size:11px}
+.gn-rel.on{background:#FF6A1F;color:#1A0F07}
+.gn kbd{display:none}
+@media (hover:hover) and (pointer:fine){.gn kbd{display:block;position:absolute;top:-6px;right:-6px;min-width:20px;height:20px;border-radius:6px;background:#F2F3F5;color:#1A0F07;font:700 13px/20px ${COND};text-align:center}}
+@media (prefers-reduced-motion:reduce){.gn-x,.gn-hit{transition:none}}
+`;
+const ICON = {
+  fire: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><path d="M12 1.8v5M12 17.2v5M1.8 12h5M17.2 12h5"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/></svg>',
+  aim: '<svg viewBox="0 0 24 24"><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"/><circle cx="12" cy="12" r="3.2"/></svg>',
+  rel: '<svg viewBox="0 0 24 24"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.8 3.6v4.6h-4.6"/></svg>',
+};
+
+// ---- 走路拿槍：createGunner ----
+function createGunner(o = {}) {
+  let walker = o.walker || null, ch = o.character || null, scene = o.scene || null;
+  const camera = o.camera, renderer = o.renderer || null, GAME = o.GAME || { money: 0 };
+  const G = () => gunsOf(GAME);
+  const doc = hasDoc() && !!o.hudParent;
+  const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const audio = o.audio && o.audio.play ? o.audio : doc ? createGunAudio(o.audio || {}) : null;
+  const fx = doc ? createFx() : null;
+  if (fx) { fx.onTink = () => { if (audio) audio.tink(); }; if (scene) scene.add(fx.root); }
+  let world = null, grid = null, targets = { peds: [], cars: [] };
+  let alive = true, enabled = true, now = 0, lastT = null;
+  const stat = { shots: 0, hits: 0, knocks: 0, crimes: [], last: null };
+  // 瞄準、開槍的狀態
+  const A = { held: 0, latched: false, mouse: false, key: false, aiming: false, zoom: 1, hipT: 0, faceYaw: 0, facing: false, prevDist: null, trig: { btn: false, key: false, mouse: false, prog: false }, kick: 0, bloom: 0, recoil: 0, aimKind: 'none', aimRef: null, posed: false, warm: null };
+  const arms = createArms(G, {
+    shot: (id) => onShot(id),
+    dry: () => { if (audio) audio.dry(); toast(G().owned.length ? `${GUNS[arms.cur || G().cur].name}沒子彈了：去槍店買` : ''); },
+    step: (id, k) => { if (audio) audio.step(id, k); },
+    reloadStart: () => { hudDirty = true; },
+    reloadEnd: () => { hudDirty = true; },
+    ammo: () => { hudDirty = true; ammoDirty = true; },
+    change: () => { hudDirty = true; equipChanged(); },
+  });
+  let hudDirty = true, ammoDirty = false, ammoT = 0;
+  // ---- 暫存（每一幀重複用）----
+  const CP = new THREE.Vector3(), CD = new THREE.Vector3(), AP = new THREE.Vector3(), MZ = new THREE.Vector3(), V1 = new THREE.Vector3(), V2 = new THREE.Vector3(), V3 = new THREE.Vector3(), V4 = new THREE.Vector3();
+  const E1 = new THREE.Euler(0, 0, 0, 'YZX'), Q1 = new THREE.Quaternion(), M1 = new THREE.Matrix4(), DOWN = new THREE.Vector3(0, -1, 0);
+  const Q_CARRY = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), 0.95); // 手垂著拿手槍：槍管從朝下轉到朝前下方
+  const HIT = { t: 0, x: 0, y: 0, z: 0, nx: 0, ny: 1, nz: 0, kind: 'none', ref: null, prov: null, glass: false, onHit: null };
+  const TMP = { nx: 0, ny: 0, nz: 0, ref: null, kind: null, onHit: null }, TMP2 = { nx: 0, ny: 0, nz: 0, glass: null };
+  const INFO = { x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, dx: 0, dy: 0, dz: 0, power: 1, weapon: 'pistol', glass: false, kind: '' };
+  const CRIME = { x: 0, z: 0 };
+  let tel = null; // 這一格的 walker.telemetry()
+  const knockAcc = new WeakMap();
+  const crimeT = { gunfire: -9, shoot: -9, shootCop: -9 };
+  let shotCrime = false; // 這一槍打到人／車、報過犯罪了
+
+  // ---- 槍的模型：每把一個（第一次拿才做），放在場景裡（每一格照手的位置擺）----
+  const models = {};
+  let gun = null;
+  function modelOf(id) { if (!models[id]) { models[id] = buildGunModel(id, { flash: doc }); models[id].visible = false; } return models[id]; }
+  function equipChanged() {
+    const id = arms.cur;
+    if (gun) gun.visible = false;
+    gun = id ? modelOf(id) : null;
+    if (gun && scene && gun.parent !== scene) scene.add(gun);
+    if (audio) audio.hold(!!id);
+    if (o.onEquip) o.onEquip(id);
+    if (o.onChange) o.onChange('equip');
+    if (!id) { A.latched = false; A.held = 0; }
+    closeWheel();
+  }
+
+  // ---- 地方（村子／槍店）----
+  function setWorld(w = {}) {
+    world = { crime: true, ceiling: null, ...w };
+    grid = rayGrid(world.colliders || []);
+    const sc = world.scene || scene;
+    if (sc && sc !== scene) setScene(sc);
+    if (fx) fx.clearDecals();
+  }
+  function setScene(sc) {
+    scene = sc;
+    if (fx && scene) scene.add(fx.root);
+    for (const k in models) if (scene) scene.add(models[k]);
+  }
+  function setTargets(t = {}) { // 有 box 的來源＝車，其他＝人（gunTargets.police 回傳警察＋警車兩個：放哪一邊都可以）
+    const all = Array.isArray(t) ? t.flat(3) : [t.peds, t.cars].flat(3), peds = [], cars = [];
+    for (const pv of all) if (pv && pv.list) (pv.box ? cars : peds).push(pv);
+    targets = { peds, cars };
+  }
+  setTargets(o.targets || {});
+  setWorld(o.world || {});
+
+  // ---- 開一槍 ----
+  const BX = { x: 0, z: 0, hx: 0, hz: 0, rot: 0, h: 1.4 };
+  function castAll(ox, oy, oz, dx, dy, dz, maxT, out, skipPeds, precise) { // precise：真的開槍（車再對模型打一次）；準星每一格只用長方形
+    out.kind = 'none'; out.ref = null; out.prov = null; out.onHit = null; out.glass = false;
+    let best = maxT;
+    // 地面、天花板
+    if (dy < -1e-6) { const t = -oy / dy; if (t > 0 && t < best) { best = t; out.kind = 'ground'; out.nx = 0; out.ny = 1; out.nz = 0; } }
+    if (world.ceiling != null && dy > 1e-6) { const t = (world.ceiling - oy) / dy; if (t > 0 && t < best) { best = t; out.kind = 'ceiling'; out.nx = 0; out.ny = -1; out.nz = 0; } }
+    // 牆、房子
+    const tw = grid.cast(ox, oy, oz, dx, dy, dz, best, TMP);
+    if (tw < best) { best = tw; out.kind = 'world'; out.nx = TMP.nx; out.ny = TMP.ny; out.nz = TMP.nz; out.ref = TMP.ref; }
+    // 另外的（靶場的靶）
+    if (world.raycast) { TMP.kind = null; TMP.onHit = null; const t = world.raycast(ox, oy, oz, dx, dy, dz, best, TMP); if (t < best) { best = t; out.kind = TMP.kind || 'target'; out.nx = TMP.nx; out.ny = TMP.ny; out.nz = TMP.nz; out.ref = TMP.ref; out.onHit = TMP.onHit; } }
+    // 車
+    for (const pv of targets.cars) {
+      const list = pv.list(); if (!list) continue;
+      for (let i = 0; i < list.length; i++) {
+        const c = list[i], b = pv.box(c, BX); if (!b) continue;
+        if (Math.abs(b.x - ox) > best + b.hx + 3 || Math.abs(b.z - oz) > best + b.hx + 3) continue; // 太遠（射線走不到）
+        let t = hitShape(setBoxQ(TMPQ, b.x, b.z, b.hx, b.hz, b.rot, 0.12, b.h, c), ox, oy, oz, dx, dy, dz, best, TMP);
+        if (t >= best) continue;
+        TMP2.glass = null;
+        if (precise && pv.obj && (!pv.fine || pv.fine(c))) { // 開槍：再對模型打一次
+          const obj = pv.obj(c), tr = obj ? refineCar(obj, ox, oy, oz, dx, dy, dz, t, best, TMP2) : -1;
+          if (tr === Infinity) continue; // 從車子旁邊、上面飛過去
+          if (tr >= 0) { t = tr; TMP.nx = TMP2.nx; TMP.ny = TMP2.ny; TMP.nz = TMP2.nz; }
+        }
+        best = t; out.kind = 'car'; out.nx = TMP.nx; out.ny = TMP.ny; out.nz = TMP.nz; out.ref = c; out.prov = pv;
+        out.glass = TMP2.glass !== null ? TMP2.glass : boxGlass(b, ox + dx * t - b.x, oz + dz * t - b.z, oy + dy * t);
+      }
+    }
+    // 人
+    if (!skipPeds) for (const pv of targets.peds) {
+      const list = pv.list(); if (!list) continue;
+      for (let i = 0; i < list.length; i++) {
+        const p = list[i]; if (pv.skip && pv.skip(p)) continue;
+        if (Math.abs(p.x - ox) > best + 1 || Math.abs(p.z - oz) > best + 1) continue;
+        const t = hitShape(setCylQ(TMPQ, p.x, p.z, pv.r ? pv.r(p) : 0.3, 0, pv.h ? pv.h(p) : 1.7, p), ox, oy, oz, dx, dy, dz, best, TMP);
+        if (t < best) { best = t; out.kind = 'ped'; out.nx = TMP.nx; out.ny = TMP.ny; out.nz = TMP.nz; out.ref = p; out.prov = pv; }
+      }
+    }
+    out.t = best; out.x = ox + dx * best; out.y = oy + dy * best; out.z = oz + dz * best;
+    return best;
+  }
+  // 鏡頭中間（準星）看到的點：從人的前面開始算（鏡頭跟人中間的東西不算）
+  function aimPoint(range) {
+    camera.updateMatrixWorld();
+    CP.setFromMatrixPosition(camera.matrixWorld); CD.set(0, 0, -1).transformDirection(camera.matrixWorld);
+    const t0 = tel ? Math.max(0.2, (tel.x - CP.x) * CD.x + (1.3 - CP.y) * CD.y + (tel.z - CP.z) * CD.z + 0.35) : 0.5;
+    const t = castAll(CP.x + CD.x * t0, CP.y + CD.y * t0, CP.z + CD.z * t0, CD.x, CD.y, CD.z, range, HIT);
+    AP.set(HIT.x, HIT.y, HIT.z);
+    A.aimKind = HIT.kind; A.aimRef = HIT.ref;
+    if (HIT.kind === 'car' && HIT.prov && HIT.prov.obj && (!HIT.prov.fine || HIT.prov.fine(HIT.ref))) { const obj = HIT.prov.obj(HIT.ref); if (obj && obj !== A.warm) { A.warm = obj; warmCar(obj); } } // 準星對到車：先做那台的 BVH
+    return t;
+  }
+  // 沒瞄準（直接按開槍）：準星附近的人自動對準（手機比較好打）
+  function assist(id) {
+    if (o.aimAssist === false || A.aiming) return false;
+    const W = GUNS[id], lim = Math.cos(7 * D2R);
+    let best = null, bd = lim, bx = 0, by = 0, bz = 0;
+    for (const pv of targets.peds) {
+      const list = pv.list(); if (!list) continue;
+      for (let i = 0; i < list.length; i++) {
+        const p = list[i]; if (pv.skip && pv.skip(p)) continue;
+        const h = (pv.h ? pv.h(p) : 1.7) * 0.68, dx = p.x - CP.x, dy = h - CP.y, dz = p.z - CP.z, d = Math.hypot(dx, dy, dz);
+        if (d > W.range || d < 0.5) continue;
+        const c = (dx * CD.x + dy * CD.y + dz * CD.z) / d; if (c <= bd) continue;
+        best = p; bd = c; bx = p.x; by = h; bz = p.z;
+      }
+    }
+    if (!best) return false;
+    // 中間被牆擋住就不算
+    const dx = bx - CP.x, dy = by - CP.y, dz = bz - CP.z, d = Math.hypot(dx, dy, dz);
+    if (grid.cast(CP.x, CP.y, CP.z, dx / d, dy / d, dz / d, d - 0.4, TMP) < d - 0.4) return false;
+    AP.set(bx, by, bz); return true;
+  }
+  function onShot(id) {
+    const W = GUNS[id], t = tel; if (!t) return;
+    stat.shots++;
+    const rule = world.rule ? world.rule(t.x, t.z) : null;
+    if (audio) audio.shot(id);
+    A.kick = 1; A.hipT = 0.9; A.bloom = Math.min(1, A.bloom + (W.auto ? 0.16 : 0.35));
+    if (ch && ch.recoil) ch.recoil(); // character.js：手往上跳一下
+    // 從胸口往準星的點射（槍口在人前面 0.5 公尺，近的時候會穿牆：用胸口算、從槍口畫）
+    const s = ch ? ch.height / 1.72 : 1, ox = t.x, oy = 1.36 * s, oz = t.z;
+    let dx = AP.x - ox, dy = AP.y - oy, dz = AP.z - oz; const L = Math.hypot(dx, dy, dz) || 1; dx /= L; dy /= L; dz /= L;
+    const muzzle = gun && gun.visible ? gun.localToWorld(MZ.copy(gun.userData.muzzle)) : MZ.set(ox + dx * 0.5, oy + dy * 0.5 - 0.08, oz + dz * 0.5); // 看不到槍（第一人稱）：從胸前
+    // 散布：瞄準比較準、走路跑步比較散、連發越來越散
+    const moving = clamp((t.speed || 0) / 2.5, 0, 1), sp = (A.aiming ? W.aimSpread : W.spread) * (1 + 0.6 * moving + (W.auto ? 0.8 : 0.3) * A.bloom) * D2R;
+    // 垂直於彈道的兩個方向
+    let ux = -dz, uz = dx; const ul = Math.hypot(ux, uz) || 1; ux /= ul; uz /= ul;
+    const vx = dy * uz, vy = dz * ux - dx * uz, vz = -dy * ux;
+    let hitPed = false, hitAny = false; shotCrime = false;
+    for (let k = 0; k < W.pellets; k++) {
+      const r = sp * Math.sqrt(Math.random()), a = Math.random() * TAU, cr = Math.cos(r), sr = Math.sin(r), ca = Math.cos(a) * sr, sa = Math.sin(a) * sr;
+      const ex = dx * cr + ux * ca + vx * sa, ey = dy * cr + vy * sa, ez = dz * cr + uz * ca + vz * sa;
+      castAll(ox, oy, oz, ex, ey, ez, W.range, HIT, false, true);
+      // 彈道（霰彈槍只畫幾條）
+      if (fx && (k < 3 || W.pellets === 1)) {
+        const tl = HIT.kind === 'none' ? W.range : HIT.t;
+        fx.tracer(muzzle.x, muzzle.y, muzzle.z, ox + ex * tl, oy + ey * tl, oz + ez * tl, { w: W.pellets > 1 ? 0.012 : 0.02, streak: W.pellets > 1 ? 3 : 6 });
+      }
+      if (HIT.kind !== 'none') { hitAny = true; if (react(W, ex, ey, ez)) hitPed = true; }
+    }
+    // 火光、彈殼
+    if (gun && gun.userData.flash) { const f = gun.userData.flash; f.visible = true; f.rotation.x = Math.random() * TAU; f.scale.setScalar(0.8 + Math.random() * 0.5); flashT = 0.045; }
+    if (fx) {
+      fx.flashPt(muzzle.x, muzzle.y, muzzle.z, W.pellets > 1 ? 0.7 : 0.45, 0.05, 1, 0.8, 0.45);
+      if (id !== 'shotgun') ejectShell(id, 0); else pendingShell = 0.42;
+    }
+    // 犯罪：在外面開槍（附近的人跑掉）
+    if (world.crime && !rule) {
+      for (const pv of targets.peds) if (pv.scare) pv.scare(t.x, t.z, 16);
+      if (!shotCrime) crime('gunfire', t.x, t.z, 3); // 打到人、車已經報過了（比較重）：不用再報「開槍」
+    }
+    if (hitAny) { hitMark(hitPed); stat.hits++; }
+    // 後座力：鏡頭往上跳一點（之後慢慢回來：update 裡的 A.recoil）
+    if (walker && W.recoil) { const k = W.recoil * (A.aiming ? 0.7 : 1) * (0.8 + Math.random() * 0.4); A.recoil -= nudgeCam(-k, (Math.random() - 0.5) * W.recoil * 0.5); }
+  }
+  // 鏡頭上下（左右）動一點：回傳上下真的動了多少（到頂了就少一點）
+  function nudgeCam(dp, dyaw = 0) {
+    const eye = tel.camMode === 'eye', p0 = tel.camPitch, p1 = clamp(p0 + dp, eye ? -1.1 : -0.25, eye ? 1.2 : 0.95);
+    tel.camPitch = p1; if (dyaw) tel.camYaw = wrapA(tel.camYaw + dyaw);
+    walker.setCamera({ pitch: p1, yaw: tel.camYaw, hold: 1.2 });
+    return p1 - p0;
+  }
+  let flashT = 0, pendingShell = -1;
+  function ejectShell(id) {
+    if (!gun || !fx) return;
+    const e = gun.localToWorld(V1.copy(gun.userData.eject));
+    V2.set(0.4, 1.6, 2.2 + Math.random()).applyQuaternion(gun.quaternion); // 往右上方彈出去
+    fx.shell(e.x, e.y, e.z, V2.x + (Math.random() - 0.5) * 0.6, V2.y + Math.random() * 0.8, V2.z + (Math.random() - 0.5) * 0.6, id, world.floor || 0);
+  }
+  // 打到了：看是什麼
+  function react(W, dx, dy, dz) {
+    const h = HIT, pan = panOf(h.x, h.z);
+    INFO.x = h.x; INFO.y = h.y; INFO.z = h.z; INFO.nx = h.nx; INFO.ny = h.ny; INFO.nz = h.nz; INFO.dx = dx; INFO.dy = dy; INFO.dz = dz; INFO.weapon = W.id; INFO.glass = h.glass; INFO.kind = h.kind;
+    stat.last = { kind: h.kind, x: +h.x.toFixed(2), y: +h.y.toFixed(2), z: +h.z.toFixed(2) };
+    if (h.kind === 'ped') {
+      const p = h.ref, pv = h.prov; let acc = (knockAcc.get(p) || 0) + W.knock;
+      INFO.power = W.knock;
+      if (fx) fx.pow(h.x, h.y, h.z, -dx, 0.2, -dz);
+      if (audio) audio.pow(pan);
+      let told = false; // knock 回傳 true＝那個模組自己報過犯罪了
+      if (acc >= 0.999) { acc = 0; stat.knocks++; if (pv.knock) told = pv.knock(p, INFO) === true; }
+      knockAcc.set(p, acc);
+      if (world.crime) { shotCrime = true; if (!told) crime(pv.cop ? 'shootCop' : 'shoot', h.x, h.z, 0.5); }
+      return true;
+    }
+    if (h.kind === 'car') {
+      const c = h.ref, pv = h.prov, obj = pv.obj ? pv.obj(c) : null;
+      INFO.power = W.carDmg;
+      const done = o.damage && o.damage.shoot && obj ? o.damage.shoot(obj, INFO) : false;
+      if (fx && !done) {
+        if (h.glass) { fx.crack(h.x, h.y, h.z, h.nx, h.ny, h.nz, 0.3 + Math.random() * 0.12, obj, c); fx.shards(h.x, h.y, h.z, h.nx, h.ny, h.nz, 12); }
+        else fx.hole(h.x, h.y, h.z, h.nx, h.ny, h.nz, 0.05, obj, c);
+      }
+      if (fx) fx.sparks(h.x, h.y, h.z, h.nx, h.ny, h.nz, h.glass ? 3 : 7, 5, 0.9);
+      if (audio) (h.glass ? audio.glass(pan) : audio.clank(pan));
+      if (pv.shot) pv.shot(c, INFO);
+      if (world.crime && (pv.cop || pv.kind === 'traffic')) { shotCrime = true; crime(pv.cop ? 'shootCop' : 'shoot', h.x, h.z, 0.5); }
+      return false;
+    }
+    if (h.kind === 'target') { if (h.onHit) h.onHit(INFO); if (fx) fx.sparks(h.x, h.y, h.z, h.nx, h.ny, h.nz, 10, 6, 1.1); if (audio) audio.ding(pan); return false; }
+    if (!fx) return false;
+    // 牆、地面、天花板：彈孔＋煙塵＋一點火花
+    if (h.kind === 'world' || h.kind === 'ceiling') { fx.hole(h.x, h.y, h.z, h.nx, h.ny, h.nz, W.pellets > 1 ? 0.035 : 0.06); fx.dust(h.x, h.y, h.z, h.nx, h.ny, h.nz, 4, 0.66); fx.sparks(h.x, h.y, h.z, h.nx, h.ny, h.nz, 3, 4, 0.8); }
+    else if (h.kind === 'ground') { fx.hole(h.x, h.y + 0.02, h.z, 0, 1, 0, W.pellets > 1 ? 0.03 : 0.05); fx.dust(h.x, h.y + 0.02, h.z, 0, 1, 0, 4, 0.58); }
+    if (audio && h.t < 30 && Math.random() < 0.5) audio.thud(pan);
+    return false;
+  }
+  function panOf(x, z) { // 左右聲道：打到的點在畫面的哪一邊
+    if (!camera) return 0;
+    const rx = Math.cos(tel ? tel.camYaw - Math.PI / 2 : 0), rz = -Math.sin(tel ? tel.camYaw - Math.PI / 2 : 0), dx = x - CP.x, dz = z - CP.z, d = Math.hypot(dx, dz) || 1;
+    return clamp(((dx * rx + dz * rz) / d) * 0.8, -0.8, 0.8);
+  }
+  function crime(kind, x, z, cool) {
+    if (now - crimeT[kind] < cool) return;
+    crimeT[kind] = now; CRIME.x = x; CRIME.z = z;
+    stat.crimes.push(kind); if (stat.crimes.length > 12) stat.crimes.shift();
+    if (o.onCrime) try { o.onCrime(kind, { x, z }); } catch (e) { console.warn(e); }
+  }
+
+  // ---- 瞄準：鏡頭拉近到肩膀後面、準星、人跟著準星轉 ----
+  const AIM_DIST = 1.7;
+  function aimWanted() { return !!arms.cur && (A.held > 0 || A.latched || A.mouse || A.key); }
+  function beginAim() {
+    A.aiming = true;
+    if (walker) {
+      A.prevDist = tel && tel.camWant > 2 && tel.camWant >= tel.camDist - 0.05 ? tel.camWant : 3.8;
+      const p = tel ? clamp(tel.camPitch, -0.2, 0.16) : 0.08;
+      walker.setCamera({ dist: AIM_DIST, pitch: p, hold: 1 });
+    }
+    hudDirty = true;
+  }
+  function endAim(t) {
+    A.aiming = false;
+    if (walker) walker.setCamera({ dist: A.prevDist || 3.8 });
+    // 站著不動：把 walker 的方向改成人現在面對的方向（不然放開瞄準人會轉回去）
+    if (walker && t && (t.speed || 0) < 0.3 && ch) walker.teleport({ x: t.x, z: t.z, heading: A.faceYaw }, { keepCamera: true });
+    hudDirty = true;
+  }
+  function lookBy(dx, dy) { // 按著開槍、瞄準的手指拖動：轉鏡頭（瞄準的時候慢一點）
+    if (!walker || !tel || !active()) return;
+    const k = 0.0062 / Math.max(1, A.zoom), eye = tel.camMode === 'eye';
+    tel.camYaw = wrapA(tel.camYaw - dx * k); tel.camPitch = clamp(tel.camPitch + dy * k * 0.85, eye ? -1.1 : -0.25, eye ? 1.2 : 0.95);
+    walker.setCamera({ yaw: tel.camYaw, pitch: tel.camPitch, hold: 1.2 });
+  }
+  const active = () => enabled && alive && !!tel && !tel.paused && tel.mode === 'walk';
+  function trigger(src, on) {
+    A.trig[src] = !!on;
+    const any = A.trig.btn || A.trig.key || A.trig.mouse || A.trig.prog;
+    if (on && audio) audio.resume();
+    if (on && !arms.cur) return;
+    arms.setTrigger(any);
+  }
+
+  // ---- 每一幀 ----
+  function update(dt) {
+    if (!alive) return;
+    dt = Math.min(0.1, Math.max(0, +dt || 0)); now += dt;
+    if (BV_PENDING.size) bvhPump(1.5); // 車的 BVH：每一格做一點
+    tel = walker ? walker.telemetry() : null;
+    const on = active();
+    showHud(on && G().owned.length > 0);
+    if (!on) {
+      if (A.aiming) endAim(null);
+      if (arms.trig) arms.setTrigger(false);
+      for (const k in A.trig) A.trig[k] = false;
+      A.held = 0; A.mouse = false; A.key = false; A.hipT = 0; A.recoil = 0;
+      if (gun) gun.visible = false;
+      if (ch) restArms();
+      if (fx) fx.update(dt, camera, pxScale());
+      lastT = tel; return;
+    }
+    const id = arms.cur, W = id ? GUNS[id] : null;
+    // 瞄準（按著、點一下鎖住、滑鼠右鍵、V）
+    const want = aimWanted();
+    if (want && !A.aiming) beginAim(); else if (!want && A.aiming) endAim(tel);
+    const zt = A.aiming && W ? W.zoom : 1; A.zoom += (zt - A.zoom) * (1 - Math.exp(-dt * (calm ? 60 : 14)));
+    if (A.zoom > 1.001 && camera) { camera.fov = camera.fov / A.zoom; camera.updateProjectionMatrix(); camera.updateMatrixWorld(); }
+    if (A.recoil > 1e-4) { const r = A.recoil * (1 - Math.exp(-dt * 5)); nudgeCam(r); A.recoil -= r; } else A.recoil = 0; // 後座力慢慢回來
+    if (A.aiming || A.hipT > 0) walker.setCamera({ yaw: tel.camYaw, hold: 0.6 }); // 瞄準的時候鏡頭不要自己轉回人的後面
+    A.hipT = Math.max(0, A.hipT - dt); A.bloom = Math.max(0, A.bloom - dt * (W && W.auto ? 1.6 : 2.2)); A.kick = Math.max(0, A.kick - dt * 9);
+    // 準星看到的點、人轉過去面對它
+    if (W) { aimPoint(W.range); if (arms.trig && !A.aiming) assist(id); }
+    const face = !!W && (A.aiming || A.hipT > 0 || arms.trig || A.trig.btn);
+    let ready = true;
+    if (face && ch) {
+      const ty = Math.atan2(-(AP.z - tel.z), AP.x - tel.x);
+      if (!A.facing) { A.faceYaw = tel.heading; A.facing = true; }
+      const d = wrapA(ty - A.faceYaw); A.faceYaw = wrapA(A.faceYaw + d * (1 - Math.exp(-dt * 18)));
+      ch.group.rotation.y = A.faceYaw; ch.group.updateMatrixWorld();
+      ready = Math.abs(wrapA(ty - A.faceYaw)) < 0.35;
+    } else if (A.facing) { // 不瞄了：站著＝walker 的方向改成現在面對的方向；走著＝慢慢轉回走的方向（不會一下子轉過去）
+      if ((tel.speed || 0) < 0.3 || !ch) { if (ch && walker) walker.teleport({ x: tel.x, z: tel.z, heading: A.faceYaw }, { keepCamera: true }); A.facing = false; }
+      else { const d = wrapA(tel.heading - A.faceYaw); A.faceYaw = wrapA(A.faceYaw + d * (1 - Math.exp(-dt * 12))); if (Math.abs(d) < 0.05) A.facing = false; else { ch.group.rotation.y = A.faceYaw; ch.group.updateMatrixWorld(); } }
+    }
+    // 手上的槍：擺好（開槍的時候從槍口出來）
+    poseGun(dt, W);
+    // 子彈、換彈匣、射擊
+    const rule = world.rule ? world.rule(tel.x, tel.z) : null;
+    if (rule && (arms.trig || arms.R.want)) { arms.setTrigger(false); arms.R.want = false; for (const k in A.trig) A.trig[k] = false; toast(rule); }
+    arms.update(dt, ready && !rule);
+    if (pendingShell >= 0) { pendingShell -= dt; if (pendingShell < 0 && arms.cur === 'shotgun') ejectShell('shotgun'); }
+    if (flashT > 0) { flashT -= dt; if (flashT <= 0 && gun && gun.userData.flash) gun.userData.flash.visible = false; }
+    // 角色的動作（有支援 aim 的角色：character.js）：瞄準／剛開過槍＝aim（槍口朝準星）；長槍沒瞄準＝aim 但槍口朝前下方（兩手拿著，不會一隻手甩來甩去）
+    const aimNow = !!W && (A.aiming || A.hipT > 0 || arms.trig), lowReady = !!W && !aimNow && W.hold === 'two' && !!(ch && ch.hand);
+    pose.state = aimNow ? (A.kick > 0.5 && !(ch && ch.recoil) ? 'shoot' : 'aim') : lowReady ? 'aim' : null;
+    pose.pitch = lowReady ? LOW_READY : Math.asin(clamp((AP.y - 1.4) / (Math.hypot(AP.x - tel.x, AP.y - 1.4, AP.z - tel.z) || 1), -1, 1));
+    pose.hold = W ? W.hold : null;
+    pose.support = W && gun ? Math.max(0.2, gun.userData.grip2.x + stockShift(gun)) : 0.32;
+    if (fx) fx.update(dt, camera, pxScale());
+    hudTick(dt);
+    lastT = tel;
+  }
+  const pose = { state: null, pitch: 0, hold: null, support: 0.32 };
+  const LOW_READY = -0.35; // 長槍沒瞄準：槍口往下幾弧度
+  // character.js 的長槍瞄準：右手（握把）在眼睛前面 0.14 公尺；槍托底離握把超過 STOCK_REACH 的槍往前推，槍托剛好靠在臉頰（不會穿過頭）
+  const STOCK_REACH = 0.26;
+  const stockShift = (g) => (ch && ch.hand && g && g.userData.butt ? Math.max(0, -g.userData.butt.x - STOCK_REACH) : 0);
+  // 角色：character.update 包一層，把 state 'aim'／'shoot'、aimPitch、weapon 塞進去（walk.js 叫 update 的時候就帶著）
+  function hookCharacter(c) {
+    if (!c || c.__gunHook) return;
+    const orig = c.update, can = !!c.hand || (Array.isArray(c.states) && c.states.includes('aim'));
+    c.__gunHook = orig;
+    c.update = function (dt, p) {
+      if (A.facing && this.group) this.group.rotation.y = A.faceYaw; // 轉向準星：在角色 update 之前轉（character.js 踩著的腳才會跟著轉對）
+      if (can && pose.state && p && !(p.state === 'fall' || p.state === 'getup' || p.state === 'sit')) { // character.js：weapon 'long'｜'pistol'、aimPitch 往上正、support＝左手在握把前面幾公尺
+        p.state = pose.state; p.aimPitch = pose.pitch; p.weapon = pose.hold === 'two' ? 'long' : 'pistol'; p.support = pose.support; p.aimYaw = A.faceYaw;
+      }
+      return orig.call(this, dt, p);
+    };
+  }
+  function unhook(c) { if (c && c.__gunHook) { c.update = c.__gunHook; delete c.__gunHook; } }
+  hookCharacter(ch);
+  // 替身（charstub.js）的手臂：root 底下第 6、7 個（armL、armR）；肩膀在 y 1.45、z ±0.27
+  function stubArms(c) {
+    if (!c || c.hand) return null;
+    if (c.__gunArms !== undefined) return c.__gunArms;
+    const r = c.group.children[0], ok = r && r.children.length === 7 && r.children[5].isGroup && r.children[6].isGroup && r.children[6].children[0] && r.children[6].children[0].isMesh;
+    c.__gunArms = ok ? { root: r, L: r.children[5], R: r.children[6] } : null;
+    return c.__gunArms;
+  }
+  function aimArm(arm, wx, wy, wz) { // 手臂（肩膀的 group，本來往下垂）指向世界座標的一點
+    V3.set(wx, wy, wz); arm.parent.worldToLocal(V3); V3.sub(arm.position);
+    const l = V3.length(); if (l < 1e-4) return; V3.divideScalar(l);
+    arm.quaternion.setFromUnitVectors(DOWN, V3);
+  }
+  function restArms() { // 替身的手臂放回去（收槍、上車、第一人稱）
+    if (!A.posed) return; A.posed = false;
+    const a = stubArms(ch); if (a) { a.L.rotation.set(0, 0, 0); a.R.rotation.set(0, 0, 0); }
+  }
+  function poseGun(dt, W) {
+    const show = !!gun && !!W && !!ch && !tel.hidden && tel.camMode !== 'eye';
+    if (gun) gun.visible = show;
+    if (!show) { restArms(); return; }
+    const s = ch.height / 1.72, g = ch.group, two = W.hold === 'two', aimed = A.aiming || A.hipT > 0 || arms.trig;
+    const yaw = aimed && A.facing ? A.faceYaw : g.rotation.y;
+    g.updateMatrixWorld();
+    const cy = Math.cos(yaw), sy = Math.sin(yaw), fwd = V4.set(cy, 0, -sy); // 人的前面（世界）
+    const rgt = V2.set(sy, 0, cy); // 右邊（本地 +z）
+    let dx, dy, dz;
+    if (aimed) { dx = AP.x - tel.x; dy = AP.y - 1.38 * s; dz = AP.z - tel.z; const l = Math.hypot(dx, dy, dz) || 1; dx /= l; dy /= l; dz /= l; }
+    else { const pd = two ? -0.62 : -0.95, cp = Math.cos(pd); dx = fwd.x * cp; dy = Math.sin(pd); dz = fwd.z * cp; } // 沒瞄準：槍口朝前下方
+    // character.js：槍直接跟著右手的掛點（+x 順著手指＝槍管、+y 大拇指＝槍的上面）；手垂著的時候（手槍沒瞄準）手腕往前彎一點
+    if (ch.hand) {
+      ch.hand.updateWorldMatrix(true, false); ch.hand.matrixWorld.decompose(V1, Q1, V3);
+      gun.position.copy(V1); gun.quaternion.copy(Q1);
+      if (!aimed && !two) gun.quaternion.multiply(Q_CARRY);
+      else if (two) gun.translateX(stockShift(gun));
+      gun.updateMatrixWorld(); A.posed = false;
+      return;
+    }
+    // 握把（右手）的位置
+    let gx, gy, gz;
+    if (aimed && !two) { const sx = tel.x + rgt.x * 0.2 * s, sz = tel.z + rgt.z * 0.2 * s, shy = 1.43 * s; gx = sx + dx * 0.56 * s - rgt.x * 0.1 * s; gy = shy + dy * 0.56 * s - 0.03; gz = sz + dz * 0.56 * s - rgt.z * 0.1 * s; }
+    else if (aimed) { // 長槍：槍托頂在右肩前面
+      const bx = tel.x + rgt.x * 0.13 * s + fwd.x * 0.06, by = 1.39 * s, bz = tel.z + rgt.z * 0.13 * s + fwd.z * 0.06, back = -gun.userData.butt.x;
+      gx = bx + dx * back; gy = by + dy * back - 0.035; gz = bz + dz * back;
+    } else if (two) { gx = tel.x + rgt.x * 0.16 * s + fwd.x * 0.2 * s; gy = 1.04 * s; gz = tel.z + rgt.z * 0.16 * s + fwd.z * 0.2 * s; }
+    else { gx = tel.x + rgt.x * 0.26 * s + fwd.x * 0.14 * s; gy = 0.86 * s; gz = tel.z + rgt.z * 0.26 * s + fwd.z * 0.14 * s; }
+    // 後座力：往後、槍口往上
+    const k = A.kick * A.kick * (W.kick || 1);
+    gx -= dx * 0.045 * k; gy -= dy * 0.045 * k; gz -= dz * 0.045 * k;
+    gun.position.set(gx, gy, gz);
+    E1.set(0, Math.atan2(-dz, dx), Math.asin(clamp(dy, -1, 1)) + k * (two ? 0.07 : 0.16), 'YZX'); gun.quaternion.setFromEuler(E1);
+    gun.updateMatrixWorld();
+    // 替身的手臂擺好（右手握把、長槍左手扶前面）
+    const arm = stubArms(ch);
+    if (arm) {
+      A.posed = true;
+      aimArm(arm.R, gx, gy - 0.02, gz);
+      if (two) { gun.localToWorld(V1.copy(gun.userData.grip2)); aimArm(arm.L, V1.x, V1.y, V1.z); }
+    }
+  }
+
+  // ---- HUD ----
+  let H = null;
+  function buildHud() {
+    if (!document.getElementById('gn-style')) { const st = document.createElement('style'); st.id = 'gn-style'; st.textContent = CSS; document.head.append(st); }
+    const root = document.createElement('div'); root.className = 'gn'; root.hidden = true;
+    root.innerHTML = '<div class="gn-x" hidden><i></i><i></i><i></i><i></i><b></b></div><div class="gn-hit"><i></i><i></i><i></i><i></i></div>'
+      + '<button type="button" class="gn-pill" aria-label="換槍"><span class="ic"></span><span class="n"></span><span class="a"><b></b><small></small></span><span class="bar" hidden><i></i></span></button>'
+      + '<div class="gn-wheel" hidden role="group" aria-label="選槍"></div>'
+      + `<div class="gn-b gn-rel" role="button" aria-label="換彈匣" hidden>${ICON.rel}<span>換彈匣</span><kbd>R</kbd></div>`
+      + `<div class="gn-b gn-aim" role="button" aria-label="瞄準" aria-pressed="false" hidden>${ICON.aim}<span>瞄準</span><kbd>V</kbd></div>`
+      + `<div class="gn-b gn-fire" role="button" aria-label="開槍" hidden>${ICON.fire}<span>開槍</span><kbd>F</kbd></div>`;
+    o.hudParent.append(root);
+    const q = (s) => root.querySelector(s);
+    const h = { root, x: q('.gn-x'), hit: q('.gn-hit'), pill: q('.gn-pill'), ic: q('.gn-pill .ic'), n: q('.gn-pill .n'), a: q('.gn-pill .a b'), a2: q('.gn-pill .a small'), bar: q('.gn-pill .bar'), barI: q('.gn-pill .bar i'),
+      wheel: q('.gn-wheel'), rel: q('.gn-rel'), aim: q('.gn-aim'), fire: q('.gn-fire'), off: [], last: {}, hitT: 0 };
+    const on = (el, t, f, op) => { el.addEventListener(t, f, op); h.off.push(() => el.removeEventListener(t, f, op)); };
+    on(root, 'contextmenu', (e) => e.preventDefault());
+    // 按著的按鈕：按下去、拖（轉鏡頭）、放開
+    const hold = (el, down, up) => {
+      let pid = null, lx = 0, ly = 0;
+      on(el, 'pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); if (pid != null) return; pid = e.pointerId; lx = e.clientX; ly = e.clientY; try { el.setPointerCapture(pid); } catch { /* 算了 */ } el.classList.add('on'); down(e); });
+      on(el, 'pointermove', (e) => { if (e.pointerId !== pid) return; const dx = e.clientX - lx, dy = e.clientY - ly; lx = e.clientX; ly = e.clientY; lookBy(dx, dy); });
+      const u = (e) => { if (e.pointerId !== pid) return; pid = null; el.classList.remove('on'); up(e); };
+      for (const t of ['pointerup', 'pointercancel', 'lostpointercapture']) on(el, t, u);
+    };
+    hold(h.fire, () => { trigger('btn', true); }, () => trigger('btn', false));
+    // 瞄準：按著＝瞄準、放開就不瞄；很快點一下（0.25 秒內）＝鎖住，再點一下才放開
+    let aimDown = 0, wasLatched = false;
+    hold(h.aim, () => { aimDown = now; wasLatched = A.latched; A.latched = false; A.held++; if (audio) audio.resume(); }, () => { A.held = Math.max(0, A.held - 1); if (now - aimDown < 0.25 && !wasLatched) A.latched = true; hudDirty = true; });
+    on(h.rel, 'pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); h.rel.classList.add('on'); reload(); });
+    for (const t of ['pointerup', 'pointercancel', 'pointerleave']) on(h.rel, t, () => h.rel.classList.remove('on'));
+    on(h.pill, 'click', (e) => { e.preventDefault(); toggleWheel(); });
+    // 電腦：右鍵按著＝瞄準、按著右鍵時左鍵＝開槍（walk.js 拖畫面轉頭，按鍵的狀態看 pointer 事件的 buttons）
+    const mouse = (e) => {
+      if (e.pointerType !== 'mouse') return;
+      const b = e.type === 'pointerup' || e.type === 'pointercancel' ? e.buttons || 0 : e.buttons;
+      const r = !!(b & 2), l = !!(b & 1);
+      if (r !== A.mouse) { A.mouse = r && !!arms.cur; if (r && audio) audio.resume(); }
+      if (l !== H.ml) { H.ml = l; if (l && A.mouse) trigger('mouse', true); else if (!l && A.trig.mouse) trigger('mouse', false); }
+      if (!r && A.trig.mouse) trigger('mouse', false);
+    };
+    on(o.hudParent, 'pointerdown', mouse, true); on(o.hudParent, 'pointermove', mouse, true);
+    if (typeof window !== 'undefined') { on(window, 'pointerup', mouse, true); on(window, 'pointercancel', mouse, true); }
+    return h;
+  }
+  if (doc) H = buildHud();
+  function showHud(v) { if (H && H.root.hidden === v) { H.root.hidden = !v; if (!v) closeWheel(); hudDirty = true; } }
+  function toggleWheel() {
+    if (!H) return;
+    if (!H.wheel.hidden) { closeWheel(); return; }
+    const g = G(); if (!g.owned.length) { toast('還沒有槍：去槍店買'); return; }
+    H.wheel.replaceChildren();
+    for (const id of [...g.owned, null]) {
+      const b = document.createElement('button'); b.type = 'button'; b.setAttribute('aria-pressed', String(arms.cur === id));
+      b.innerHTML = GUN_ICONS[id || 'none']; const n = document.createElement('span'); n.textContent = id ? GUNS[id].name : '收起來（空手）'; b.append(n);
+      if (id) { const sm = document.createElement('small'); sm.textContent = `${g.mag[id] || 0} / ${g.ammo[id] || 0}`; b.append(sm); }
+      b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); if (id) draw(id); else holster(); closeWheel(); });
+      H.wheel.append(b);
+    }
+    H.wheel.hidden = false; H.root.classList.add('wheel');
+  }
+  function closeWheel() { if (H && !H.wheel.hidden) { H.wheel.hidden = true; H.root.classList.remove('wheel'); } }
+  function hitMark(ko) { if (!H) return; H.hit.classList.add('on'); H.hit.classList.toggle('ko', !!ko); H.hitT = 0.12; }
+  function hudTick(dt) {
+    if (!H) return;
+    if (H.hitT > 0) { H.hitT -= dt; if (H.hitT <= 0) H.hit.classList.remove('on'); }
+    const id = arms.cur, g = G(), W = id ? GUNS[id] : null;
+    // 準星：瞄準、剛開過槍的時候；大小＝散布；對到人、車變橘色
+    const showX = !!W && (A.aiming || A.hipT > 0 || arms.trig);
+    if (H.x.hidden === showX) H.x.hidden = !showX;
+    if (showX && camera) {
+      const moving = clamp((tel.speed || 0) / 2.5, 0, 1), sp = (A.aiming ? W.aimSpread : W.spread) * (1 + 0.6 * moving + (W.auto ? 0.8 : 0.3) * A.bloom);
+      const px = Math.round(3 + (Math.tan(sp * D2R) / Math.tan((camera.fov * D2R) / 2)) * (o.hudParent.clientHeight / 2));
+      if (H.last.gap !== px) { H.last.gap = px; H.x.style.setProperty('--g', px + 'px'); }
+      const hot = A.aimKind === 'ped' || A.aimKind === 'car' || A.aimKind === 'target';
+      if (H.last.hot !== hot) { H.last.hot = hot; H.x.classList.toggle('hot', hot); }
+      const sc = A.aiming && id === 'rifle' && A.zoom > 1.4;
+      if (H.last.sc !== sc) { H.last.sc = sc; H.x.classList.toggle('scope', sc); }
+    }
+    // 子彈（換彈匣的時候每一格；不然有變才重畫）
+    const rk = arms.reloading ? arms.reloadK : -1;
+    if (!hudDirty && rk < 0 && H.last.rk < 0) return;
+    hudDirty = false;
+    const key = (id || '-') + '|' + (id ? `${g.mag[id] || 0}/${g.ammo[id] || 0}` : '') + '|' + (arms.reloading ? 'R' : '') + '|' + A.aiming + '|' + A.latched;
+    if (H.last.rk !== rk) { H.last.rk = rk; H.bar.hidden = rk < 0; if (rk >= 0) H.barI.style.width = (rk * 100).toFixed(1) + '%'; }
+    if (H.last.key === key) return; H.last.key = key;
+    H.ic.innerHTML = GUN_ICONS[id || 'none'];
+    H.pill.classList.toggle('bare', !id);
+    H.n.textContent = id ? (arms.reloading ? '換彈匣' : W.name) : '拿槍';
+    if (id) {
+      const m = g.mag[id] || 0, r = g.ammo[id] || 0;
+      H.a.textContent = String(m); H.a2.textContent = ` / ${r}`;
+      H.pill.classList.toggle('low', m <= Math.ceil(W.mag / 4) && m > 0); H.pill.classList.toggle('out', m === 0 && r === 0);
+      H.pill.setAttribute('aria-label', `${W.name}，彈匣 ${m} 發，備用 ${r} 發（按一下換槍）`);
+      H.fire.classList.toggle('empty', m === 0 && r === 0);
+    } else { H.pill.classList.remove('low', 'out'); H.pill.setAttribute('aria-label', '空手（按一下拿槍）'); }
+    H.fire.hidden = H.aim.hidden = H.rel.hidden = !id;
+    H.aim.setAttribute('aria-pressed', String(A.aiming)); H.aim.classList.toggle('on', A.latched);
+  }
+  function toast(t) { if (t && walker && walker.toast) walker.toast(t, 1800); }
+  function pxScale() {
+    if (!camera) return 400;
+    const h = renderer ? renderer.getDrawingBufferSize(V3).y : (o.hudParent ? o.hudParent.clientHeight : 600);
+    return h / (2 * Math.tan((camera.fov * D2R) / 2));
+  }
+
+  // ---- 鍵盤 ----
+  const onKey = (e) => {
+    if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    const down = e.type === 'keydown';
+    if (e.code === 'KeyF') { if (!down) { trigger('key', false); return; } if (e.repeat || !active()) return; e.preventDefault(); trigger('key', true); return; }
+    if (!down || e.repeat || !active() || !G().owned.length) return;
+    if (e.code === 'KeyR') { e.preventDefault(); reload(); }
+    else if (e.code === 'KeyQ') { e.preventDefault(); next(); }
+    else if (e.code === 'KeyV') { e.preventDefault(); if (arms.cur) { A.key = !A.key; if (audio) audio.resume(); } }
+    else if (e.code === 'KeyX' || e.code === 'Digit0') { e.preventDefault(); holster(); }
+    else { const m = /^Digit([1-4])$/.exec(e.code); if (m) { const id = GUN_IDS[+m[1] - 1]; if (G().owned.includes(id)) { e.preventDefault(); draw(id); } } }
+  };
+  const onBlur = () => { for (const k in A.trig) A.trig[k] = false; arms.setTrigger(false); A.mouse = false; };
+  const useKeys = o.keyboard !== false && typeof window !== 'undefined' && window.addEventListener;
+  if (useKeys) { window.addEventListener('keydown', onKey); window.addEventListener('keyup', onKey); window.addEventListener('blur', onBlur); }
+
+  // ---- 對外 ----
+  function draw(id) { const ok = arms.draw(id); if (ok && audio) { audio.resume(); audio.step(arms.cur, 'rack'); } return ok; }
+  function holster() { if (A.aiming) endAim(tel); A.latched = false; A.key = false; arms.holster(); }
+  function next() { const n = arms.next(); if (n && audio) { audio.resume(); audio.step(n, 'rack'); } if (!n && A.aiming) endAim(tel); return n; }
+  function reload() { if (arms.reload()) { hudDirty = true; return true; } const id = arms.cur; if (id && !(G().ammo[id] > 0) && (G().mag[id] || 0) < GUNS[id].mag) toast('沒有備用子彈了：去槍店買'); return false; }
+  // 存檔：子彈變了 0.5 秒後存一次（連發不要每一發都寫 localStorage）
+  const saveTimer = setInterval(() => { if (ammoDirty && alive && o.onChange) { ammoDirty = false; o.onChange('ammo'); } }, 500);
+  return {
+    update, setWorld, setTargets, setScene,
+    setWalker(w) { if (A.aiming) endAim(tel); walker = w || null; },
+    setCharacter(c) { if (ch && ch !== c) { restArms(); unhook(ch); } A.posed = false; ch = c || null; hookCharacter(ch); },
+    draw, holster, next, reload,
+    setAim(v) { A.key = !!v && !!arms.cur; },
+    setTrigger(v) { trigger('prog', v); },
+    refresh() { hudDirty = true; if (H) H.last.key = null; const g = G(); if (arms.cur && !g.owned.includes(arms.cur)) arms.holster(); },
+    setEnabled(v) { enabled = !!v; if (!enabled) { showHud(false); if (gun) gun.visible = false; } },
+    toast,
+    telemetry() {
+      const id = arms.cur, g = G();
+      return { drawn: !!id, cur: id, sel: g.cur, owned: g.owned.slice(), mag: id ? g.mag[id] || 0 : 0, reserve: id ? g.ammo[id] || 0 : 0, reloading: arms.reloading, reload: +arms.reloadK.toFixed(2),
+        aiming: A.aiming, latched: A.latched, zoom: +A.zoom.toFixed(3), shots: stat.shots, hits: stat.hits, knocks: stat.knocks, last: stat.last, crimes: stat.crimes.slice(), aimKind: A.aimKind || null,
+        aimPoint: { x: +AP.x.toFixed(2), y: +AP.y.toFixed(2), z: +AP.z.toFixed(2) }, faceYaw: +A.faceYaw.toFixed(3), hud: !!H && !H.root.hidden, fx: fx ? fx.stats : null, world: world.name || null };
+    },
+    // 測試用：從 (ox, oy, oz) 往 (dx, dy, dz)（長度 1）的子彈會打到什麼（precise＝開槍那樣：車再對模型打一次；sync＝車的 BVH 還沒做好就當場做完）
+    probe(ox, oy, oz, dx, dy, dz, { maxT = 150, precise = true, sync = true } = {}) {
+      const P = { t: 0, x: 0, y: 0, z: 0, nx: 0, ny: 1, nz: 0, kind: 'none', ref: null, prov: null, glass: false, onHit: null };
+      RC_ST.sync = !!sync; castAll(ox, oy, oz, dx, dy, dz, maxT, P, false, precise); RC_ST.sync = false;
+      return { kind: P.kind, t: P.t, x: P.x, y: P.y, z: P.z, nx: P.nx, ny: P.ny, nz: P.nz, glass: P.glass, ref: P.ref };
+    },
+    get fx() { return fx; }, get audio() { return audio; }, get arms() { return arms; }, get gun() { return gun; }, hud: H && H.root,
+    dispose() {
+      if (!alive) return; alive = false; clearInterval(saveTimer);
+      if (ammoDirty && o.onChange) { ammoDirty = false; o.onChange('ammo'); }
+      if (useKeys) { window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKey); window.removeEventListener('blur', onBlur); }
+      if (H) { H.off.forEach((f) => f()); H.root.remove(); }
+      unhook(ch);
+      for (const k in models) models[k].removeFromParent();
+      if (fx) fx.dispose(); if (audio && !o.audio) audio.dispose(); else if (audio) audio.hold(false);
+    },
+  };
+}
+
+return { GUNS, GUN_IDS, gunSave, gunShop, buildGunModel, createGunAudio, createGunner, gunTargets, GUN_ICONS, createGunArms: createArms, GUN_RANGE_REWARD: RANGE_REWARD };
+})();
+
+// ---- gunshop.js ----
+// ---- 槍店（第 3 批）：走得進去的店：玻璃櫃台、牆上的長槍、子彈架、後面的靶場（打倒的靶會倒下去、計分）；櫃台的買槍畫面 ----
+// Nick 2026-09-28 07:19：「有店可以買槍   子彈」
+// 規矩（整個遊戲一樣）：卡通、不血腥；槍都是虛構的（沒有牌子、商標）：手槍、衝鋒槍、霰彈槍、步槍；店裡不可以開槍，後面的靶場才可以
+// 全部用程式做（貼圖都是 canvas 畫的，沒有下載任何東西）；世界座標跟 village.js 一樣：x 往東、y 往上、z 往南；heading＝rotation.y（0 朝 +x、π/2 朝北）
+//
+// 【API】
+//   await gunShopFonts(name)            貼圖上的中文字先等字型（最多 1.5 秒；name＝店名，招牌上的字）
+//   const S = buildGunShopInterior({ door, name, renderer, makeCharacter, clerkLook, quality, GAME, onRangeEnd })
+//     door：店門外面那一點 { x, z, ry }（跟 V.buildings[i].door 一樣：ry＝門朝外的方向）或 { x, z, heading }（heading＝朝外）；
+//           V.places.gunshop.door 直接給。沒給＝(0, 0)、朝南。裡面比外面的房子大也沒關係：裡面是自己的 THREE.Scene（跟走進房子的模組一樣）
+//     name：店名（招牌；V.places.gunshop.name，沒有就「阿龍槍砲店」）；renderer：做反射的環境貼圖（槍、金屬架子才亮）、貼圖 anisotropy（可省略）
+//     makeCharacter(look)：店員（buildCharacter；charstub.js 或 character.js）；沒給就沒有店員
+//     quality：'high'｜'low'（慢的手機：沒有反射貼圖、子彈盒少一點）；GAME：看靶場的最佳紀錄（GAME.guns.range）
+//     onRangeEnd({ weapon, hits, total, time })：靶場一輪打完（頁面：gunShop.rangeResult(GAME, weapon, res) → 存檔、S.range.say(res.msg)）
+//   S.group            THREE.Group：已經擺在世界位置（門口）；放進自己的 THREE.Scene（燈在 group 裡）：scene.add(S.group); scene.background = S.background; scene.environment = S.environment
+//   S.spawn            走進來站的地方 { x, z, heading }（門裡面 1.3 公尺、面朝裡面）
+//   S.exitDoor         出去的長方形 { x, z, hx, hz, rot, to: 'outside', spawn: 門外 { x, z, heading }（面朝外）}；S.exits＝[exitDoor]（跟警察局、房子的裡面一樣）
+//   S.doors            walk.js setDoors 用的：[{ x, z, ry, w }]（ry 朝店裡面；走進去＝走出店門）
+//   S.colliders        世界座標的碰撞（牆 h ≥ 2.4、櫃台、架子、靶場的射擊台；記分板只擋子彈：y0）：createWalker({ world: { colliders }, bounds: S.walkBounds })、gunner.setWorld
+//   S.walkBounds       { x0, x1, z0, z1 }（createWalker 的 bounds）；S.bounds：{ x, z, hx, hz, rot }（整間店＋靶場）
+//   S.camera           { maxDist, ceiling, near }：walker.setCamera({ dist: maxDist, maxY: ceiling })
+//   S.zones            { counter（櫃台前面：給「買槍、子彈」）, range（射擊台後面：給「開始練習」）, shop, rangeRoom }：{ x, z, hx, hz, rot }
+//   S.zoneAt(x, z)     'counter' | 'range' | 'rangeRoom' | 'shop' | null
+//   S.views            { counter, range }：{ pos: [x, y, z], look: [x, y, z], fov }（買東西的時候鏡頭擺這裡）
+//   S.fireRule(x, z)   → null（靶場裡：可以開槍）｜'店裡不可以開槍，去後面的靶場'   → gunner.setWorld({ rule: S.fireRule, crime: false })
+//   S.raycast(ox, oy, oz, dx, dy, dz, maxT, out) → t   子彈打靶（站著的靶）：out.kind＝'target'、out.nx/ny/nz、out.ref、out.onHit(hit)（靶倒下去）→ gunner.setWorld({ raycast: S.raycast })
+//   S.range            靶場：start(weaponId) → true（站起來、倒數 3 秒、開始計時；全部打倒或 30 秒結束）、stop()、say(text)（記分板第二行）、
+//                      state（'idle'｜'count'｜'run'｜'done'）、hits、total（6）、time、weapon；平常（沒在比）打倒的靶 2.5 秒後自己站起來
+//   S.setClerk(state)  店員的動作（'idle'｜'talk'｜'wave'）；S.update(dt, player?)：每一幀（靶、倒數、店員；player＝{ x, z }：店員轉頭看你）
+//   S.info             { tris, draws, ms }；S.dispose()
+//
+//   const shop = openGunShop(parent, GAME, onBuy, { name, money, onClose })   櫃台的買槍畫面（跟改車廠同一個樣子：garage.css 的 .shop、.part）
+//     parent：放在哪個元素裡（車庫頁的 .wrap，畫面下面）；onBuy(kind 'gun'|'ammo', id, result)：買到了（頁面 save()、renderWallet()、gunner.refresh()）
+//     money：錢的寫法（預設跟車庫一樣：萬／億）；onClose()：按「離開櫃台」
+//     → { el, refresh(msg?), close() }
+//   槍：按一下看價錢、再按一次買（送一個裝滿的彈匣）；子彈：按一下、再按一次買一盒，之後 3.5 秒內每按一次再買一盒
+// 效能：同一個材質的東西併成一個網格（牆、架子、子彈盒、展示的槍⋯）；靶是一個 InstancedMesh；記分板有變才重畫；每一幀不新增物件
+//
+// 【接到遊戲裡】（town.src.js；guns-test.html 的 enterShop、leaveShop、openCounter、closeCounter、startRange 就是這樣接的）
+//   第一次走進去才蓋：await gunShopFonts(name); S = buildGunShopInterior({ door: VIL.places.gunshop.door, name, renderer, makeCharacter: buildCharacter, GAME, onRangeEnd })
+//     shopScene = new THREE.Scene()：add(S.group)、background、environment；第二個 walker：createWalker({ scene: shopScene, camera: dcam, world: { colliders: S.colliders },
+//     colliders: [], hudParent: stage, doors: S.doors, bounds: S.walkBounds, mapLayer: walker.mapLayer, onDoor: 走出去 })
+//   走進去（atDoor 是槍店）：walker.pause()；inside.setCharacter(角色)、teleport(S.spawn)、setCamera({ dist: S.camera.maxDist, maxY: S.camera.ceiling })、resume()
+//     gunner.setWalker(inside)、setWorld({ scene: shopScene, colliders: S.colliders, ceiling: S.camera.ceiling, raycast: S.raycast, rule: S.fireRule, crime: false })、setTargets([])
+//     police-ai.js 的 getPlayer：店裡 hidden＝true（找不到你）；櫃台打開的時候 mode 'off'
+//   每一格：S.update(dt, inside.telemetry())；S.zoneAt(x, z) 是 'counter' → inside.setAction({ label: '買槍、子彈' })、是 'range'（沒在比）→「開始練習」；inside.update(dt)；gunner.update(dt)
+//     renderer.render(shopScene, dcam)
+//   櫃台：inside.pause()、gunner.setEnabled(false)、S.setClerk('talk')、body 加 shopping（畫面變矮）、鏡頭擺 S.views.counter；
+//     openGunShop(wrap, GAME, (kind, id, res) => { save(); renderWallet(); gunner.refresh(); }, { onClose })；關掉反過來（inside.resume、setEnabled(true)）
+//   靶場：S.range.start(gunner.telemetry().cur)；onRangeEnd(res) → r = gunShop.rangeResult(GAME, res.weapon, res)；save()；renderWallet()；S.range.say(r.msg)
+//   走出去（inside 的 onDoor）：inside.pause()；walker.setCharacter(角色)、teleport(S.exitDoor.spawn)、resume()；gunner 換回村子（setWalker、setWorld、setTargets）
+
+// 打包（build-art.mjs、build-app.mjs）會拿掉 import、把 export 變成一般宣告：這個檔全部包在一個函式裡，只露出下面這些名字
+const { buildGunShopInterior, openGunShop, gunShopFonts, GUNSHOP_TEXT } = (() => {
+const TAU = Math.PI * 2, HP = Math.PI / 2;
+const SANS = '"Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Heiti TC", "WenQuanYi Zen Hei", sans-serif';
+const COND = '"Barlow Condensed", "Arial Narrow", sans-serif';
+const DEF_NAME = '阿龍槍砲店';
+const GUNSHOP_TEXT = '阿龍槍砲店槍子彈靶場安全第一口永遠朝的方向還不射時候手指要放在扳機上把每一都當作有看清楚目標和後面什麼規則戴耳罩護目鏡只台前開倒了會自己站起來保持準備計時秒打完美最佳紀錄獎金萬手衝鋒霰步營業中歡迎光臨按「開始練習」一輪個全部禁止吸菸使用限員工專區';
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const wrapA = (a) => { a = (a + Math.PI) % TAU; return a < 0 ? a + Math.PI : a - Math.PI; };
+const hasDoc = () => typeof document !== 'undefined' && !!document.createElement;
+function rng(seed) { let s = seed >>> 0; return () => { s = (s + 0x6d2b79f5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const CC = new Map();
+const C = (hex) => { let v = CC.get(hex); if (!v) { const c = new THREE.Color(hex); v = [c.r, c.g, c.b]; CC.set(hex, v); } return v; }; // 線性顏色
+const mul = (a, k) => [a[0] * k, a[1] * k, a[2] * k];
+
+function gunShopFonts(name = DEF_NAME, ms = 1500) {
+  const f = typeof document !== 'undefined' && document.fonts;
+  if (!f || !f.load) return Promise.resolve();
+  const all = Promise.all([f.load(`700 40px ${SANS}`, GUNSHOP_TEXT + name), f.load(`500 40px ${SANS}`, GUNSHOP_TEXT), f.load(`700 40px ${COND}`, '0123456789/.: RANGE GUN SHOP OPEN')]).catch(() => {});
+  return Promise.race([all, new Promise((r) => setTimeout(r, ms))]);
+}
+
+// ---- 尺寸（本地座標：原點＝店門口的地面中間、+z＝外面（馬路）、−z＝往店裡面、+x＝走進來的右手邊）----
+const SH = { x0: -5, x1: 5, z0: -9, z1: 0, H: 3.4 }; // 店面
+const RG = { x0: -5, x1: 5, z0: -27, z1: -9.25, H: 3.2 }; // 靶場（跟店面中間的牆 z −9.25…−9）
+const DOOR = { x0: -0.8, x1: 0.8, h: 2.3 }, RDOOR = { x0: 3.2, x1: 4.6, h: 2.2 }; // 大門、去靶場的門
+const CNT = { x0: -4.3, x1: 1.8, z0: -5.4, z1: -4.7, h: 1.0 }; // 玻璃櫃台
+const PART = { x0: 2.45, x1: 2.75, z0: -8.95, z1: -5.1 }; // 櫃台右邊的長槍櫃（隔開店員那邊跟往靶場的走道）
+const BENCH = { z0: -12.8, z1: -12.2, h: 1.0 }; // 靶場的射擊台
+const TARGETS = [[-3.4, -16.5], [-1.2, -18.0], [1.3, -17.2], [3.5, -19.5], [-2.4, -23.0], [2.1, -24.0]]; // 六個鋼靶（x, z）
+const HINGE = 0.35; // 靶的軸（倒下去轉的地方）多高
+
+// ---- 幾何：同一個材質的零件併在一起（位置、法線、顏色；有的還有 uv）----
+const _v = new THREE.Vector3(), _n3 = new THREE.Matrix3(), _m = new THREE.Matrix4();
+function bucket(uv) { return { p: [], n: [], c: [], uv: uv ? [] : null, tris: 0 }; }
+// g：BufferGeometry（有沒有 index 都可以）；col：[r, g, b]（線性）或 null（用 g 自己的頂點色）；m：Matrix4；shade(x, y, z)：明暗（牆腳、天花板的陰影）
+function put(B, g, col, m, shade, uvf) {
+  const G = g.index ? g.toNonIndexed() : g, P = G.attributes.position, N = G.attributes.normal, K = G.attributes.color, U = G.attributes.uv;
+  if (m) _n3.getNormalMatrix(m);
+  for (let i = 0; i < P.count; i++) {
+    _v.fromBufferAttribute(P, i); if (m) _v.applyMatrix4(m);
+    const x = _v.x, y = _v.y, z = _v.z, k = shade ? shade(x, y, z) : 1;
+    B.p.push(x, y, z);
+    _v.fromBufferAttribute(N, i); if (m) _v.applyMatrix3(_n3).normalize();
+    B.n.push(_v.x, _v.y, _v.z);
+    if (col) B.c.push(col[0] * k, col[1] * k, col[2] * k); else B.c.push(K.getX(i) * k, K.getY(i) * k, K.getZ(i) * k);
+    if (B.uv) { if (uvf) { const q = uvf(x, y, z, U ? U.getX(i) : 0, U ? U.getY(i) : 0); B.uv.push(q[0], q[1]); } else B.uv.push(U ? U.getX(i) : 0, U ? U.getY(i) : 0); }
+  }
+  B.tris += P.count / 3;
+  if (G !== g) G.dispose();
+}
+function toMesh(B, mat, name) {
+  if (!B.p.length) return null;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(B.p, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(B.n, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(B.c, 3));
+  if (B.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(B.uv, 2));
+  g.computeBoundingSphere();
+  const m = new THREE.Mesh(g, mat); m.name = name; m.matrixAutoUpdate = false; m.updateMatrix();
+  return m;
+}
+// 長方形（x0…x1、y0…y1、z0…z1）；seg：y 方向切幾段（牆腳的陰影要頂點）
+function box(B, x0, y0, z0, x1, y1, z1, col, shade, seg = 1) {
+  const g = new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0, 1, seg, 1); g.translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+  put(B, g, col, null, shade); g.dispose();
+}
+function cyl(B, r, y0, y1, x, z, col, seg = 10, shade) { const g = new THREE.CylinderGeometry(r, r, y1 - y0, seg, 1); g.translate(x, (y0 + y1) / 2, z); put(B, g, col, null, shade); g.dispose(); }
+// 一片長方形（四個角，逆時針從正面看），uv：[u0, v0, u1, v1]（atlas 的一格，v 往上）
+function quad(B, a, b, c, d, col, uv) {
+  const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = d[0] - a[0], vy = d[1] - a[1], vz = d[2] - a[2];
+  let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx; const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+  const P = [a, b, c, a, c, d], T = uv ? [[uv[0], uv[1]], [uv[2], uv[1]], [uv[2], uv[3]], [uv[0], uv[1]], [uv[2], uv[3]], [uv[0], uv[3]]] : null;
+  for (let i = 0; i < 6; i++) { B.p.push(P[i][0], P[i][1], P[i][2]); B.n.push(nx, ny, nz); B.c.push(col[0], col[1], col[2]); if (B.uv) B.uv.push(T ? T[i][0] : 0, T ? T[i][1] : 0); }
+  B.tris += 2;
+}
+// 牆上的一片（貼在 z＝常數的牆上，面朝 +z 或 −z；或 x＝常數，面朝 ±x）
+function panelZ(B, x0, x1, y0, y1, z, face, col, uv) { // face 1：面朝 +z
+  if (face > 0) quad(B, [x0, y0, z], [x1, y0, z], [x1, y1, z], [x0, y1, z], col, uv); else quad(B, [x1, y0, z], [x0, y0, z], [x0, y1, z], [x1, y1, z], col, uv);
+}
+function panelX(B, z0, z1, y0, y1, x, face, col, uv) { // face 1：面朝 +x（從 +x 看：左邊是 z 大的那邊）
+  if (face > 0) quad(B, [x, y0, z1], [x, y0, z0], [x, y1, z0], [x, y1, z1], col, uv); else quad(B, [x, y0, z0], [x, y0, z1], [x, y1, z1], [x, y1, z0], col, uv);
+}
+
+// ---- 貼圖 ----
+function canvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+function tex(c, o = {}) { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; if (o.rep) { t.wrapS = t.wrapT = THREE.RepeatWrapping; } if (o.aniso) t.anisotropy = o.aniso; return t; }
+function fitFont(g, text, maxW, px, weight = 700, fam = SANS) { let s = px; g.font = `${weight} ${s}px ${fam}`; while (s > 8 && g.measureText(text).width > maxW) { s -= 2; g.font = `${weight} ${s}px ${fam}`; } return s; }
+function crosshair(g, x, y, r, col, lw) {
+  g.strokeStyle = col; g.lineWidth = lw; g.beginPath(); g.arc(x, y, r, 0, TAU); g.stroke();
+  g.beginPath(); for (const [a, b] of [[[x - r * 1.35, y], [x - r * 0.45, y]], [[x + r * 0.45, y], [x + r * 1.35, y]], [[x, y - r * 1.35], [x, y - r * 0.45]], [[x, y + r * 0.45], [x, y + r * 1.35]]]) { g.moveTo(...a); g.lineTo(...b); } g.stroke();
+  g.fillStyle = col; g.beginPath(); g.arc(x, y, lw * 0.9, 0, TAU); g.fill();
+}
+// 一張 1024² 的 atlas：招牌、海報、標籤（區域 → uv）
+function paintAtlas(name) {
+  const W = 1024, c = canvas(W, W), g = c.getContext('2d'), R = {};
+  const reg = (k, x, y, w, h, draw) => { g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip(); g.translate(x, y); draw(g, w, h); g.restore(); R[k] = [x / W, 1 - (y + h) / W, (x + w) / W, 1 - y / W]; };
+  // 店名的招牌（亮的）：黑底、橘字、準星（跟外面的招牌同一個樣子）
+  reg('sign', 0, 0, 1024, 176, (g, w, h) => {
+    const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#202226'); gr.addColorStop(1, '#131417'); g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    g.strokeStyle = '#ff8a2a'; g.lineWidth = 5; g.strokeRect(10, 10, w - 20, h - 20);
+    crosshair(g, 104, h / 2, 42, '#ff8a2a', 8);
+    g.fillStyle = '#ffb347'; g.textBaseline = 'middle'; g.textAlign = 'left'; fitFont(g, name, 560, 110); g.fillText(name, 184, h / 2 + 4);
+    const x2 = Math.min(184 + g.measureText(name).width + 34, 760);
+    g.fillStyle = '#f2f3f5'; fitFont(g, '槍 · 子彈 · 靶場', w - x2 - 30, 36, 500); g.fillText('槍 · 子彈 · 靶場', x2, h / 2 - 24);
+    g.fillStyle = '#9aa1ac'; g.font = `700 36px ${COND}`; g.fillText('GUN SHOP', x2, h / 2 + 28);
+  });
+  // 靶場的門上面：紅底白字＋箭頭
+  reg('rsign', 0, 176, 512, 128, (g, w, h) => {
+    g.fillStyle = '#b3261e'; g.fillRect(0, 0, w, h); g.strokeStyle = '#f2f3f5'; g.lineWidth = 4; g.strokeRect(8, 8, w - 16, h - 16);
+    g.fillStyle = '#ffffff'; g.textBaseline = 'middle'; g.textAlign = 'left'; fitFont(g, '靶場', 200, 76); g.fillText('靶場', 40, h / 2 + 2);
+    g.font = `700 44px ${COND}`; g.fillText('RANGE', 222, h / 2 + 4);
+    g.beginPath(); g.moveTo(400, 40); g.lineTo(460, h / 2); g.lineTo(400, h - 40); g.lineTo(400, h / 2 + 12); g.lineTo(372, h / 2 + 12); g.lineTo(372, h / 2 - 12); g.lineTo(400, h / 2 - 12); g.closePath(); g.fill();
+  });
+  // 海報：安全第一（四條守則）
+  const poster = (k, x, y, title, lines, bg, fg) => reg(k, x, y, 256, 352, (g, w, h) => {
+    g.fillStyle = '#f4f1ea'; g.fillRect(0, 0, w, h); g.fillStyle = bg; g.fillRect(0, 0, w, 92);
+    g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle'; fitFont(g, title, 220, 52); g.fillText(title, w / 2, 48);
+    g.textAlign = 'left'; g.fillStyle = '#23262d';
+    lines.forEach((t, i) => {
+      const yy = 128 + i * 58; g.fillStyle = bg; g.beginPath(); g.arc(28, yy, 13, 0, TAU); g.fill();
+      g.fillStyle = '#fff'; g.font = `700 18px ${COND}`; g.textAlign = 'center'; g.fillText(String(i + 1), 28, yy + 1);
+      g.textAlign = 'left'; g.fillStyle = '#23262d'; const words = t.split('|');
+      words.forEach((s, j) => { fitFont(g, s, 200, 21, 500); g.fillText(s, 50, yy - (words.length - 1) * 12 + j * 24); });
+    });
+  });
+  poster('safe', 512, 176, '安全第一', ['槍口永遠朝|安全的方向', '還不射的時候|手指不要放在扳機上', '把每一把槍|都當作有子彈', '看清楚目標|和後面有什麼'], '#1f5fae', '#ffffff');
+  poster('rules', 768, 176, '靶場規則', ['戴耳罩|護目鏡', '只在射擊台前開槍', '槍口保持朝前', '靶倒了|會自己站起來'], '#b3261e', '#ffffff');
+  // 子彈架的標籤
+  ['手槍子彈', '衝鋒槍子彈', '霰彈', '步槍子彈'].forEach((t, i) => reg('lab' + i, 0, 304 + i * 56, 256, 56, (g, w, h) => {
+    g.fillStyle = '#f2c230'; g.fillRect(0, 0, w, h); g.fillStyle = '#1d1f23'; g.textAlign = 'center'; g.textBaseline = 'middle'; fitFont(g, t, 230, 34); g.fillText(t, w / 2, h / 2 + 1);
+  }));
+  // 射擊台的號碼
+  for (let i = 0; i < 3; i++) reg('lane' + i, 256 + i * 80, 304, 80, 80, (g, w, h) => { g.fillStyle = '#f2f3f5'; g.fillRect(0, 0, w, h); g.fillStyle = '#1d1f23'; g.font = `700 64px ${COND}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(i + 1), w / 2, h / 2 + 3); });
+  // 保持槍口朝前（靶場的牆）
+  reg('muzzle', 0, 528, 512, 96, (g, w, h) => {
+    g.fillStyle = '#f2c230'; g.fillRect(0, 0, w, h); g.fillStyle = '#1d1f23'; for (let x = -40; x < w; x += 48) { g.beginPath(); g.moveTo(x, h); g.lineTo(x + 24, h); g.lineTo(x + 48, h - 16); g.lineTo(x + 24, h - 16); g.fill(); }
+    g.textAlign = 'center'; g.textBaseline = 'middle'; fitFont(g, '保持槍口朝前', 440, 54); g.fillText('保持槍口朝前', w / 2, h / 2 - 6);
+  });
+  // 門上的貼紙：營業中 OPEN；門口的腳踏墊：歡迎光臨
+  reg('open', 512, 528, 256, 96, (g, w, h) => {
+    g.fillStyle = '#1d1f23'; g.fillRect(0, 0, w, h); g.fillStyle = '#3ddc84'; g.textAlign = 'center'; g.textBaseline = 'middle'; fitFont(g, '營業中', 150, 44); g.fillText('營業中', 90, h / 2 + 2);
+    g.fillStyle = '#f2f3f5'; g.font = `700 40px ${COND}`; g.fillText('OPEN', 196, h / 2 + 3);
+  });
+  reg('mat', 768, 528, 256, 96, (g, w, h) => {
+    g.fillStyle = '#5a1f1c'; g.fillRect(0, 0, w, h); g.strokeStyle = '#d9b36a'; g.lineWidth = 4; g.strokeRect(8, 8, w - 16, h - 16);
+    g.fillStyle = '#e8c77a'; g.textAlign = 'center'; g.textBaseline = 'middle'; fitFont(g, '歡迎光臨', 210, 50); g.fillText('歡迎光臨', w / 2, h / 2 + 2);
+  });
+  // 紙靶（櫥窗、牆上）
+  reg('paper', 0, 624, 192, 256, (g, w, h) => {
+    g.fillStyle = '#f3efe4'; g.fillRect(0, 0, w, h);
+    const cx = w / 2, cy = h * 0.46; for (let r = 9; r >= 1; r--) { g.fillStyle = r <= 4 ? '#1d1f23' : '#f3efe4'; g.beginPath(); g.arc(cx, cy, r * 9.5, 0, TAU); g.fill(); g.strokeStyle = r <= 4 ? '#f3efe4' : '#1d1f23'; g.lineWidth = 1.5; g.stroke(); }
+    g.fillStyle = '#ff6a1f'; g.beginPath(); g.arc(cx, cy, 6, 0, TAU); g.fill();
+    g.fillStyle = '#1d1f23'; g.font = `700 20px ${COND}`; g.textAlign = 'center'; g.fillText('25 M', cx, h - 20);
+  });
+  // 員工專區（櫃台後面的門）、禁止吸菸
+  reg('staff', 192, 624, 256, 80, (g, w, h) => { g.fillStyle = '#f2f3f5'; g.fillRect(0, 0, w, h); g.fillStyle = '#1d1f23'; g.textAlign = 'center'; g.textBaseline = 'middle'; fitFont(g, '員工專區', 220, 44); g.fillText('員工專區', w / 2, h / 2 + 2); });
+  reg('nosmoke', 448, 624, 96, 96, (g, w, h) => {
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, w, h); g.strokeStyle = '#c62f25'; g.lineWidth = 9; g.beginPath(); g.arc(w / 2, h / 2, 38, 0, TAU); g.stroke();
+    g.fillStyle = '#1d1f23'; g.fillRect(22, 44, 46, 10); g.fillStyle = '#c9c4b8'; g.fillRect(68, 44, 8, 10);
+    g.beginPath(); g.moveTo(w / 2 - 27, h / 2 - 27); g.lineTo(w / 2 + 27, h / 2 + 27); g.stroke();
+  });
+  return { c, R };
+}
+// 地磚（淺米灰 60 公分，2×2 一張）、水泥地、窗外的街景
+function paintTiles() {
+  const c = canvas(256, 256), g = c.getContext('2d'), r = rng(31);
+  for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) {
+    const k = 0.94 + r() * 0.08; g.fillStyle = `rgb(${Math.round(214 * k)},${Math.round(208 * k)},${Math.round(196 * k)})`; g.fillRect(i * 128, j * 128, 128, 128);
+    for (let s = 0; s < 260; s++) { const q = r(); g.fillStyle = `rgba(${q > 0.5 ? 255 : 90},${q > 0.5 ? 250 : 84},${q > 0.5 ? 240 : 74},${0.05 + r() * 0.07})`; g.fillRect(i * 128 + r() * 128, j * 128 + r() * 128, 1 + r() * 3, 1 + r() * 3); }
+  }
+  g.fillStyle = 'rgba(96,90,80,0.55)'; for (const p of [0, 127, 128, 255]) { g.fillRect(p, 0, 1, 256); g.fillRect(0, p, 256, 1); }
+  return c;
+}
+function paintConcrete() {
+  const c = canvas(256, 256), g = c.getContext('2d'), r = rng(57);
+  g.fillStyle = '#8f8c86'; g.fillRect(0, 0, 256, 256);
+  for (let s = 0; s < 2200; s++) { const k = 100 + r() * 80; g.fillStyle = `rgba(${k},${k - 2},${k - 6},${0.08 + r() * 0.12})`; g.fillRect(r() * 256, r() * 256, 1 + r() * 4, 1 + r() * 4); }
+  for (let s = 0; s < 14; s++) { g.fillStyle = `rgba(60,58,54,${0.04 + r() * 0.05})`; g.beginPath(); g.arc(r() * 256, r() * 256, 10 + r() * 40, 0, TAU); g.fill(); }
+  return c;
+}
+function paintStreet() { // 對面的店（淡淡的，隔著玻璃看）
+  const c = canvas(1024, 256), g = c.getContext('2d'), r = rng(88);
+  const sky = g.createLinearGradient(0, 0, 0, 120); sky.addColorStop(0, '#8fb6dc'); sky.addColorStop(1, '#d6e4ee'); g.fillStyle = sky; g.fillRect(0, 0, 1024, 140);
+  let x = -20; const cols = ['#e8e2d6', '#d9cdb8', '#c9d3d6', '#efe9e0', '#d4c3a8', '#bfc8c2'], signs = [['#f6c343', '#b3261e'], ['#1f5fae', '#fff'], ['#c62f25', '#fff3c4'], ['#2e9a5c', '#fff'], ['#ffffff', '#c62f25']];
+  while (x < 1024) {
+    const w = 150 + r() * 90, h = 110 + r() * 60, top = 176 - h; g.fillStyle = cols[(r() * cols.length) | 0]; g.fillRect(x, top, w, h + 10);
+    g.fillStyle = 'rgba(40,60,80,0.45)'; for (let i = 0; i < 3; i++) g.fillRect(x + 14 + i * (w - 28) / 3, top + 16, (w - 28) / 3 - 10, 28);
+    const s = signs[(r() * signs.length) | 0]; g.fillStyle = s[0]; g.fillRect(x + 8, 128, w - 16, 22); g.fillStyle = s[1]; g.fillRect(x + w * 0.3, 134, w * 0.4, 10);
+    g.fillStyle = '#4a4d52'; g.fillRect(x + 6, 150, w - 12, 30); g.fillStyle = 'rgba(255,240,210,0.5)'; g.fillRect(x + 16, 156, w - 32, 20);
+    x += w + 4;
+  }
+  g.fillStyle = '#b9b6ae'; g.fillRect(0, 180, 1024, 14); g.fillStyle = '#56585c'; g.fillRect(0, 194, 1024, 62);
+  g.fillStyle = '#e9ebee'; for (let i = 0; i < 1024; i += 90) g.fillRect(i, 226, 50, 4);
+  return c;
+}
+// 軟影子（家具底下、牆腳）：中間黑、邊邊淡掉
+function paintShadow() {
+  const c = canvas(64, 64), g = c.getContext('2d'), im = g.getImageData(0, 0, 64, 64); // 新的畫布：全部透明
+  for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) {
+    const dx = Math.max(0, Math.abs(x - 31.5) - 12) / 20, dy = Math.max(0, Math.abs(y - 31.5) - 12) / 20, d = Math.min(1, Math.hypot(dx, dy)), a = (1 - d) * (1 - d);
+    const i = (y * 64 + x) * 4; im.data[i] = im.data[i + 1] = im.data[i + 2] = 0; im.data[i + 3] = Math.round(a * 255);
+  }
+  g.putImageData(im, 0, 0); return c;
+}
+// 鋼靶的正面：白色、頭上一圈橘色
+function paintPopper() {
+  const c = canvas(128, 256), g = c.getContext('2d');
+  g.fillStyle = '#f1efe9'; g.fillRect(0, 0, 128, 256);
+  g.strokeStyle = '#ff6a1f'; g.lineWidth = 12; g.beginPath(); g.arc(64, 256 - 0.62 / 0.85 * 256, 26, 0, TAU); g.stroke();
+  g.fillStyle = 'rgba(120,118,112,0.25)'; const r = rng(5); for (let i = 0; i < 40; i++) { g.beginPath(); g.arc(r() * 128, r() * 256, 1 + r() * 3, 0, TAU); g.fill(); }
+  return c;
+}
+
+// ---- 蓋一間 ----
+function buildGunShopInterior(o = {}) {
+  const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
+  const d = o.door || { x: 0, z: 0, ry: 0 };
+  const ry = d.ry != null ? +d.ry : d.heading != null ? +d.heading + HP : 0, X0 = +d.x || 0, Z0 = +d.z || 0, cr = Math.cos(ry), sr = Math.sin(ry);
+  const name = String(o.name || DEF_NAME), low = o.quality === 'low', doc = hasDoc();
+  // 本地 → 世界
+  const W = (lx, lz) => [X0 + lx * cr + lz * sr, Z0 - lx * sr + lz * cr];
+  const L = (wx, wz, out) => { const dx = wx - X0, dz = wz - Z0; out[0] = dx * cr - dz * sr; out[1] = dx * sr + dz * cr; return out; };
+  const H = (lh) => wrapA(lh + ry); // 本地 heading → 世界
+  const group = new THREE.Group(); group.name = 'gunshop'; group.position.set(X0, 0, Z0); group.rotation.y = ry;
+  const own = []; // 要 dispose 的
+  const R = rng(20260928);
+
+  // ---- 材質 ----
+  const gm = buildGunModel('pistol'); const MET = gm.children[0].material, GMAT = gm.children[1].material; // 跟手上的槍同一組材質（共用，不 dispose）
+  const mats = {
+    matte: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 }),
+    semi: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0 }),
+    glass: new THREE.MeshStandardMaterial({ color: 0xcfe6ea, roughness: 0.05, metalness: 0, transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide, envMapIntensity: 0.35 }), // 斜斜看過去也看得到裡面（反光不要太多）
+    glow: new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }),
+  };
+  own.push(mats.matte, mats.semi, mats.glass, mats.glow);
+  let atlas = null, AR = {};
+  if (doc) {
+    const A = paintAtlas(name); AR = A.R;
+    atlas = tex(A.c, { aniso: 4 }); own.push(atlas);
+    mats.atlas = new THREE.MeshStandardMaterial({ map: atlas, vertexColors: true, roughness: 0.55, metalness: 0 });
+    mats.lit = new THREE.MeshBasicMaterial({ map: atlas, vertexColors: true, toneMapped: false });
+    const tl = tex(paintTiles(), { rep: 1, aniso: 8 }); tl.repeat.set(1 / 1.2, 1 / 1.2); own.push(tl);
+    mats.tile = new THREE.MeshStandardMaterial({ map: tl, vertexColors: true, roughness: 0.3, metalness: 0 });
+    const cc = tex(paintConcrete(), { rep: 1, aniso: 8 }); cc.repeat.set(1 / 2.5, 1 / 2.5); own.push(cc);
+    mats.conc = new THREE.MeshStandardMaterial({ map: cc, vertexColors: true, roughness: 0.9, metalness: 0 });
+    const st = tex(paintStreet()); own.push(st);
+    mats.street = new THREE.MeshBasicMaterial({ map: st, toneMapped: false, fog: false });
+    const sh = new THREE.CanvasTexture(paintShadow()); own.push(sh);
+    mats.shadow = new THREE.MeshBasicMaterial({ map: sh, color: 0x000000, transparent: true, opacity: 0.42, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  } else {
+    mats.atlas = mats.lit = mats.tile = mats.conc = mats.matte; mats.street = mats.glow; mats.shadow = null;
+  }
+  for (const k of ['atlas', 'lit', 'tile', 'conc', 'street', 'shadow']) if (mats[k] && !own.includes(mats[k])) own.push(mats[k]);
+  const Bm = bucket(), Bs = bucket(), Bmet = bucket(), Bg = bucket(), Bgl = bucket(), Bglow = bucket(), Ba = bucket(true), Blit = bucket(true), Bt = bucket(true), Bc = bucket(true), Bst = bucket(true), Bsh = bucket(true);
+  // 牆腳、天花板邊的暗（頂點色）
+  const aoWall = (Hc) => (x, y) => 1 - 0.3 * Math.exp(-y / 0.25) - 0.16 * Math.exp(-(Hc - y) / 0.18);
+  const aoLow = (x, y) => 1 - 0.28 * Math.exp(-y / 0.14);
+  const shadowQuad = (x0, z0, x1, z1, a = 1) => { if (!mats.shadow) return; const m = 0.25; quad(Bsh, [x0 - m, 0.004, z1 + m], [x1 + m, 0.004, z1 + m], [x1 + m, 0.004, z0 - m], [x0 - m, 0.004, z0 - m], [a, a, a], [0, 0, 1, 1]); };
+  const cols = []; // 碰撞（本地）
+  const col = (x0, z0, x1, z1, h, y0 = 0, tag) => cols.push({ x0, z0, x1, z1, h, y0, tag });
+
+  // ================= 店面 =================
+  // 地板（地磚：uv＝世界公尺）、踢腳板
+  const tileUv = (x, y, z) => [x, -z];
+  { const g = new THREE.PlaneGeometry(SH.x1 - SH.x0, SH.z1 - SH.z0, 10, 9).rotateX(-HP).translate((SH.x0 + SH.x1) / 2, 0, (SH.z0 + SH.z1) / 2);
+    // 地板靠牆的地方暗一點
+    put(Bt, g, C('#ffffff'), null, (x, y, z) => 1 - 0.22 * Math.exp(-Math.min(x - SH.x0, SH.x1 - x, z - SH.z0, SH.z1 - z) / 0.5), tileUv); g.dispose(); }
+  const wallC = C('#e9e4da'), wainC = C('#3f4a43'), trimC = C('#26282c');
+  // 左、右牆（下半部深綠色的護牆板、上面米白色）
+  for (const [x, f] of [[SH.x0, 1], [SH.x1, -1]]) {
+    const xi = x + (f > 0 ? 0 : 0);
+    box(Bm, f > 0 ? x - 0.2 : x, 0, SH.z0 - 0.25, f > 0 ? x : x + 0.2, SH.H, SH.z1 + 0.2, wallC, aoWall(SH.H), 6);
+    box(Bs, f > 0 ? xi : xi - 0.03, 0, SH.z0, f > 0 ? xi + 0.03 : xi, 0.95, SH.z1, wainC, aoLow, 3); // 護牆板
+    box(Bs, f > 0 ? xi : xi - 0.045, 0.95, SH.z0, f > 0 ? xi + 0.045 : xi, 1.0, SH.z1, trimC); // 護牆板上緣
+    col(f > 0 ? x - 0.2 : x, SH.z0 - 0.25, f > 0 ? x + 0.03 : x + 0.2, SH.z1 + 0.2, SH.H);
+  }
+  // 前面的牆：兩邊櫥窗、中間玻璃門
+  { const z = SH.z1, t = 0.2;
+    const solid = (x0, x1, y0, y1) => box(Bm, x0, y0, z, x1, y1, z + t, wallC, aoWall(SH.H), 2);
+    solid(SH.x0 - 0.2, -4.7, 0, SH.H); solid(-1.1, DOOR.x0, 0, SH.H); solid(DOOR.x1, 1.1, 0, SH.H); solid(4.7, SH.x1 + 0.2, 0, SH.H);
+    for (const [a, b] of [[-4.7, -1.1], [1.1, 4.7]]) {
+      solid(a, b, 0, 0.55); solid(a, b, 2.55, SH.H); // 窗台、窗楣
+      box(Bs, a, 0.55, z - 0.06, b, 0.6, z + 0.02, C('#cfc9bd')); // 窗台板
+      box(Bmet, a, 0.55, z + 0.08, b, 0.6, z + 0.12, C('#2b2d31')); box(Bmet, a, 2.5, z + 0.08, b, 2.55, z + 0.12, C('#2b2d31'));
+      for (const xx of [a, (a + b) / 2, b]) box(Bmet, xx - 0.025, 0.55, z + 0.08, xx + 0.025, 2.55, z + 0.12, C('#2b2d31'));
+      quad(Bgl, [a, 0.6, z + 0.1], [b, 0.6, z + 0.1], [b, 2.5, z + 0.1], [a, 2.5, z + 0.1], [1, 1, 1]);
+      // 櫥窗裡面：紙靶、一把長槍的展示架
+      const mx = (a + b) / 2;
+      box(Bs, mx - 0.9, 0.6, z - 0.42, mx + 0.9, 0.66, z - 0.02, C('#3a2a20'));
+      for (const s of [-1, 1]) { const px = mx + s * 0.55; quad(Ba, [px - 0.2, 0.7, z - 0.25], [px + 0.2, 0.7, z - 0.25], [px + 0.2, 1.23, z - 0.25], [px - 0.2, 1.23, z - 0.25], [1, 1, 1], AR.paper); box(Bm, px - 0.015, 0.66, z - 0.27, px + 0.015, 0.72, z - 0.23, C('#26282c')); }
+    }
+    // 窗外的街景（隔 4 公尺，一片）
+    quad(Bst, [SH.x0 - 2, -0.6, z + 4.5], [SH.x1 + 2, -0.6, z + 4.5], [SH.x1 + 2, 5.6, z + 4.5], [SH.x0 - 2, 5.6, z + 4.5], [1, 1, 1], [0, 0, 1, 1]);
+    quad(Bm, [SH.x0 - 2, -0.02, z + 4.5], [SH.x1 + 2, -0.02, z + 4.5], [SH.x1 + 2, -0.02, z + 0.2], [SH.x0 - 2, -0.02, z + 0.2], C('#9d9a93')); // 門口外面的地
+    solid(DOOR.x0, DOOR.x1, DOOR.h, SH.H); // 門楣
+    // 玻璃門（兩片，鋁框）＋「營業中」
+    for (const [a, b] of [[DOOR.x0, 0], [0, DOOR.x1]]) {
+      quad(Bgl, [a, 0.05, z + 0.1], [b, 0.05, z + 0.1], [b, DOOR.h, z + 0.1], [a, DOOR.h, z + 0.1], [1, 1, 1]);
+      for (const [x0, x1] of [[a, a + 0.05], [b - 0.05, b]]) box(Bmet, x0, 0, z + 0.07, x1, DOOR.h, z + 0.13, C('#8b8f96'));
+      box(Bmet, a, 0, z + 0.07, b, 0.1, z + 0.13, C('#8b8f96')); box(Bmet, a, DOOR.h - 0.05, z + 0.07, b, DOOR.h, z + 0.13, C('#8b8f96'));
+      box(Bmet, (a + b) / 2 + (a < 0 ? 0.28 : -0.28) - 0.012, 0.85, z + 0.02, (a + b) / 2 + (a < 0 ? 0.28 : -0.28) + 0.012, 1.25, z + 0.07, C('#b9bec6')); // 把手
+    }
+    quad(Ba, [-0.62, 1.42, z + 0.06], [-0.1, 1.42, z + 0.06], [-0.1, 1.62, z + 0.06], [-0.62, 1.62, z + 0.06], [1, 1, 1], AR.open);
+    col(SH.x0 - 0.2, z, SH.x1 + 0.2, z + t, SH.H);
+  }
+  // 腳踏墊
+  { const y = 0.012; quad(Ba, [-0.75, y, -0.25], [0.75, y, -0.25], [0.75, y, -1.05], [-0.75, y, -1.05], [0.9, 0.9, 0.9], AR.mat); }
+  // 後面的牆（店員那邊＋往靶場的門）
+  { const z = SH.z0, t = 0.25;
+    box(Bm, SH.x0 - 0.2, 0, z - t, RDOOR.x0, SH.H, z, wallC, aoWall(SH.H), 6);
+    box(Bm, RDOOR.x1, 0, z - t, SH.x1 + 0.2, SH.H, z, wallC, aoWall(SH.H), 6);
+    box(Bm, RDOOR.x0, RDOOR.h, z - t, RDOOR.x1, SH.H, z, wallC);
+    col(SH.x0 - 0.2, z - t, RDOOR.x0, z, SH.H); col(RDOOR.x1, z - t, SH.x1 + 0.2, z, SH.H); col(RDOOR.x0, z - t, RDOOR.x1, z, SH.H, RDOOR.h);
+    // 門框（鐵的、厚）、門上的紅牌子
+    for (const x of [RDOOR.x0, RDOOR.x1]) box(Bmet, x - 0.06, 0, z - t - 0.02, x + 0.06, RDOOR.h + 0.06, z + 0.04, C('#3b3e44'));
+    box(Bmet, RDOOR.x0 - 0.06, RDOOR.h, z - t - 0.02, RDOOR.x1 + 0.06, RDOOR.h + 0.08, z + 0.04, C('#3b3e44'));
+    quad(Blit, [RDOOR.x0 - 0.05, 2.45, z + 0.03], [RDOOR.x1 + 0.05, 2.45, z + 0.03], [RDOOR.x1 + 0.05, 2.8, z + 0.03], [RDOOR.x0 - 0.05, 2.8, z + 0.03], [0.95, 0.95, 0.95], AR.rsign);
+    box(Bs, RDOOR.x0 - 0.05, 2.43, z + 0.0, RDOOR.x1 + 0.05, 2.82, z + 0.025, C('#1d1f23'));
+    // 店員那邊的護牆板、木條牆、長槍（橫放在木栓上）、店名的招牌
+    box(Bs, SH.x0, 0, z, PART.x0, 0.95, z + 0.03, wainC, aoLow, 3);
+    const slat0 = -4.85, slat1 = 2.3;
+    box(Bs, slat0, 0.98, z, slat1, 2.66, z + 0.02, C('#2a1c14'));
+    for (let x = slat0 + 0.03; x < slat1 - 0.03; x += 0.1) box(Bs, x, 1.0, z + 0.02, x + 0.072, 2.64, z + 0.05, mul(C('#6b4a32'), 0.85 + R() * 0.25));
+    box(Bs, slat0 - 0.04, 2.64, z, slat1 + 0.04, 2.7, z + 0.07, C('#3a2a20')); box(Bs, slat0 - 0.04, 0.95, z, slat1 + 0.04, 1.0, z + 0.07, C('#3a2a20'));
+    const RACK = [['rifle', 'shotgun', 'rifle'], ['shotgun', 'rifle', 'smg'], ['smg', 'rifle', 'shotgun'], ['rifle', 'shotgun', 'rifle']];
+    RACK.forEach((row, i) => row.forEach((id, j) => {
+      const y = 2.34 - i * 0.36, cx = -3.55 + j * 2.3, ud = buildGunModel(id).userData, len = ud.length;
+      const gx = cx - len * 0.42; // 槍的原點（握把）放在中間偏左：槍管朝右
+      mountGun(id, new THREE.Matrix4().makeTranslation(gx, y, z + 0.1));
+      for (const px of [gx - len * 0.28, gx + len * 0.33]) { const pg = new THREE.CylinderGeometry(0.012, 0.012, 0.12, 8).rotateX(HP).translate(px, y - 0.055, z + 0.1); put(Bmet, pg, C('#b9bec6')); pg.dispose(); }
+    }));
+    // 招牌（亮的）＋外框
+    box(Bs, -4.45, 2.76, z, 1.95, 3.3, z + 0.05, C('#0e0f12'));
+    quad(Blit, [-4.4, 2.8, z + 0.055], [1.9, 2.8, z + 0.055], [1.9, 3.26, z + 0.055], [-4.4, 3.26, z + 0.055], [1, 1, 1], AR.sign);
+    // 員工專區的門（櫃台後面左邊）
+    box(Bs, -4.95, 0, z, -4.9, 2.2, z + 0.05, C('#3a2a20'));
+  }
+  // 天花板（燈：六片）
+  { const y = SH.H;
+    box(Bm, SH.x0, y, SH.z0 - 0.25, SH.x1, y + 0.1, SH.z1 + 0.2, C('#d8d5ce'));
+    for (let x = SH.x0 + 0.6; x < SH.x1; x += 0.6) box(Bm, x - 0.01, y - 0.015, SH.z0, x + 0.01, y, SH.z1, C('#bdbab3')); // 輕鋼架
+    for (let z = SH.z0 + 0.6; z < SH.z1; z += 0.6) box(Bm, SH.x0, y - 0.015, z - 0.01, SH.x1, y, z + 0.01, C('#bdbab3'));
+    for (const lx of [-2.7, 0.3, 3.3]) for (const lz of [-2.1, -6.6]) { box(Bglow, lx - 0.58, y - 0.026, lz - 0.28, lx + 0.58, y - 0.012, lz + 0.28, [1.0, 0.97, 0.9]); box(Bm, lx - 0.63, y - 0.02, lz - 0.33, lx + 0.63, y - 0.004, lz + 0.33, C('#ecebe6')); } // 燈片比外框低一點（從下面看得到亮的那面）
+  }
+
+  // ---- 玻璃櫃台（裡面躺著手槍）----
+  { const { x0, x1, z0, z1, h } = CNT, fr = C('#2b2d31');
+    box(Bs, x0, 0, z0, x1, 0.32, z1, C('#3a2a20'), aoLow, 2); box(Bm, x0 + 0.03, 0, z1 - 0.06, x1 - 0.03, 0.08, z1 + 0.005, C('#141416')); // 木頭底座、踢腳
+    box(Bs, x0 + 0.02, 0.32, z0 + 0.02, x1 - 0.02, 0.35, z1 - 0.02, C('#5a1a1e')); // 絨布
+    box(Bs, x0 + 0.02, 0.63, z0 + 0.06, x1 - 0.02, 0.64, z1 - 0.06, C('#b8d4d8')); // 中間的玻璃層板（亮一點當反光）
+    // 鋁框：12 條邊＋每 1.5 公尺一根
+    const e = 0.022;
+    for (const [ya, yb] of [[0.32, 0.32 + e], [h - e, h]]) { box(Bmet, x0, ya, z1 - e, x1, yb, z1, fr); box(Bmet, x0, ya, z0, x1, yb, z0 + e, fr); box(Bmet, x0, ya, z0, x0 + e, yb, z1, fr); box(Bmet, x1 - e, ya, z0, x1, yb, z1, fr); }
+    for (let x = x0; x <= x1 + 1e-6; x += (x1 - x0) / 4) { box(Bmet, x - e / 2, 0.32, z1 - e, x + e / 2, h, z1, fr); box(Bmet, x - e / 2, 0.32, z0, x + e / 2, h, z0 + e, fr); }
+    // 玻璃（正面、上面、兩邊、後面）
+    quad(Bgl, [x0, 0.34, z1], [x1, 0.34, z1], [x1, h, z1], [x0, h, z1], [1, 1, 1]); quad(Bgl, [x0, h, z1], [x1, h, z1], [x1, h, z0], [x0, h, z0], [1, 1, 1]);
+    quad(Bgl, [x1, 0.34, z0], [x0, 0.34, z0], [x0, h, z0], [x1, h, z0], [1, 1, 1]);
+    quad(Bgl, [x0, 0.34, z0], [x0, 0.34, z1], [x0, h, z1], [x0, h, z0], [1, 1, 1]); quad(Bgl, [x1, 0.34, z1], [x1, 0.34, z0], [x1, h, z0], [x1, h, z1], [1, 1, 1]);
+    box(Bglow, x0 + 0.05, h - 0.035, z1 - 0.07, x1 - 0.05, h - 0.022, z1 - 0.05, [1, 0.95, 0.85]); // 燈條
+    // 手槍：下層六把、上層四把（右邊朝上、槍管斜斜的）＋白色的價錢牌
+    const lie = (id, x, y, zc, a) => { const m = new THREE.Matrix4().makeTranslation(x, y, zc).multiply(_m.makeRotationY(a)).multiply(new THREE.Matrix4().makeRotationX(-HP)); mountGun(id, m); box(Bs, x - 0.04, y - 0.012, zc + 0.13, x + 0.04, y + 0.002, zc + 0.16, C('#f2f3f5')); };
+    for (let i = 0; i < 6; i++) lie('pistol', x0 + 0.5 + i * 1.0, 0.36, (z0 + z1) / 2 - 0.02, 0.35 + (i % 2) * 0.25);
+    for (let i = 0; i < 4; i++) lie(i === 2 ? 'smg' : 'pistol', x0 + 0.9 + i * 1.45, 0.655, (z0 + z1) / 2 - 0.04, i === 2 ? 0.05 : 0.2);
+    // 上面：收銀機、腳踏的橡膠墊、鈴
+    box(Bm, -4.05, h, -5.25, -3.5, h + 0.12, -4.85, C('#1d1f23')); box(Bm, -3.95, h + 0.12, -5.2, -3.62, h + 0.3, -5.12, C('#26282c')); box(Bglow, -3.92, h + 0.16, -5.12, -3.65, h + 0.27, -5.115, [0.35, 0.9, 0.55]);
+    box(Bs, -1.9, h, -5.3, -0.6, h + 0.008, -4.8, C('#2f3a33'));
+    cyl(Bmet, 0.045, h, h + 0.035, 0.9, -5.0, C('#c9a24a'), 12); cyl(Bmet, 0.008, h + 0.035, h + 0.055, 0.9, -5.0, C('#c9a24a'), 6);
+    shadowQuad(x0, z0, x1, z1, 1);
+    col(x0, z0, x1, z1, h);
+    // 櫃台右邊的小門（關著，擋人）
+    box(Bs, x1, 0, -5.12, PART.x0, 0.98, -4.98, C('#3a2a20'), aoLow, 2); col(x1, -5.15, PART.x0, -4.95, 1.0);
+  }
+  // ---- 長槍櫃（櫃台右邊：玻璃門朝走道，裡面直立的步槍、霰彈槍）----
+  { const { x0, x1, z0, z1 } = PART, hh = 2.2;
+    box(Bs, x0, 0, z0, x1, 0.3, z1, C('#2c2f33'), aoLow, 2); box(Bs, x0, hh - 0.12, z0, x1, hh, z1, C('#2c2f33')); box(Bs, x0, 0.3, z0, x0 + 0.04, hh, z1, C('#3a3d42'));
+    box(Bs, x0, 0.3, z0, x1, hh, z0 + 0.04, C('#2c2f33')); box(Bs, x0, 0.3, z1 - 0.04, x1, hh, z1, C('#2c2f33'));
+    box(Bs, x0 + 0.04, 0.3, z0 + 0.04, x0 + 0.06, hh - 0.12, z1 - 0.04, C('#5a1a1e')); // 裡面的絨布
+    quad(Bgl, [x1, 0.3, z1], [x1, 0.3, z0], [x1, hh - 0.12, z0], [x1, hh - 0.12, z1], [1, 1, 1]);
+    for (let z = z0 + 0.04; z <= z1; z += (z1 - z0 - 0.08) / 3) box(Bmet, x1 - 0.02, 0.3, z - 0.015, x1 + 0.005, hh - 0.12, z + 0.015, C('#2b2d31'));
+    box(Bglow, x0 + 0.08, hh - 0.14, z0 + 0.1, x0 + 0.1, hh - 0.13, z1 - 0.1, [1, 0.95, 0.85]);
+    const ids = ['rifle', 'shotgun', 'rifle', 'shotgun', 'rifle', 'shotgun'];
+    ids.forEach((id, i) => { const z = z0 + 0.45 + i * ((z1 - z0 - 0.9) / (ids.length - 1)), ud = buildGunModel(id).userData;
+      const m = new THREE.Matrix4().makeTranslation((x0 + x1) / 2 + 0.02, 0.34 - ud.butt.x, z).multiply(_m.makeRotationY(HP)).multiply(new THREE.Matrix4().makeRotationZ(HP)); mountGun(id, m); });
+    // 背面（朝店員那邊，客人斜斜看得到）：跟後牆一樣的木條牆，掛手槍、衝鋒槍（不要一大片黑的）
+    box(Bs, x0 - 0.02, 0.3, z0 + 0.04, x0, hh - 0.12, z1 - 0.04, C('#2a1c14'));
+    for (let z = z0 + 0.07; z < z1 - 0.1; z += 0.1) box(Bs, x0 - 0.05, 0.34, z, x0 - 0.02, hh - 0.16, z + 0.072, mul(C('#6b4a32'), 0.85 + R() * 0.25));
+    [['pistol', 'smg'], ['smg', 'pistol'], ['pistol', 'pistol']].forEach((row, i) => row.forEach((id, j) => {
+      const y = 1.78 - i * 0.42, zc = j ? -6.15 : -7.95, len = buildGunModel(id).userData.length, gz = zc - len * 0.42;
+      mountGun(id, new THREE.Matrix4().makeTranslation(x0 - 0.1, y, gz).multiply(_m.makeRotationY(-HP))); // 槍管朝 +z（店門那邊）、右邊朝店員
+      for (const pz of [gz - len * 0.2, gz + len * 0.33]) { const pg = new THREE.CylinderGeometry(0.01, 0.01, 0.1, 8).rotateZ(HP).translate(x0 - 0.07, y - 0.05, pz); put(Bmet, pg, C('#b9bec6')); pg.dispose(); }
+    }));
+    col(x0 - 0.12, z0, x1 + 0.03, z1, hh);
+  }
+  // ---- 右邊牆：子彈架（四個鐵架、五層，一盒一盒的彩色子彈盒）----
+  { const x1 = SH.x1, x0 = x1 - 0.45, units = [[-8.7, -6.85], [-6.75, -4.9], [-4.4, -2.55], [-2.45, -0.6]], hh = 2.1;
+    const PAL = [['#2f6b3b', '#e9e4d0'], ['#b3261e', '#f2f3f5'], ['#f2c230', '#1d1f23'], ['#1f5fae', '#f2f3f5'], ['#1d1f23', '#f2c230'], ['#6b4a32', '#e9e4d0'], ['#ff6a1f', '#1d1f23']];
+    units.forEach(([za, zb], u) => {
+      for (const zz of [za, zb]) box(Bmet, x0, 0, zz - 0.02, x1, hh, zz + 0.02, C('#6d7178'));
+      for (let s = 0; s < 5; s++) {
+        const y = 0.12 + s * 0.44; box(Bmet, x0, y - 0.02, za, x1, y, zb, C('#8b8f96'));
+        if (low && s % 2) continue;
+        let z = za + 0.05; const pal = PAL[(u * 5 + s) % PAL.length], bw = s === 0 ? 0.26 : 0.12 + (s % 2) * 0.04, bh = s === 0 ? 0.2 : 0.075 + (s % 3) * 0.015;
+        while (z + bw < zb - 0.04) {
+          const stack = s === 0 ? 1 : 1 + ((R() * 2.4) | 0);
+          for (let k = 0; k < stack; k++) {
+            const yb = y + k * bh, dx = 0.18 + R() * 0.12;
+            if (s === 0) { box(Bs, x1 - 0.36, yb, z, x1 - 0.04, yb + bh, z + bw, C('#4f5a3a'), aoLow); box(Bmet, x1 - 0.37, yb + bh - 0.03, z + bw * 0.3, x1 - 0.35, yb + bh - 0.01, z + bw * 0.7, C('#26282c')); } // 子彈箱（軍綠鐵箱）
+            else { box(Bs, x1 - 0.04 - dx, yb, z, x1 - 0.04, yb + bh - 0.004, z + bw - 0.006, C(pal[0])); box(Bs, x1 - 0.045 - dx, yb + bh * 0.35, z + 0.01, x1 - 0.04 - dx + 0.001, yb + bh * 0.62, z + bw - 0.016, C(pal[1])); }
+          }
+          z += bw + 0.012;
+        }
+      }
+      if (u < 4) { const zc = (za + zb) / 2, lab = AR['lab' + [0, 3, 1, 2][u]]; if (lab) quad(Ba, [x0 - 0.005, hh + 0.02, zc + 0.5], [x0 - 0.005, hh + 0.02, zc - 0.5], [x0 - 0.005, hh + 0.24, zc - 0.5], [x0 - 0.005, hh + 0.24, zc + 0.5], [1, 1, 1], lab); }
+      shadowQuad(x0, za, x1, zb, 0.8);
+      col(x0, za - 0.03, x1, zb + 0.03, hh);
+    });
+  }
+  // ---- 左邊牆：洞洞板＋掛著的手槍、衝鋒槍、耳罩；海報 ----
+  { const x = SH.x0, z0 = -4.4, z1 = -1.6;
+    box(Bs, x + 0.03, 0.95, z0, x + 0.05, 2.55, z1, C('#c9b89a'));
+    for (let y = 1.05; y < 2.5; y += 0.1) for (let z = z0 + 0.05; z < z1; z += 0.1) box(Bm, x + 0.05, y - 0.006, z - 0.006, x + 0.052, y + 0.006, z + 0.006, C('#6b604e')); // 洞
+    box(Bs, x + 0.02, 0.93, z0 - 0.03, x + 0.07, 0.97, z1 + 0.03, C('#3a2a20')); box(Bs, x + 0.02, 2.53, z0 - 0.03, x + 0.07, 2.57, z1 + 0.03, C('#3a2a20'));
+    const hang = [['pistol', 2.25], ['pistol', 1.85], ['smg', 1.4]];
+    for (let j = 0; j < 4; j++) hang.forEach(([id, y], i) => {
+      const ud = buildGunModel(id).userData, zc = z0 + 0.4 + j * 0.68 + (i === 2 ? 0.1 : 0);
+      if (id === 'smg' && j % 2) return;
+      const m = new THREE.Matrix4().makeTranslation(x + 0.1, y, zc + ud.length * 0.35).multiply(_m.makeRotationY(HP)); mountGun(id, m);
+      const pg = new THREE.CylinderGeometry(0.006, 0.006, 0.08, 6).rotateZ(HP).translate(x + 0.09, y + 0.02, zc + ud.length * 0.35 - 0.04); put(Bmet, pg, C('#b9bec6')); pg.dispose();
+    });
+    // 耳罩（兩個圓＋一條弧）
+    for (const zc of [z0 + 0.35, z0 + 1.2, z0 + 2.2]) {
+      const y = 1.1;
+      for (const s of [-1, 1]) { const g = new THREE.CylinderGeometry(0.05, 0.05, 0.035, 14).rotateZ(HP).translate(x + 0.1, y, zc + s * 0.065); put(Bs, g, C('#26282c')); g.dispose(); }
+      const g = new THREE.TorusGeometry(0.075, 0.009, 6, 14, Math.PI).translate(0, 0, 0).rotateY(HP).translate(x + 0.1, y + 0.02, zc); put(Bs, g, C('#ff6a1f')); g.dispose();
+    }
+    // 海報（安全第一、靶場規則）、紙靶
+    quad(Ba, [x + 0.04, 1.25, -1.1], [x + 0.04, 1.25, -0.35], [x + 0.04, 2.3, -0.35], [x + 0.04, 2.3, -1.1], [1, 1, 1], AR.safe);
+    quad(Ba, [x + 0.04, 1.25, -6.0], [x + 0.04, 1.25, -5.25], [x + 0.04, 2.3, -5.25], [x + 0.04, 2.3, -6.0], [1, 1, 1], AR.rules);
+    quad(Ba, [x + 0.04, 1.3, -7.6], [x + 0.04, 1.3, -7.0], [x + 0.04, 2.1, -7.0], [x + 0.04, 2.1, -7.6], [1, 1, 1], AR.paper);
+    // 左後角：保險櫃（深綠色鐵櫃）
+    box(Bs, x, 0, -8.95, x + 0.55, 1.75, -8.05, C('#2e4a3a'), aoLow, 3); box(Bmet, x + 0.55, 0.8, -8.6, x + 0.57, 1.0, -8.55, C('#c9a24a')); cyl(Bmet, 0.05, 1.1, 1.12, x + 0.56, -8.3, C('#c9ccd0'), 14);
+    shadowQuad(x, -8.95, x + 0.55, -8.05, 0.8); col(x, -8.95, x + 0.55, -8.05, 1.75);
+    quad(Ba, [x + 0.04, 2.3, -3.6], [x + 0.04, 2.3, -3.3], [x + 0.04, 2.6, -3.3], [x + 0.04, 2.6, -3.6], [1, 1, 1], AR.nosmoke);
+  }
+  // 店員那邊的地上：一張高腳椅
+  { const cx = -2.6, cz = -6.2; cyl(Bmet, 0.2, 0.72, 0.78, cx, cz, C('#1d1f23'), 14); cyl(Bmet, 0.025, 0.05, 0.72, cx, cz, C('#8b8f96'), 8); cyl(Bmet, 0.22, 0, 0.04, cx, cz, C('#26282c'), 14); }
+  // 牆腳的影子（整圈）
+  if (mats.shadow) { shadowQuad(SH.x0, SH.z0, SH.x0 + 0.06, SH.z1, 0.7); shadowQuad(SH.x1 - 0.06, SH.z0, SH.x1, SH.z1, 0.7); shadowQuad(SH.x0, SH.z0, SH.x1, SH.z0 + 0.06, 0.7); }
+
+  // ================= 靶場 =================
+  { const concUv = (x, y, z) => [x, -z];
+    // 地板：射擊台後面的水泥地、前面（靶那邊）深一點
+    const g1 = new THREE.PlaneGeometry(RG.x1 - RG.x0, 3.6, 10, 4).rotateX(-HP).translate(0, 0, (BENCH.z0 + RG.z1 + 0.25) / 2 + 0.2); put(Bc, g1, C('#ffffff'), null, (x, y, z) => 1 - 0.22 * Math.exp(-Math.min(x - RG.x0, RG.x1 - x) / 0.5), concUv); g1.dispose();
+    const g2 = new THREE.PlaneGeometry(RG.x1 - RG.x0, BENCH.z0 - RG.z0 + 0.4, 10, 12).rotateX(-HP).translate(0, 0, (RG.z0 + BENCH.z0) / 2 - 0.2); put(Bc, g2, C('#7c7870'), null, null, concUv); g2.dispose();
+    box(Bm, RDOOR.x0, 0, SH.z0 - 0.25, RDOOR.x1, 0.005, SH.z0, C('#6d7178')); // 門檻
+    box(Bs, RG.x0, 0.001, -10.55, RG.x1, 0.004, -10.45, C('#f2c230')); // 黃線
+    // 牆：下面水泥磚、上面深灰色的吸音板（一條一條）
+    const block = C('#9c9a94'), foam = C('#3a3c40');
+    for (const [x, f] of [[RG.x0, 1], [RG.x1, -1]]) {
+      box(Bm, f > 0 ? x - 0.2 : x, 0, RG.z0 - 0.2, f > 0 ? x : x + 0.2, RG.H, RG.z1, block, aoWall(RG.H), 6);
+      for (let z = RG.z0; z < RG.z1 - 0.3; z += 0.6) box(Bm, f > 0 ? x : x - 0.06, 1.2, z + 0.03, f > 0 ? x + 0.06 : x, RG.H - 0.05, z + 0.57, mul(foam, 0.9 + R() * 0.2));
+      box(Bm, f > 0 ? x : x - 0.02, 0, RG.z0, f > 0 ? x + 0.02 : x, 1.2, RG.z1, mul(block, 0.92), aoLow, 3);
+      col(f > 0 ? x - 0.2 : x, RG.z0 - 0.2, f > 0 ? x + 0.06 : x + 0.2, RG.z1, RG.H);
+    }
+    // 後面的土堤（斜的）＋上面的擋板
+    { const zb = RG.z0, zf = -25.2, hb = 1.5; const s = new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(zb - zf, 0), new THREE.Vector2(zb - zf, hb), new THREE.Vector2(-0.4, 0.02)].map((v) => new THREE.Vector2(-v.x, v.y)));
+      const g = new THREE.ExtrudeGeometry(s, { depth: RG.x1 - RG.x0, bevelEnabled: false }).rotateY(-HP).translate(RG.x1, 0, zf); put(Bm, g, C('#7a644a'), null, (x, y) => 0.8 + 0.25 * (y / hb)); g.dispose();
+      box(Bm, RG.x0, 0, zb - 0.2, RG.x1, RG.H, zb, C('#2f3134'), aoWall(RG.H), 4);
+      const pg = new THREE.BoxGeometry(RG.x1 - RG.x0, 1.2, 0.04).rotateX(-0.5).translate(0, 2.35, zb + 0.5); put(Bmet, pg, C('#4a4d52')); pg.dispose();
+      col(RG.x0, zb - 0.2, RG.x1, zb, RG.H); col(RG.x0, zb, RG.x1, zf + 0.4, 1.0); col(RG.x0, zb, RG.x1, zf - 0.6, 1.4);
+    }
+    // 跟店面中間的牆（靶場那一面）
+    box(Bm, RG.x0, 0, RG.z1 - 0.02, RDOOR.x0, RG.H, RG.z1, block, aoWall(RG.H), 6); box(Bm, RDOOR.x1, 0, RG.z1 - 0.02, RG.x1, RG.H, RG.z1, block, aoWall(RG.H), 6);
+    // 天花板＋斜的擋板（子彈打不出去）
+    box(Bm, RG.x0, RG.H, RG.z0 - 0.2, RG.x1, RG.H + 0.1, RG.z1, C('#2b2d30'));
+    for (let z = -14; z > RG.z0 + 1; z -= 3) { const bg = new THREE.BoxGeometry(RG.x1 - RG.x0, 0.9, 0.05).rotateX(0.6).translate(0, RG.H - 0.38, z); put(Bm, bg, C('#45484d')); bg.dispose(); }
+    // 燈：射擊台上面兩條日光燈、靶那邊的投射燈
+    for (const x of [-3.3, 0, 3.3]) { box(Bglow, x - 0.9, RG.H - 0.06, -11.05, x + 0.9, RG.H - 0.03, -10.95, [1, 1, 1]); box(Bmet, x - 0.95, RG.H - 0.03, -11.1, x + 0.95, RG.H, -10.9, C('#d9dade')); }
+    for (const x of [-3.5, 0, 3.5]) { box(Bmet, x - 0.3, RG.H - 0.35, -15.3, x + 0.3, RG.H - 0.15, -15.1, C('#26282c')); quad(Bglow, [x - 0.26, RG.H - 0.33, -15.32], [x + 0.26, RG.H - 0.33, -15.32], [x + 0.26, RG.H - 0.17, -15.32].map((v) => v), [x - 0.26, RG.H - 0.17, -15.32], [1, 0.98, 0.9]); }
+    // 射擊台：一整排（灰色桌面、深色的桌子）＋兩片隔板＋號碼
+    const { z0, z1, h } = BENCH;
+    box(Bs, RG.x0, 0, z0 + 0.05, RG.x1, h - 0.05, z1, C('#3b3e44'), aoLow, 3);
+    box(Bs, RG.x0, h - 0.05, z0, RG.x1, h, z1 + 0.04, C('#8c877d'));
+    box(Bs, RG.x0, h - 0.07, z1 + 0.02, RG.x1, h - 0.01, z1 + 0.06, C('#1d1f23'));
+    col(RG.x0, z0, RG.x1, z1 + 0.05, h);
+    for (const x of [-1.65, 1.65]) { box(Bm, x - 0.03, 0, -12.9, x + 0.03, 1.9, -11.3, C('#4a4d52'), aoWall(1.9), 3); box(Bmet, x - 0.04, 1.9, -12.92, x + 0.04, 1.94, -11.28, C('#26282c')); col(x - 0.04, -12.9, x + 0.04, -11.3, 1.9); }
+    [-3.3, 0, 3.3].forEach((x, i) => { const lane = AR['lane' + i]; if (lane) quad(Ba, [x - 0.12, 0.62, z1 + 0.061], [x + 0.12, 0.62, z1 + 0.061], [x + 0.12, 0.86, z1 + 0.061], [x - 0.12, 0.86, z1 + 0.061], [1, 1, 1], lane);
+      // 桌上：耳罩、一盒子彈
+      box(Bs, x + 0.35, h, -12.6, x + 0.5, h + 0.07, -12.5, C(['#2f6b3b', '#b3261e', '#1f5fae'][i]));
+      for (const s of [-1, 1]) { const g = new THREE.CylinderGeometry(0.05, 0.05, 0.035, 14).translate(x - 0.45 + s * 0.065, h + 0.03, -12.5); put(Bs, g, C('#26282c')); g.dispose(); }
+    });
+    // 記分板（吊在射擊台前面的上面）：外框（網格）＋畫面（另外一個會變的貼圖）
+    box(Bm, -0.9, 2.1, -13.06, 0.9, 2.94, -13.0, C('#141416'));
+    for (const x of [-0.6, 0.6]) box(Bmet, x - 0.015, 2.94, -13.04, x + 0.015, RG.H, -13.02, C('#26282c'));
+    col(-0.9, -13.08, 0.9, -12.98, 2.95, 2.08);
+    // 「保持槍口朝前」：吊在記分板左邊、面朝射擊的人
+    box(Bm, -3.68, 2.14, -13.06, -1.14, 2.7, -13.0, C('#141416'));
+    for (const x of [-3.2, -1.6]) box(Bmet, x - 0.015, 2.7, -13.04, x + 0.015, RG.H, -13.02, C('#26282c'));
+    quad(Ba, [-3.64, 2.18, -12.995], [-1.18, 2.18, -12.995], [-1.18, 2.66, -12.995], [-3.64, 2.66, -12.995], [1, 1, 1], AR.muzzle);
+    // 靶的架子（地上的鐵座＋斜的擋板）
+    for (const [tx, tz] of TARGETS) {
+      box(Bmet, tx - 0.28, 0, tz - 0.18, tx + 0.28, 0.04, tz + 0.18, C('#3b3e44'));
+      box(Bmet, tx - 0.025, 0.04, tz - 0.03, tx + 0.025, HINGE, tz + 0.03, C('#3b3e44'));
+      const dg = new THREE.BoxGeometry(0.62, 0.36, 0.03).rotateX(-0.45).translate(tx, 0.17, tz + 0.3); put(Bmet, dg, C('#55585e')); dg.dispose();
+      col(tx - 0.31, tz + 0.2, tx + 0.31, tz + 0.42, 0.34);
+      shadowQuad(tx - 0.3, tz - 0.2, tx + 0.3, tz + 0.2, 0.8);
+    }
+  }
+
+  // ---- 展示的槍：併進槍的兩個網格（跟手上的槍同一組材質）----
+  function mountGun(id, m) { const g = buildGunModel(id); put(Bmet, g.children[0].geometry, null, m); put(Bg, g.children[1].geometry, null, m); }
+
+  // ---- 做成網格 ----
+  const meshes = [
+    toMesh(Bm, mats.matte, 'gs-matte'), toMesh(Bs, mats.semi, 'gs-semi'), toMesh(Bmet, MET, 'gs-metal'), toMesh(Bg, GMAT, 'gs-gunmatte'),
+    toMesh(Bt, mats.tile, 'gs-tile'), toMesh(Bc, mats.conc, 'gs-concrete'), toMesh(Ba, mats.atlas, 'gs-signs'), toMesh(Blit, mats.lit, 'gs-lit'), toMesh(Bglow, mats.glow, 'gs-lights'),
+    toMesh(Bst, mats.street, 'gs-street'), mats.shadow ? toMesh(Bsh, mats.shadow, 'gs-shadows') : null, toMesh(Bgl, mats.glass, 'gs-glass'),
+  ].filter(Boolean);
+  for (const m of meshes) { group.add(m); own.push(m.geometry); }
+  const glassMesh = meshes.find((m) => m.name === 'gs-glass'); if (glassMesh) glassMesh.renderOrder = 2;
+  const shMesh = meshes.find((m) => m.name === 'gs-shadows'); if (shMesh) shMesh.renderOrder = 1;
+
+  // ---- 燈（沒有陰影；換房子不會重新編譯 shader：燈的組合跟村子的房子差不多）----
+  const hemi = new THREE.HemisphereLight(0xfff3e2, 0x4a4238, 0.9); group.add(hemi);
+  const sun = new THREE.DirectionalLight(0xfff1dc, 0.55); sun.position.set(1.5, 6, 2); sun.target.position.set(-1, 0, -6); group.add(sun, sun.target);
+  const p1 = new THREE.PointLight(0xffe6c8, 9, 13, 1.2); p1.position.set(-0.6, 2.9, -4.2); group.add(p1);
+  const p2 = new THREE.PointLight(0xeef2ff, 8, 18, 1.1); p2.position.set(0, 2.8, -13.5); group.add(p2);
+
+  // ---- 環境貼圖（槍、金屬才亮）：一個簡單的房間＋亮的天花板燈 ----
+  let environment = null;
+  if (o.renderer && !low) {
+    try {
+      const E = new THREE.Scene(), pm = new THREE.PMREMGenerator(o.renderer);
+      const room = new THREE.Mesh(new THREE.BoxGeometry(12, 4, 12), new THREE.MeshBasicMaterial({ color: 0x8a847a, side: THREE.BackSide })); room.position.y = 2; E.add(room);
+      const lamp = new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 5.6, 5) });
+      for (const x of [-3, 0, 3]) for (const z of [-3, 2]) { const q = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.7), lamp); q.rotation.x = HP; q.position.set(x, 3.95, z); E.add(q); }
+      const win = new THREE.Mesh(new THREE.PlaneGeometry(10, 2.2), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 2.5, 2.8) })); win.position.set(0, 1.6, 5.95); win.rotation.y = Math.PI; E.add(win);
+      environment = pm.fromScene(E, 0.03).texture; pm.dispose();
+      E.traverse((q) => { if (q.geometry) q.geometry.dispose(); if (q.material) q.material.dispose(); });
+      own.push(environment);
+    } catch (e) { console.warn('gunshop env', e); environment = null; }
+  }
+
+  // ---- 靶（InstancedMesh：正面有貼圖、側邊鐵灰色）----
+  const tg = { list: [], mesh: null, dirty: true };
+  {
+    const s = new THREE.Shape(); // 鋼靶的剪影：下面寬、上面一個圓頭（原點＝軸，在最下面中間）
+    s.moveTo(-0.17, 0); s.lineTo(0.17, 0); s.lineTo(0.1, 0.44); s.lineTo(0.05, 0.47);
+    s.absarc(0, 0.62, 0.16, -Math.PI * 0.4, Math.PI * 1.4, false); s.lineTo(-0.1, 0.44); s.closePath();
+    const g = new THREE.ExtrudeGeometry(s, { depth: 0.016, bevelEnabled: false, curveSegments: 14 }); g.translate(0, 0, -0.008);
+    const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / 0.4 + 0.5, uv.getY(i) / 0.85); // 正面：貼圖剛好蓋住
+    own.push(g);
+    let front = mats.semi, side = new THREE.MeshStandardMaterial({ color: 0x55585e, roughness: 0.5, metalness: 0.4 }); own.push(side);
+    if (doc) { const t = tex(paintPopper()); own.push(t); front = new THREE.MeshStandardMaterial({ map: t, roughness: 0.55, metalness: 0.1 }); own.push(front); }
+    tg.mesh = new THREE.InstancedMesh(g, [front, side], TARGETS.length); tg.mesh.name = 'gs-targets'; tg.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); tg.mesh.frustumCulled = false;
+    group.add(tg.mesh);
+    TARGETS.forEach(([x, z], i) => tg.list.push({ i, x, z, a: 0, va: 0, down: false, upT: 0, shake: 0, onHit: null }));
+  }
+  const M4 = new THREE.Matrix4(), M4b = new THREE.Matrix4();
+  function placeTargets() {
+    for (const t of tg.list) { M4.makeTranslation(t.x, HINGE, t.z); M4b.makeRotationX(t.a + Math.sin(t.shake * 60) * t.shake * 0.25); M4.multiply(M4b); tg.mesh.setMatrixAt(t.i, M4); }
+    tg.mesh.instanceMatrix.needsUpdate = true;
+  }
+  placeTargets();
+
+  // ---- 記分板（會變的貼圖）----
+  const board = { c: null, g: null, t: null, key: '', say: '' };
+  if (doc) {
+    board.c = canvas(512, 240); board.g = board.c.getContext('2d'); board.t = tex(board.c); own.push(board.t);
+    const bm = new THREE.MeshBasicMaterial({ map: board.t, toneMapped: false }); own.push(bm);
+    const q = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 0.78), bm); q.position.set(0, 2.52, -12.995); q.name = 'gs-board'; group.add(q); own.push(q.geometry);
+  }
+
+  // ---- 店員 ----
+  let clerk = null, clerkState = 'idle', clerkYaw = -HP;
+  if (typeof o.makeCharacter === 'function') {
+    try {
+      clerk = o.makeCharacter(o.clerkLook || { body: 'm', age: 'adult', height: 1.7, build: 'big', skin: '#c99a74', hair: 'short', hairColor: '#2a2522', top: 'tee', topColor: '#3e4a3c', bottom: 'jeans', bottomColor: '#2b2b2b', shoes: 'sneakers', shoesColor: '#1d1f23', hat: 'cap', hatColor: '#1d1f23', glasses: 'none', mask: false });
+      clerk.group.position.set(-0.9, 0, -6.15); clerk.group.rotation.y = clerkYaw; clerk.group.name = 'gs-clerk'; group.add(clerk.group);
+    } catch (e) { console.warn('gunshop clerk', e); clerk = null; }
+  }
+
+  // ---- 碰撞、區域、出口（世界座標）----
+  const colliders = cols.map((c) => { const [x, z] = W((c.x0 + c.x1) / 2, (c.z0 + c.z1) / 2); const b = { t: 'box', x, z, hx: (c.x1 - c.x0) / 2, hz: (c.z1 - c.z0) / 2, rot: ry, h: c.h }; if (c.y0) b.y0 = c.y0; return b; });
+  const rect = (x0, z0, x1, z1) => { const [x, z] = W((x0 + x1) / 2, (z0 + z1) / 2); return { x, z, hx: (x1 - x0) / 2, hz: (z1 - z0) / 2, rot: ry }; };
+  const zones = { counter: rect(-3.9, -4.65, 1.5, -3.2), range: rect(RG.x0 + 0.3, -12.1, RG.x1 - 0.3, -10.3), shop: rect(SH.x0, SH.z0, SH.x1, SH.z1), rangeRoom: rect(RG.x0, BENCH.z1, RG.x1, RG.z1 + 0.05) };
+  const inR = (r, x, z) => { const dx = x - r.x, dz = z - r.z, c = Math.cos(r.rot), s = Math.sin(r.rot); return Math.abs(dx * c - dz * s) <= r.hx && Math.abs(dx * s + dz * c) <= r.hz; };
+  const zoneAt = (x, z) => (inR(zones.counter, x, z) ? 'counter' : inR(zones.range, x, z) ? 'range' : inR(zones.rangeRoom, x, z) ? 'rangeRoom' : inR(zones.shop, x, z) ? 'shop' : null);
+  const P = (lx, lz, lh) => { const [x, z] = W(lx, lz); return { x, z, heading: H(lh) }; };
+  const spawn = P(0, -1.3, HP), outside = P(0, 1.1, -HP);
+  const exitDoor = { ...rect(DOOR.x0, -0.62, DOOR.x1, -0.05), to: 'outside', spawn: outside };
+  const [dx0, dz0] = W(0, -0.02), doors = [{ x: dx0, z: dz0, ry: wrapA(ry + Math.PI), w: 0.8 }];
+  const cornersW = [W(SH.x0 - 0.2, SH.z1 + 0.2), W(SH.x1 + 0.2, SH.z1 + 0.2), W(SH.x0 - 0.2, RG.z0 - 0.2), W(SH.x1 + 0.2, RG.z0 - 0.2)];
+  const walkBounds = { x0: Math.min(...cornersW.map((p) => p[0])), x1: Math.max(...cornersW.map((p) => p[0])), z0: Math.min(...cornersW.map((p) => p[1])), z1: Math.max(...cornersW.map((p) => p[1])) };
+  const bounds = rect(SH.x0 - 0.2, RG.z0 - 0.2, SH.x1 + 0.2, SH.z1 + 0.2);
+  const v3 = (lx, y, lz) => { const [x, z] = W(lx, lz); return [+x.toFixed(3), y, +z.toFixed(3)]; };
+  const views = { counter: { pos: v3(0.35, 1.72, -1.55), look: v3(-1.35, 1.2, -6.9), fov: 56 }, range: { pos: v3(4.3, 1.75, -9.9), look: v3(0.2, 0.7, -20), fov: 55 } };
+
+  // ---- 子彈：靶 ----
+  const LQ = [0, 0];
+  const HEAD_Y = 0.62, HEAD_R = 0.16;
+  function raycast(ox, oy, oz, dx, dy, dz, maxT, out) {
+    L(ox, oz, LQ); const lx = LQ[0], lz = LQ[1];
+    const ldx = dx * cr - dz * sr, ldz = dx * sr + dz * cr; // 方向轉到本地
+    if (ldz > -1e-6) return Infinity; // 靶都朝 +z（射的人那邊）：往後射才打得到
+    let best = maxT, hit = null;
+    for (const t of tg.list) {
+      if (t.down || t.a < -0.25) continue;
+      const tt = (t.z + 0.009 - lz) / ldz; if (tt <= 0 || tt >= best) continue;
+      const hx = lx + ldx * tt - t.x, hy = oy + dy * tt - HINGE;
+      let ok = false;
+      if (hy >= 0 && hy <= 0.47) ok = Math.abs(hx) <= 0.17 - (0.07 * hy) / 0.44; // 身體（梯形）
+      if (!ok) ok = hx * hx + (hy - HEAD_Y) * (hy - HEAD_Y) <= HEAD_R * HEAD_R; // 頭
+      if (ok) { best = tt; hit = t; }
+    }
+    if (!hit) return Infinity;
+    out.nx = sr; out.ny = 0; out.nz = cr; out.ref = hit; out.kind = 'target'; out.onHit = hit.onHit;
+    return best;
+  }
+  const fireRule = (x, z) => { L(x, z, LQ); return LQ[1] < RG.z1 + 0.02 ? null : '店裡不可以開槍，去後面的靶場'; };
+
+  // ---- 靶場的一輪 ----
+  const RN = { state: 'idle', weapon: null, t: 0, count: 0, hits: 0, total: TARGETS.length, doneT: 0, say: '', lastSec: -1 };
+  function knock(t) {
+    if (t.down) return;
+    t.down = true; t.va = -9; t.shake = 0;
+    if (RN.state === 'run') { RN.hits++; if (RN.hits >= RN.total) end(); } else t.upT = RN.state === 'count' ? 0.6 : 2.5;
+    drawBoard();
+  }
+  for (const t of tg.list) t.onHit = () => knock(t);
+  function standAll() { for (const t of tg.list) { if (t.down) { t.down = false; t.va = 0; } t.upT = 0; } }
+  function start(id) {
+    if (RN.state === 'count' || RN.state === 'run') return false;
+    RN.state = 'count'; RN.weapon = id && GUNS[id] ? id : null; RN.count = 3; RN.t = 0; RN.hits = 0; RN.say = ''; RN.lastSec = -1;
+    standAll(); drawBoard(); return true;
+  }
+  function end() {
+    RN.state = 'done'; RN.doneT = 3.5;
+    const res = { weapon: RN.weapon, hits: RN.hits, total: RN.total, time: +RN.t.toFixed(2) };
+    drawBoard();
+    if (o.onRangeEnd && RN.weapon) try { o.onRangeEnd(res); } catch (e) { console.warn(e); }
+    return res;
+  }
+  function stop() { if (RN.state === 'count' || RN.state === 'run') { RN.state = 'idle'; standAll(); drawBoard(); } }
+  function bestOf(id) { const g = o.GAME && o.GAME.guns && o.GAME.guns.range; if (!g || !id) return null; return { best: g.best[id] || 0, time: g.time[id] || null }; }
+  function drawBoard() {
+    if (!board.g) return;
+    const n = RN.weapon ? GUNS[RN.weapon].name : '', sec = Math.floor(RN.t * 10) / 10, cnt = Math.ceil(RN.count);
+    const key = `${RN.state}|${n}|${RN.hits}|${RN.state === 'run' ? sec : ''}|${RN.state === 'count' ? cnt : ''}|${RN.say}`;
+    if (key === board.key) return; board.key = key;
+    const g = board.g, w = 512, h = 240;
+    g.fillStyle = '#0b0c0e'; g.fillRect(0, 0, w, h); g.strokeStyle = '#26282c'; g.lineWidth = 6; g.strokeRect(3, 3, w - 6, h - 6);
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    if (RN.state === 'count') {
+      g.fillStyle = '#ffb347'; fitFont(g, '準備', 300, 44); g.fillText('準備', w / 2, 52);
+      g.fillStyle = '#f2f3f5'; g.font = `700 120px ${COND}`; g.fillText(String(cnt), w / 2, 150);
+    } else if (RN.state === 'run' || RN.state === 'done') {
+      g.fillStyle = '#9aa1ac'; fitFont(g, `${n}　打倒`, 300, 34); g.fillText(`${n}　打倒`, w * 0.3, 48); g.fillText('時間', w * 0.74, 48);
+      g.fillStyle = RN.hits >= RN.total ? '#3ddc84' : '#ffb347'; g.font = `700 92px ${COND}`; g.fillText(`${RN.hits}/${RN.total}`, w * 0.3, 128);
+      g.fillStyle = '#f2f3f5'; g.fillText(RN.t.toFixed(1), w * 0.74, 128);
+      g.fillStyle = RN.state === 'done' ? '#ffb347' : '#9aa1ac';
+      const msg = RN.state === 'done' ? (RN.say || (RN.hits >= RN.total ? '全部打倒！' : '時間到')) : '全部打倒就停';
+      fitFont(g, msg, w - 40, 34, 700); g.fillText(msg, w / 2, 200);
+    } else {
+      g.fillStyle = '#ffb347'; fitFont(g, '靶場', 300, 70); g.fillText('靶場', w / 2, 62);
+      g.fillStyle = '#f2f3f5'; fitFont(g, '站在台子前面按「開始練習」', w - 40, 32, 500); g.fillText('站在台子前面按「開始練習」', w / 2, 132);
+      g.fillStyle = '#9aa1ac'; fitFont(g, `一輪 ${RN.total} 個靶，全部打倒最快幾秒`, w - 40, 26, 500); g.fillText(`一輪 ${RN.total} 個靶，全部打倒最快幾秒`, w / 2, 178);
+      if (RN.say) { g.fillStyle = '#ffb347'; fitFont(g, RN.say, w - 40, 26, 700); g.fillText(RN.say, w / 2, 212); }
+    }
+    board.t.needsUpdate = true;
+  }
+  drawBoard();
+
+  // ---- 每一幀 ----
+  const PL = [0, 0];
+  function update(dt, player) {
+    dt = Math.min(0.1, Math.max(0, +dt || 0)); if (!dt) return;
+    // 靶：倒下去（彈一下）、站起來
+    let moved = false;
+    for (const t of tg.list) {
+      if (t.down) {
+        if (t.a > -1.38 || Math.abs(t.va) > 0.05) { t.va += (-1.38 - t.a) * 160 * dt - t.va * 9 * dt; t.a += t.va * dt; if (t.a < -1.45) { t.a = -1.45; t.va = -t.va * 0.35; } moved = true; }
+        if (t.upT > 0) { t.upT -= dt; if (t.upT <= 0) { t.down = false; t.va = 0; } }
+      } else if (t.a < 0) { t.a = Math.min(0, t.a + dt * 5.5); moved = true; }
+      if (t.shake > 0) { t.shake = Math.max(0, t.shake - dt); moved = true; }
+    }
+    if (moved) placeTargets();
+    // 一輪
+    if (RN.state === 'count') { RN.count -= dt; if (RN.count <= 0) { RN.state = 'run'; RN.t = 0; } drawBoard(); }
+    else if (RN.state === 'run') { RN.t += dt; if (RN.t >= 30) { RN.t = 30; end(); } else drawBoard(); }
+    else if (RN.state === 'done') { RN.doneT -= dt; if (RN.doneT <= 0) { RN.state = 'idle'; standAll(); drawBoard(); } }
+    // 店員：轉頭看你（左右 60° 以內）
+    if (clerk) {
+      let want = -HP;
+      if (player && isFinite(player.x)) { L(player.x, player.z, PL); if (PL[1] > -9) { const a = Math.atan2(-(PL[1] - clerk.group.position.z), PL[0] - clerk.group.position.x); want = clamp(wrapA(a + HP), -1.05, 1.05) - HP; } }
+      clerkYaw += wrapA(want - clerkYaw) * (1 - Math.exp(-dt * 4)); clerk.group.rotation.y = clerkYaw;
+      clerk.update(dt, { speed: 0, state: clerkState });
+      if (clerkState === 'wave' && clerk.state === 'idle') clerkState = 'idle';
+    }
+  }
+
+  const info = { tris: meshes.reduce((s, m) => s + m.geometry.attributes.position.count / 3, 0), draws: meshes.length + 2 + (clerk ? 1 : 0), ms: Math.round((typeof performance !== 'undefined' ? performance.now() : 0) - t0) };
+  return {
+    group, background: new THREE.Color(0xcfd8de), environment, spawn, exitDoor, exits: [exitDoor], doors, colliders, walkBounds, bounds,
+    camera: { maxDist: 2.9, ceiling: 3.1, near: 0.08 }, zones, zoneAt, views, fireRule, raycast, name,
+    range: {
+      start, stop, get state() { return RN.state; }, get hits() { return RN.hits; }, get total() { return RN.total; }, get time() { return RN.t; }, get weapon() { return RN.weapon; },
+      say(text) { RN.say = String(text || ''); drawBoard(); }, best: bestOf,
+      get targets() { return tg.list.map((t) => ({ x: W(t.x, t.z)[0], z: W(t.x, t.z)[1], y: HINGE + 0.4, down: t.down, a: +t.a.toFixed(2) })); },
+    },
+    get clerk() { return clerk; }, setClerk(s) { clerkState = s || 'idle'; },
+    update, info,
+    dispose() {
+      group.removeFromParent();
+      if (clerk && clerk.dispose) clerk.dispose();
+      for (const x of own) if (x && x.dispose) x.dispose();
+      tg.mesh.dispose();
+    },
+  };
+}
+
+// ---- 櫃台的買槍畫面（跟改車廠一樣：garage.css 的 .shop、.shop-head、.shop-cash、.shop-msg、.group、.parts、.part）----
+const PANEL_CSS = `
+.gs .parts{grid-template-columns:1fr}
+.gs .part.gs-gun{grid-template-columns:58px minmax(0,1fr) auto;grid-template-areas:"i n h" "i d d" "i s p";padding:10px 12px 11px}
+.gs .part .ic{grid-area:i;align-self:center;justify-self:start;display:block;width:54px;height:22px;color:var(--ink)}
+.gs .part .ic svg{display:block;width:100%;height:100%;fill:currentColor}
+.gs .part.cant .ic{opacity:.55}
+.gs .part .st{grid-area:s;display:flex;flex-wrap:wrap;gap:3px 12px;margin-top:5px;align-self:center}
+.gs .part .st span{display:inline-flex;align-items:center;gap:5px;font-size:11px;line-height:1.2;color:var(--soft);white-space:nowrap}
+.gs .part .st i{display:inline-flex;gap:2px}
+.gs .part .st i u{display:block;width:8px;height:5px;border-radius:1px;background:var(--line)}
+.gs .part .st i u.on{background:var(--accent)}
+.gs .part.on .st i u.on{background:var(--ink)}
+.gs .part.gs-ammo{grid-template-columns:58px minmax(0,1fr) auto;grid-template-areas:"i n h" "i d p"}
+.gs .part.gs-ammo.dim{cursor:default}
+.gs .part.gs-ammo.dim b,.gs .part.gs-ammo.dim .hp{opacity:.55}
+.gs .part.gs-ammo.dim .p{color:var(--soft)}
+.gs .part .ic.box{width:40px;height:26px}
+`;
+const AMMO_ICON = '<svg viewBox="0 0 40 26" aria-hidden="true"><rect x="2" y="7" width="36" height="17" rx="2"/><rect x="2" y="3" width="36" height="5" rx="1.5" opacity=".6"/><rect x="8" y="12" width="24" height="6" rx="1" fill="var(--surf)"/></svg>';
+function openGunShop(parent, GAME, onBuy, opts = {}) {
+  if (!hasDoc() || !parent) return { el: null, refresh() {}, close() {} };
+  if (!document.getElementById('gs-style')) { const st = document.createElement('style'); st.id = 'gs-style'; st.textContent = PANEL_CSS; document.head.append(st); }
+  const money = opts.money || ((w) => (w >= 10000 ? `${+(w / 10000).toFixed(2)} 億` : `${w.toLocaleString('en-US')} 萬`));
+  const name = opts.name || DEF_NAME;
+  const el = document.createElement('section'); el.className = 'shop gs'; el.setAttribute('aria-label', name);
+  el.innerHTML = '<div class="shop-head"><div class="who"><b></b><span>槍、子彈都在這裡買；後面有靶場可以練習</span></div><button type="button" class="primary gs-leave">離開櫃台</button></div>'
+    + '<div class="shop-cash"><span>你的錢</span><b></b></div><p class="shop-msg" role="status" aria-live="polite"></p>'
+    + '<div class="group"><h2>槍<small>買了送一個裝滿的彈匣</small></h2><div class="parts gs-guns" role="group" aria-label="槍"></div></div>'
+    + '<div class="group"><h2>子彈<small>一盒一盒買，身上帶得下才賣</small></h2><div class="parts gs-ammo-list" role="group" aria-label="子彈"></div></div>'
+    + '<p class="note">拿槍：畫面右邊的槍（或按 Q、1–4）。按住「瞄準」拖動看準星，按「開槍」射；子彈打完會自己換彈匣。店裡不可以開槍，後面的靶場可以：全部打倒第一次有獎金。</p>';
+  el.querySelector('.who b').textContent = name;
+  const cash = el.querySelector('.shop-cash b'), msg = el.querySelector('.shop-msg'), gunsEl = el.querySelector('.gs-guns'), ammoEl = el.querySelector('.gs-ammo-list');
+  el.querySelector('.gs-leave').addEventListener('click', () => { if (opts.onClose) opts.onClose(); });
+  let armed = null, armT = 0;
+  const G = () => GAME.guns || { owned: [], ammo: {}, mag: {} };
+  function disarm() { clearTimeout(armT); armed = null; }
+  function arm(key) { armed = key; clearTimeout(armT); armT = setTimeout(() => { armed = null; render(); }, 3500); }
+  function say(t) { msg.textContent = t || ''; }
+  const stat = (label, n) => { const s = document.createElement('span'); s.append(label); const i = document.createElement('i'); for (let k = 0; k < 5; k++) { const u = document.createElement('u'); if (k < n) u.className = 'on'; i.append(u); } s.append(i); return s; };
+  function render() {
+    cash.textContent = `NT$ ${money(Math.floor(+GAME.money || 0))}`;
+    const g = G();
+    gunsEl.replaceChildren();
+    for (const id of GUN_IDS) {
+      const W = GUNS[id], have = g.owned.includes(id), can = (GAME.money || 0) >= W.price, b = document.createElement('button');
+      b.type = 'button'; b.className = 'part gs-gun ' + (have ? 'on' : can ? 'can' : 'cant'); b.dataset.id = id; b.setAttribute('aria-pressed', String(have));
+      if (armed === 'gun:' + id) b.classList.add('armed');
+      const ic = document.createElement('span'); ic.className = 'ic'; ic.innerHTML = GUN_ICONS[id];
+      const n = document.createElement('b'); n.textContent = W.name;
+      const h = document.createElement('span'); h.className = 'hp'; h.textContent = `${W.mag} 發`;
+      const dd = document.createElement('span'); dd.className = 'd'; dd.textContent = have ? `${W.tag} · 身上 ${g.mag[id] || 0} + ${g.ammo[id] || 0} 發（子彈在下面買）` : `${W.tag} · ${W.desc}`;
+      const st = document.createElement('span'); st.className = 'st'; st.append(stat('威力', W.stats.power), stat('射速', W.stats.rate), stat('射程', W.stats.range), stat('準度', W.stats.aim));
+      const p = document.createElement('span'); p.className = 'p';
+      if (have) p.textContent = '已買';
+      else p.textContent = armed === 'gun:' + id ? '再按一次' : money(W.price);
+      b.append(ic, n, h, dd, st, p);
+      b.addEventListener('click', () => buyGun(id));
+      gunsEl.append(b);
+    }
+    ammoEl.replaceChildren();
+    for (const id of GUN_IDS) {
+      const W = GUNS[id], have = g.owned.includes(id), room = have ? gunShop.ammoRoom(g, id) : 0, can = (GAME.money || 0) >= W.ammo.price, b = document.createElement('button');
+      b.type = 'button'; b.className = 'part gs-ammo ' + (!have || room <= 0 ? 'dim cant' : can ? 'can' : 'cant'); b.dataset.id = id;
+      if (armed === 'ammo:' + id) b.classList.add('armed');
+      const ic = document.createElement('span'); ic.className = 'ic box'; ic.innerHTML = AMMO_ICON;
+      const n = document.createElement('b'); n.textContent = `${W.name}子彈`;
+      const h = document.createElement('span'); h.className = 'hp'; h.textContent = `一盒 ${W.ammo.count} 發`;
+      const dd = document.createElement('span'); dd.className = 'd'; dd.textContent = have ? `身上 ${g.mag[id] || 0} + ${g.ammo[id] || 0} 發（最多帶 ${W.ammo.max}）` : `要先買${W.name}`;
+      const p = document.createElement('span'); p.className = 'p'; p.textContent = !have ? '先買槍' : room <= 0 ? '帶滿了' : armed === 'ammo:' + id ? '再按一次' : money(W.ammo.price);
+      b.append(ic, n, h, dd, p);
+      b.addEventListener('click', () => buyAmmo(id));
+      ammoEl.append(b);
+    }
+  }
+  function buyGun(id) {
+    const W = GUNS[id], g = G();
+    if (g.owned.includes(id)) { disarm(); say(`${W.name}已經買過了：子彈在下面`); render(); return; }
+    if ((GAME.money || 0) < W.price) { disarm(); say(`${W.name}要 ${money(W.price)}，還差 ${money(W.price - Math.floor(GAME.money || 0))}：去比賽贏錢`); render(); return; }
+    if (armed !== 'gun:' + id) { arm('gun:' + id); say(`${W.name}要 ${money(W.price)}，再按一次就買`); render(); return; }
+    disarm();
+    const r = gunShop.buyGun(GAME, id); say(r.msg);
+    if (r.ok && onBuy) try { onBuy('gun', id, r); } catch (e) { console.warn(e); }
+    render();
+  }
+  function buyAmmo(id) {
+    const W = GUNS[id], g = G();
+    if (!g.owned.includes(id)) { disarm(); say(`要先買${W.name}才能買它的子彈`); render(); return; }
+    if (gunShop.ammoRoom(g, id) <= 0) { disarm(); say(`${W.name}的子彈帶滿了（最多 ${W.ammo.max} 發）`); render(); return; }
+    if ((GAME.money || 0) < W.ammo.price) { disarm(); say(`一盒要 ${money(W.ammo.price)}，錢不夠：去比賽贏錢`); render(); return; }
+    if (armed !== 'ammo:' + id) { arm('ammo:' + id); say(`${W.name}子彈一盒 ${W.ammo.count} 發 ${money(W.ammo.price)}，再按一次就買（之後每按一次再買一盒）`); render(); return; }
+    const r = gunShop.buyAmmo(GAME, id, 1); say(r.msg);
+    if (r.ok) { arm('ammo:' + id); if (onBuy) try { onBuy('ammo', id, r); } catch (e) { console.warn(e); } } else disarm();
+    render();
+  }
+  parent.append(el);
+  say(opts.hello != null ? opts.hello : Math.floor(GAME.money || 0) >= GUNS.pistol.price || G().owned.length ? '要什麼槍？按一下看價錢，再按一次就買' : '你現在的錢不夠：先去賽道比賽贏獎金，再回來買');
+  render();
+  return { el, refresh(t) { if (t != null) say(t); render(); }, close() { disarm(); el.remove(); } };
+}
+
+return { buildGunShopInterior, openGunShop, gunShopFonts, GUNSHOP_TEXT };
 })();
 
 // ==== 第 4 批：越野車（offroad.js）：駕駛座視角、引擎聲接到車內（cabin.js）、引擎聲（sound.js）的表 ====
@@ -24709,8 +30392,8 @@ const PERF = {
 const TYRES = [[0, '原廠胎', '原本的輪胎'], [1, '半熱熔胎', '起步抓地 +8%'], [2, '直線加速胎', '起步抓地 +16%']];
 // 遊戲進度：錢（萬）、有哪些車、每台裝了哪些零件、輪胎（買過哪些、現在用哪個）、每個對手贏過幾次、車子停在車庫哪裡（park：town.src.js 的 normPark）、
 //   每台撞壞的樣子（dmg：damage.js 的 dmg.state；沒壞就沒有）、你自己的樣子（look：自訂角色，lookpanel.js；沒改過＝null＝PLAYER_LOOK；重新開始也留著）
-const GAME = { money: 0, owned: new Set(['gc8']), parts: {}, tyres: {}, wins: {}, park: null, dmg: {}, look: null };
-const trophyCount = () => Object.entries(GAME.wins).filter(([id, n]) => n > 0 && !id.startsWith('or:')).length; // 豪華車庫的獎盃：贏過幾個不同的對手（第 4 批：越野賽 'or:<id>' 不算，獎盃櫃只有 9 格）
+const GAME = { money: 0, owned: new Set(['gc8']), parts: {}, tyres: {}, wins: {}, park: null, dmg: {}, look: null, guns: gunSave.fresh() }; // guns：第 3 批（b3-int）槍店買的槍、子彈、靶場紀錄（guns.js 的 gunSave）
+const trophyCount = () => Object.entries(GAME.wins).filter(([id, n]) => n > 0 && !id.includes(':')).length; // 豪華車庫的獎盃：贏過幾個不同的對手（第 4 批：越野賽 'or:<id>' 不算，獎盃櫃只有 9 格；賽車場：直線加速 'dr:<id>' 也不算）
 const partsOf = (k) => (GAME.parts[k] ||= []);
 const tyresOf = (k) => (GAME.tyres[k] ||= { own: [], use: 0 });
 const tyreOf = (k) => GAME.tyres[k]?.use ?? 0;
@@ -24749,7 +30432,7 @@ function save(now) {
   clearTimeout(save.t);
   const write = () => {
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 2, cur, scene: studioKind, money: GAME.money, owned: [...GAME.owned], parts: GAME.parts, tyres: GAME.tyres, wins: GAME.wins, park: GAME.park, dmg: GAME.dmg, look: GAME.look || undefined,
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 2, cur, scene: studioKind, money: GAME.money, owned: [...GAME.owned], parts: GAME.parts, tyres: GAME.tyres, wins: GAME.wins, park: GAME.park, dmg: GAME.dmg, look: GAME.look || undefined, guns: GAME.guns,
         cars: Object.fromEntries(Object.entries(CARS).map(([k, C]) => [k, C.state])) }));
     } catch { /* 不給存就算了 */ }
   };
@@ -24786,6 +30469,7 @@ function okValue(k, o, v) { // 存的值還是現在有的選項才用（改版�
   if (d.park && typeof d.park === 'object' && Array.isArray(d.park.decks)) GAME.park = { mid: typeof d.park.mid === 'string' ? d.park.mid : null, decks: d.park.decks.slice(0, 12), rev: Array.isArray(d.park.rev) ? d.park.rev.slice(0, 12) : [] }; // 升降機上停哪台（第 2 批；舊存檔沒有：照價錢排，town.src.js 的 normPark）
   for (const [k, st] of Object.entries(d.dmg || {})) if (PERF[k] && st && typeof st === 'object' && Array.isArray(st.h) && st.h.length) GAME.dmg[k] = st; // 撞壞的（apply 會再檢查每一下）
   if (CARS[d.cur] && GAME.owned.has(d.cur)) cur = d.cur; // 車庫裡只停你的車（還沒買的在車店）
+  GAME.guns = gunSave.load(d.guns); // 第 3 批（b3-int）：槍、子彈（舊存檔沒有 → 空的；壞掉的修好）
 })();
 setStudio(studioKind); // 預設豪華車庫
 const built = {}; // 已經組好的車：{ supra: S, ... }（最多留 3 台，太多手機記憶體會不夠）
@@ -25184,7 +30868,8 @@ restartBtn.addEventListener('click', () => {
     clearTimeout(restartBtn.t); restartBtn.t = setTimeout(() => { restartBtn.classList.remove('armed'); restartBtn.textContent = '重新開始'; }, 3500); return;
   }
   clearTimeout(restartBtn.t); restartBtn.classList.remove('armed'); restartBtn.textContent = '重新開始';
-  Object.assign(GAME, { money: 0, owned: new Set(['gc8']), parts: {}, tyres: {}, wins: {}, park: null, dmg: {} }); room?.setTrophies(0);
+  Object.assign(GAME, { money: 0, owned: new Set(['gc8']), parts: {}, tyres: {}, wins: {}, park: null, dmg: {}, guns: gunSave.fresh() }); room?.setTrophies(0); // 槍也歸零（第 3 批）
+  if (typeof townReset === 'function') townReset(); // 第 3 批（b3-int）：星星清掉、槍收起來（town.src.js）
   for (const c of Object.values(built)) c.dmg?.repair(); // 撞壞的也歸零
   save(true); renderWallet(); refreshCarBtns();
   if (cur === 'gc8') renderOptions(); else showCar('gc8');
@@ -25323,7 +31008,10 @@ function buildTrack() {
     for (let i = 0; i < 4; i++) { g.fillStyle = i % 2 ? '#f2f3f5' : '#d0342c'; g.fillRect((i * w) / 4, 0, w / 4, h * 0.28); }
     for (let i = 0; i < 600; i++) { g.fillStyle = 'rgba(0,0,0,0.05)'; g.fillRect(Math.random() * w, h * 0.3 + Math.random() * h * 0.7, 2, 2); }
   }, [LEN / 8, 1]) });
-  for (const s of [1, -1]) { const wl = new THREE.Mesh(new THREE.BoxGeometry(LEN, 0.9, 0.4), wallMat); wl.position.set(MID, 0.45, s * 6.3); T.add(wl); }
+  for (const [x0, x1, s] of [[L0, L1, 1], [L0, -57.5, -1], [-37, L1, -1]]) { // 北邊的牆在 x −57.5…−37 開一個口：往北的路去賽車場（circuit.js）
+    const g = new THREE.BoxGeometry(x1 - x0, 0.9, 0.4), uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setX(i, (uv.getX(i) * (x1 - x0)) / LEN); // 貼圖照長度（短的不要擠）
+    const wl = new THREE.Mesh(g, wallMat); wl.position.set((x0 + x1) / 2, 0.45, s * 6.3); T.add(wl);
+  }
   // 距離牌：100、200、300 公尺
   for (const d of [100, 200, 300]) for (const s of [1, -1]) {
     const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 0.9), new THREE.MeshBasicMaterial({ map: canvasTex(256, 128, (g, w, h) => {
@@ -25380,12 +31068,14 @@ function buildTrack() {
   const trees = new THREE.InstancedMesh(cone, mat({ color: 0x3f5a32, roughness: 1 }), NT), trunks = new THREE.InstancedMesh(trunk, mat({ color: 0x5a4332, roughness: 1 }), NT);
   const q = new THREE.Quaternion(), sc = new THREE.Vector3(), pv = new THREE.Vector3();
   for (let i = 0; i < NT; i++) {
-    const s = i % 2 ? 1 : -1, x = -55 + Math.random() * (L1 + 80 + 55), z = s * (20 + Math.random() * 50), k = 0.7 + Math.random() * 0.8;
+    const s = i % 2 ? 1 : -1, k = 0.7 + Math.random() * 0.8; let x, z;
+    do { x = -55 + Math.random() * (L1 + 80 + 55); z = s * (20 + Math.random() * 50); } while (CIRCUIT_KEEP.some(([a, b, c, d]) => x > a && x < c && z > b && z < d)); // 賽車場的聯外道路上不種
     m4.compose(pv.set(x, 0, z), q, sc.set(k, k * (0.8 + Math.random() * 0.5), k)); trees.setMatrixAt(i, m4); trunks.setMatrixAt(i, m4);
   }
   T.add(trees, trunks);
   const hillMat = mat({ color: 0x7c8a78, roughness: 1 });
-  for (const [x, z, r] of [[80, -300, 120], [420, -330, 160], [760, -280, 130], [200, 365, 150], [600, 360, 170], [950, 60, 140]]) { // ==== 第 4 批：南邊兩座往南移（原本 z 320、300），不要蓋到越野車場（圍籬 z 76…196）====
+  // 賽車場（circuit.js）：北邊三座本來在 (80, −300)、(420, −330)、(760, −280)，會蓋到賽車場：往北移到賽車場後面
+  for (const [x, z, r] of [[120, -940, 150], [560, -960, 170], [1000, -930, 140], [200, 365, 150], [600, 360, 170], [950, 60, 140]]) { // ==== 第 4 批：南邊兩座往南移（原本 z 320、300），不要蓋到越野車場（圍籬 z 76…196）====
     const h = new THREE.Mesh(new THREE.SphereGeometry(r, 24, 12), hillMat); h.scale.y = 0.28; h.position.set(x, -r * 0.05, z); T.add(h);
   }
   // 車子底下的影子（兩台）
@@ -25476,10 +31166,10 @@ function oppChoices() {
   OPPS.forEach((o, i) => {
     const open = unlocked(i), b = document.createElement('button');
     b.type = 'button'; b.disabled = !open; b.setAttribute('aria-pressed', String(o.id === raceOpp));
-    if (GAME.wins[o.id]) b.classList.add('beaten');
+    if (GAME.wins['dr:' + o.id]) b.classList.add('beaten');
     const t = document.createElement('b'), s2 = document.createElement('span'), s3 = document.createElement('small');
     if (open) { t.textContent = o.name; s2.textContent = `${CARS[o.key].btn[0]} · ${o.hp.toLocaleString('en-US')} 匹`; s3.textContent = `獎金 ${money(o.prize)}`; }
-    else { t.textContent = '？？？'; s2.textContent = unlocked(i - 1) ? `先贏${OPPS[i - 1].name}` : '還沒出現'; }
+    else { t.textContent = '？？？'; s2.textContent = unlocked(i - 1) ? `賽車場先贏${OPPS[i - 1].name}` : '還沒出現'; }
     b.append(t, s2, s3);
     b.addEventListener('click', () => {
       if (race && ['intro', 'stage', 'run'].includes(race.phase)) return;
@@ -25638,15 +31328,15 @@ function finishRace() {
   const o = race.oppDef, i = OPPS.indexOf(o), note = document.createElement('p');
   if (win && !race.paid) {
     race.paid = true;
-    const first = !GAME.wins[o.id];
-    GAME.wins[o.id] = (GAME.wins[o.id] || 0) + 1; GAME.money += o.prize; save(true); renderWallet(); room?.setTrophies(trophyCount());
+    const first = !GAME.wins['dr:' + o.id] && OPPS[i + 1] && !unlocked(i + 1); // 賽車場：直線加速贏了只記 'dr:<id>'（不算獎盃、不開新的對手；賽車場贏了才開）
+    GAME.wins['dr:' + o.id] = (GAME.wins['dr:' + o.id] || 0) + 1; GAME.money += o.prize; save(true); renderWallet(); room?.setTrophies(trophyCount());
     note.className = 'res-prize';
     const a = document.createElement('b'); a.textContent = `獎金 +${money(o.prize)}`;
     note.append(a, `　你現在有 NT$ ${money(GAME.money)}`);
     resultEl.append(note);
     if (first) {
       const nx = document.createElement('p'); nx.className = 'res-note';
-      nx.textContent = OPPS[i + 1] ? `新對手出現了：${OPPS[i + 1].name}（開 ${CARS[OPPS[i + 1].key].btn[0]}，獎金 ${money(OPPS[i + 1].prize)}）` : '你打敗大魔王了！所有對手都贏過了。';
+      nx.textContent = `去賽車場也贏${o.name}，下一個對手才會出現`;
       resultEl.append(nx);
     }
     oppChoices();
@@ -25816,7 +31506,12 @@ $('raceGo').addEventListener('click', startRace); // 「開回村子」「直接
 //   走路的時候你是走路的人（AI 車停下來等你）；碰撞：AI 車給 drv.addColliders（撞到會凹）、走路的 walker.setMovers（車、人都擋）；板凳 addColliders 一次
 // 走進房子（interiors.js）：走到門口往裡面推（walker 的 onDoor → atDoor）→ 畫面黑掉 → 蓋好這棟的裡面（自己的場景、自己的燈；村子不畫）、換碰撞和門 → 亮起來
 //   裡面的大門、樓梯口也是門（走進去就回到外面門口、換樓層）；阿財車行的展示間自動門開著（人走得進去，車開不進去）
-// 之後的模組接在這裡：揍人（walker.setButtons、walker.play、NPC.peds.nearest／knock）、撞人被抓（npcHit）
+// 第 3 批（b3-int）：警察（police-ai.js）、槍（guns.js）、槍店（gunshop.js）、警察局裡面（police.js 的 buildPoliceInterior）接在這裡（見下面「警察、槍」那一段）
+//   走路按圓的「揍」、開車撞人、開槍 → 星星（通緝）→ 警車從警察局開出來追（警笛、紅藍燈、小地圖的點）、包圍你、警察下車用跑的追
+//   被抓到 →「被警察抓到了！」→ 關進警察局的拘留室 30 秒（可以繳罰款早點出來）→ 放出來站在警察局門口，車停在警察局的停車場
+//   甩開：警察看不到你（躲在房子裡面也算）、開回自己的車庫關上鐵捲門＝星星清掉；通緝中自己走進警察局＝自首
+//   槍店：走進去，櫃台買槍、子彈，後面的靶場練習（每把槍第一次全部打倒拿 2 萬）；拿槍走出去：瞄準、開槍、換彈匣、換槍
+//   規矩：卡通、沒有血（人倒下去再爬起來）；警察永遠不開槍；小孩永遠打不到（揍、撞、開槍都一樣）；被抓不會沒收槍、子彈；開車不能用槍
 // build-art.mjs 把這個檔案接在 race.src.js 後面（用得到 TR、buildTrack、enterRace、exitRace、S、GAME、engineAudio、room、built、camCap、fitD⋯；walk.js 的 createWalker、charstub.js 的 buildCharacter）
 const DRIVE = { on: false, frame: driveFrame };
 const SHOP_NAME = '阿輝改車廠';
@@ -25846,7 +31541,13 @@ const liftSnd = {}; // 升降機的馬達聲（sound.js 的 lift）：第幾台 
 const SPAWN = { x: -4.6, z: -7.7, heading: -1.05 }; // 出門的時候人站哪裡（車庫本地：休息區前面，看著車子）
 let meChar = null; // 你自己（character.js）：第一次出門在「出門中⋯」的時候先做好（第一個人會先畫大家共用的貼圖，手機 0.1～0.5 秒）；樣子＝GAME.look（自訂角色）
 let NPC = null; // 路上的人和車（npc.js）：第一次出門做好就留著（回車庫頁藏起來、停住）；做不出來就沒有（不擋出門）
+let police = null, gunner = null; // 第 3 批（b3-int）：警察（police-ai.js：第一次出門的載入畫面做好就留著）、槍（guns.js：做走路的時候一起做）
+let PI = null, PSC = null; // 警察局一樓裡面（police.js 的 buildPoliceInterior，載入畫面蓋好一直留著：拘留室的鐵門跟著警察開關）、它自己的場景
+let GS = null, GSC = null, gsDesk = null, gsFov = 60; // 槍店裡面（gunshop.js：第一次走進去才蓋，蓋好留著）、它自己的場景、櫃台的買槍畫面、打開前的視角
+let townWorld = null, townTargets = null, shopWorld = null; // 槍：村子裡（子彈打得到的牆、人、車、警察）／槍店裡（只有靶場的靶）
+let impounded = false; // 這次被抓：車子有沒有拖到警察局的停車場（放出來才說「你的車停在⋯」）
 const OPEN_ACT = { label: '開鐵捲門', icon: 'door', onClick: () => openDoor() };
+const CLOSE_ACT = { label: '關鐵捲門', icon: 'doorDown', onClick: () => closeDoor() }; // 第 3 批（b3-int）：通緝中躲回車庫（門關了＝警察找不到你）
 const OUT_ACT = { label: '下車', icon: 'walk', onClick: () => leaveCar() }; // 開車 HUD 的第二顆（右邊、換視角下面）：不會被「開鐵捲門」蓋掉
 const SLEEP_ACT = { label: '睡覺', icon: 'bed', onClick: () => goSleep() };
 const DRESS_ACT = { label: '換衣服', icon: 'shirt', onClick: () => openLook('cabin') }; // 小房子的衣櫃前面：自訂角色（garage.src.html）
@@ -26056,11 +31757,11 @@ async function enterDrive() {
   if (!VIL) {
     enterDrive.busy = true;
     status.hidden = false; msg.textContent = '出門中⋯'; prog.parentElement.hidden = true;
-    await Promise.race([Promise.all([document.fonts.load('700 58px "Noto Sans TC"', '終點').catch(() => {}), villageFonts(), offroadFonts()]), new Promise((r) => setTimeout(r, 1600))]);
+    await Promise.race([Promise.all([document.fonts.load('700 58px "Noto Sans TC"', '終點').catch(() => {}), villageFonts(), offroadFonts(), circuitFonts()]), new Promise((r) => setTimeout(r, 1600))]);
     await new Promise((r) => setTimeout(r, 30)); // 讓「出門中」先畫出來（蓋村子要一下子，這時候畫面不會動）
     try {
       if (!TR) TR = buildTrack();
-      VIL = buildVillage({ renderer }); buildOffroad(VIL, { renderer }); TR.scene.add(VIL.group); // 第 4 批：越野車場（加進 VIL：地形高度、路、地方、碰撞、小地圖）
+      VIL = buildVillage({ renderer }); buildOffroad(VIL, { renderer }); buildCircuit(VIL, { renderer }); TR.scene.add(VIL.group); // 第 4 批：越野車場（加進 VIL：地形高度、路、地方、碰撞、小地圖）
       const L = VIL.places.garage.lot;
       GAR = buildRoom(renderer, { quality: 'low', exterior: true }); // 村子裡看得到外牆、屋頂、招牌；地板不反射（省）
       GAR.group.position.set(L.x, 0, L.z); GAR.group.rotation.y = L.heading; TR.scene.add(GAR.group);
@@ -26083,6 +31784,10 @@ async function enterDrive() {
     msg.textContent = '房子準備中⋯';
     await new Promise((r) => setTimeout(r, 30));
     try { await warmHouses(); } catch (e) { console.error(e); }
+    // 第 3 批（b3-int）：警察（3 台警車、3 個警察先做好、編譯 shader）、警察局裡面（蓋好、編譯）、槍店招牌的字型；做不出來就沒有警察（不擋出門）
+    msg.textContent = '警察局、槍店準備中⋯';
+    await new Promise((r) => setTimeout(r, 30));
+    try { await warmPolice(); } catch (e) { console.error(e); }
     enterDrive.busy = false; status.hidden = true;
   }
   startDrive();
@@ -26099,6 +31804,7 @@ function makeWalker() {
   walker = createWalker({ scene: TR.scene, camera: dcam, world: VIL, colliders: stripColliders(), character: meChar || buildCharacter(meLook()), hudParent: stage, keyboard: true, onDoor: atDoor, onGetIn });
   walker.setGarage(GAR); // 鐵捲門：碰撞跟著門、門口給「開鐵捲門」
   if (NPC) { walker.addColliders(NPC.peds.props.colliders, 'npc-props'); walker.setMovers(NPC.MOV); } // 板凳、椅子；路上的車、居民（npcStep 每一格換）
+  makeGuns(); // 第 3 批（b3-int）：槍、「揍」的按鈕、警車和警察擋人、小地圖上的警車
 }
 function startDrive() {
   tripS = S; tripNo++;
@@ -26117,6 +31823,7 @@ function startDrive() {
   home = { open: null, hw: false, slow: false }; hurtSaid = false;
   if (!walker) makeWalker();
   npcShow(true);
+  police?.setEnabled(true); // 第 3 批（b3-int）
   if (gcam.auto && walker.cameraMode === 'eye') walker.setCamera({ mode: 'follow' }); // 上一趟在小房子裡自動換的第一人稱：換回來
   endSleep(); gcam.maxY = Infinity; gcam.house = false; gcam.auto = false; walker.setCamera({ maxY: null });
   // 這一趟：現在這台停在中間（車頭朝鐵捲門），你其他的車照存檔停在升降機上（跟車庫頁一樣：下層有車的那台升起來）
@@ -26129,7 +31836,7 @@ function startDrive() {
   parkFull();
   walker.setCars([], { keepParked: false }); // 新的一趟：上次下車停著的那台忘掉
   liftChanged(); // 輕量車掛到村子這棟的升降機上、還沒買的擺到車店；碰撞（升降機、只擋鏡頭的平台）、走路可以上的車
-  setDest(canShop() ? 'shop' : canBuy() ? 'dealer' : 'track'); // 買得起東西就先帶你去買
+  setDest(canShop() ? 'shop' : canBuy() ? 'dealer' : 'circuit'); // 買得起東西就先帶你去買（不然去賽車場比賽）
   walker.teleport(garWorld(SPAWN)); walker.resume();
   // 教怎麼開始：第一次出門 walk.js 先教怎麼走（3.2 秒），接著才說走去上車；已經走到車子旁邊（有「上車」）就不說
   const hint = () => { if (DRIVE.on && trip && walker.mode === 'walk' && !walker.action) walker.toast('走到車子旁邊，按「上車」', 2400); };
@@ -26187,10 +31894,11 @@ function makeDrv(pose) {
   dEye = eye;
   const dmg = dmgOf(Sx, cur); // 撞爛（damage.js）：換開別台、車店買的新車第一次開才接上
   drv = createDrive({ car: Sx, scene: TR.scene, camera: dcam, perf: { ...PERF[cur], hp: hpOf(cur) }, world: VIL, colliders: stripColliders(), hudParent: stage,
-    onZone: arrive, onShift: () => dvoice?.shift(), onBump: bump, onLand: orLand, halfW: PERF[cur].halfW /* 第 4 批 */, onImpact: crashed, eye, keyboard: true, camButton: true, mapLayer: walker?.mapLayer }); // 小地圖的底圖跟走路共用一張
+    onZone: arrive, onShift: () => dvoice?.shift(), onBump: bump, onLand: orLand, halfW: PERF[cur].halfW /* 第 4 批 */, onImpact: crashed, eye, keyboard: true, camButton: true, mapLayer: walker?.mapLayer, audio: engineAudio /* 第 3 批：輪胎叫 */ }); // 小地圖的底圖跟走路共用一張
   if (dmg) drv.setDamage(dmg.perf); // 撞壞的車開起來比較慢、方向盤偏
   if (NPC) drv.addColliders(NPC.peds.props.colliders, 'npc-props'); // 板凳、椅子（路上的車 npcStep 每一格換）
   drv.addColliders(DEALER_DOOR, 'dealer-door'); // 車行的自動門開著：人走得進去，車子擋住
+  if (police) drv.setMarkers(police.markers); // 第 3 批（b3-int）：小地圖上的警車
   drv.teleport(pose);
   tripFull = cur; tripPose[cur] = { x: pose.x, z: pose.z, heading: pose.heading }; if (parkShadow) parkShadow.visible = false;
   home.open = null; // 門的碰撞下一格放（照門現在開著還是關著）
@@ -26246,7 +31954,7 @@ function parkSpot(t) {
   return null;
 }
 function leaveCar() {
-  if (!drv || !walker || !DRIVE.on || !tripPose) return;
+  if (!drv || !walker || !DRIVE.on || !tripPose || jailed()) return; // 第 3 批：被抓到了不能下車
   const t = drv.telemetry(); if (t.paused || t.auto) return;
   const spot = Math.abs(t.v) < 1 ? parkSpot(t) : null;
   if (spot && (Math.hypot(spot.x - t.x, spot.z - t.z) > 0.02 || Math.abs(wrapPi(spot.heading - t.heading)) > 0.01)) { // 開正（0.6–1 秒）再下車
@@ -26283,6 +31991,7 @@ function offDeck(k) {
 // 坐進車裡了（walk.js 的 onGetIn）：剛下來那台＝接著開；出門停在中間那台、停上升降機那台（完整模型）＝開始開；別台（輕量車）＝換成完整的車開
 function onGetIn(car) {
   if (!trip || !DRIVE.on || !tripPose) return;
+  gunner?.holster(); // 第 3 批（b3-int）：上車把槍收起來（開車不能用槍）
   if (car.drive) { // 剛下來那台：walk.js 已經 drv.resume() 了，引擎再發動
     dvoice?.dispose(); dvoice = engineAudio.voice(cur, { parts: partsOf(cur) });
     arrangeCars(); return;
@@ -26329,18 +32038,25 @@ async function switchCar(k) {
 // 走到門口往裡面推（walk.js 的 onDoor）→ 慢慢黑掉 → 全黑的時候蓋好這棟的裡面（同一棟每次都一樣，蓋一次幾十毫秒）、第一次進門順便編譯 shader → 慢慢亮
 // 裡面是自己的場景（自己的燈；每一層的地板都在 y 0，跟村子的地面重疊：在裡面的時候村子不畫）；人、鏡頭照樣用世界座標
 // 碰撞：村子的（walk.js 標 'world'，蓋住房子的地板）拿掉、換這一層的 'interior'；門：換成這一層的出口（大門回到外面門口、樓梯口換樓層）
-// 警察局、槍店（第 3 批）還沒開門；阿財車行的展示間、阿輝改車廠、你的車庫本來就走得進去（不是門）
-const CLOSED = { police: '警察局還沒開門', gunshop: '槍店還沒開門' };
+// 警察局（police.js 的 buildPoliceInterior）、槍店（gunshop.js）：第 3 批（b3-int）開門了（蓋一次留著，不是每次重蓋：indoor.keep）；
+// 阿財車行的展示間、阿輝改車廠、你的車庫本來就走得進去（不是門）
+const CLOSED = {};
 // 阿財車行正面玻璃的自動門（village.js：展示間 frame(−450, 0, −26)，門 x 11.25…13.95 開著）：只給開車的，車子開不進展示間
 const DEALER_DOOR = [{ t: 'box', x: -437.4, z: -26.125, hx: 1.45, hz: 0.18, rot: 0, h: 3 }];
 function atDoor(d) {
   if (!walker || walker.mode !== 'walk' || doorFade || sleep || !DRIVE.on) return;
   if (indoor) { // 裡面的出口（setDoors 給的是 I.exits 的 door）：大門、樓梯口
-    if (indoor.t < 0.4) return; // 剛換過來（站在樓梯口旁邊）
-    const e = indoor.I.exits.find((x) => x.door === d); if (!e) return;
+    if (indoor.t < 0.4 || indoor.jail) return; // 剛換過來（站在樓梯口旁邊）；關在拘留室裡（門給的是空的，保險）
+    const e = (indoor.exits || indoor.I.exits).find((x) => x.door === d); if (!e) return;
     goDoor(() => (e.to === 'outside' ? leaveHouse(e) : houseFloor(e)));
     return;
   }
+  if (d.kind === 'police') { // 第 3 批（b3-int）：警察局：通緝中走進去＝自首（一樣關、一樣罰）；平常走進去看看（拘留室的門開著）
+    if (police && police.state === 'wanted') { police.surrender(); return; }
+    if (police && police.state !== 'free') return;
+    goDoor(() => enterStation(false, d)); return;
+  }
+  if (d.kind === 'gunshop') { goDoor(() => enterGunShop(d)); return; } // 第 3 批（b3-int）：槍店
   const info = CLOSED[d.kind] ? null : interiorFor(d);
   if (!info) { walker.toast(CLOSED[d.kind] || `${d.name ? d.name + '：' : ''}門鎖著`, 1800); return; }
   goDoor(() => enterHouse(d));
@@ -26387,7 +32103,7 @@ function enterHouse(b) {
   try { I = buildInterior(b, { renderer, quality: roomQ }); } catch (e) { console.error(e); I = null; }
   if (!I) return { say: `${b.name ? b.name + '：' : ''}門鎖著` };
   const sc = new THREE.Scene(); sc.name = 'indoor'; sc.background = I.background; sc.add(I.group);
-  indoor = { b, I, scene: sc, t: 0, dist0: walker.cameraDist, folks: [] };
+  indoor = { b, I, scene: sc, t: 0, dist0: walker.cameraDist, folks: [], kind: 'house' };
   sc.add(walker.character.group); // 你搬進房子的場景（出去再搬回村子）
   walker.removeColliders('world'); walker.setCarReach(false); // 村子的碰撞（蓋住房子的地板）拿掉；車停在外面（隔著牆）不給「上車」
   houseSet(I.spawn);
@@ -26397,8 +32113,8 @@ function enterHouse(b) {
 function houseSet(spawn) {
   const I = indoor.I;
   walker.removeColliders('interior'); walker.addColliders(I.colliders, 'interior');
-  houseFolks();
-  walker.setDoors(I.exits.map((e) => e.door));
+  if (indoor.kind === 'police') stationFolks(); else if (indoor.kind === 'house') houseFolks(); // 槍店的店員 gunshop.js 自己有
+  walker.setDoors(indoor.jail ? [] : (indoor.exits || I.exits).map((e) => e.door)); // 關在拘留室：沒有門
   walker.setCamera({ maxY: I.camera.ceiling, dist: Math.min(indoor.dist0, I.camera.maxDist) });
   walker.teleport(spawn); indoor.t = 0;
 }
@@ -26417,7 +32133,8 @@ function leaveHouse(e) {
   walker.setCamera({ maxY: null, dist: H.dist0 });
   TR.scene.add(walker.character.group);
   for (const f of H.folks) f.C.dispose();
-  H.I.dispose();
+  if (H.kind === 'gunshop') gsLeave(); // 第 3 批（b3-int）：櫃台關掉、靶場停、槍換回村子
+  if (!H.keep) H.I.dispose(); // 警察局、槍店蓋一次留著
   if (e) walker.teleport(e.spawn);
   walker.toast('', 1); // 裡面說的話（幾樓、哪一間）還掛著的話收掉
   return null;
@@ -26560,6 +32277,7 @@ function homeWalk() {
     if (!act && inBox(Z.bedSide, q.x, q.z)) act = SLEEP_ACT;
     if (!act && inBox(DRESS_ZONE, q.x, q.z)) act = DRESS_ACT;
   }
+  if (!act) act = hideAct(t.x, t.z, 0.3); // 第 3 批（b3-int）：通緝中躲回車庫：「關鐵捲門」
   walker.setAction(act);
   const c = GAR.ceilingAt(q.x, q.z);
   if (c !== gcam.maxY) { gcam.maxY = c; walker.setCamera({ maxY: isFinite(c) ? c : null }); }
@@ -26576,7 +32294,7 @@ function homeAct(t) {
   const p = garLocal(t.x, t.z), Z = GAR.zones, D = Z.door.x; // 門在 x = D
   const inside = inBox(Z.inside, p.x, p.z), front = p.x > D && p.x < D + 16 && Math.abs(p.z) < 9; // 門前面那塊
   if ((inside || front) && GAR.door.t === 0 && !GAR.door.moving) return OPEN_ACT;
-  return null;
+  return drv ? hideAct(t.x, t.z, Math.max(drv.carInfo.nose, -drv.carInfo.tail)) : null; // 第 3 批（b3-int）：通緝中開進車庫：「關鐵捲門」
 }
 function openDoor() {
   if (!GAR || GAR.door.t > 0 || GAR.door.moving) return;
@@ -26648,7 +32366,7 @@ function intoShop() {
 function openShop() {
   panelOpen(shopEl);
   if (VIL.places.shop.view) viewPlace(VIL.places.shop.view); else viewCar(VIL.places.shop.park, 5.2, 3.4, 1.8); // 改車區旁邊看車子，改車廠的裡面在後面
-  say(true, GAME.money > 0 ? '想裝什麼？按一下看價錢，再按一次就裝上去' : '你現在沒有錢：先開去賽道比賽贏獎金，再回來買');
+  say(true, GAME.money > 0 ? '想裝什麼？按一下看價錢，再按一次就裝上去' : '你現在沒有錢：先開去賽車場比賽贏獎金，再回來買');
   renderWallet(); shopItems();
 }
 $('shopGo').addEventListener('click', () => { if (!shopEl.hidden) driveOff('shop', canBuy() ? 'dealer' : 'track'); });
@@ -26663,7 +32381,7 @@ function openDealer() {
   panelOpen(dealerEl); $('dealerName').textContent = dealerName(); // 第 4 批：阿財車行／越野車行
   const list = forSale();
   dealerSel = list.includes(dealerSel) ? dealerSel : list.find((k) => GAME.money >= PERF[k].price) || list[0] || null;
-  $('dealerMsg').textContent = !list.length ? '車都買齊了！你的車都停在車庫' : GAME.money < PERF[list[0]].price ? '錢還不夠：先開去賽道比賽贏獎金' : '按一下看那台車，買了自己開回家';
+  $('dealerMsg').textContent = !list.length ? '車都買齊了！你的車都停在車庫' : GAME.money < PERF[list[0]].price ? '錢還不夠：先開去賽車場比賽贏獎金' : '按一下看那台車，買了自己開回家';
   renderWallet(); renderDealer();
   dcam.fov = 60; dcam.updateProjectionMatrix(); lookAtCar(dealerSel, 0); // 先看選好的那台（畫面變寬變矮了，整間看車子太小），按了別台再移過去
 }
@@ -26697,7 +32415,7 @@ function buyCtaD() {
   const P = PERF[dealerSel], lack = P.price - GAME.money;
   dBuy.disabled = lack > 0 || buying;
   dBuyHead.textContent = lack > 0 ? `還差 ${money(lack)}` : `買 ${CARS[dealerSel].btn[0]} · NT$ ${money(P.price)}`;
-  dBuyNote.textContent = lack > 0 ? `這台要 NT$ ${money(P.price)}，去賽道比賽贏錢` : `買了還剩 NT$ ${money(GAME.money - P.price)}，自己開回家`;
+  dBuyNote.textContent = lack > 0 ? `這台要 NT$ ${money(P.price)}，去賽車場比賽贏錢` : `買了還剩 NT$ ${money(GAME.money - P.price)}，自己開回家`;
 }
 dBuy.addEventListener('click', async () => {
   const k = dealerSel;
@@ -26768,13 +32486,13 @@ function liftCarOn(lf) {
   }
   return false;
 }
-$('dealerGo').addEventListener('click', () => { if (!dealerEl.hidden && !buying) driveOff(dealerAt, dealerAt === 'odealer' ? 'orace' : 'track'); }); // 第 4 批：越野車行開走 → 起跑區
+$('dealerGo').addEventListener('click', () => { if (!dealerEl.hidden && !buying) driveOff(dealerAt, dealerAt === 'odealer' ? 'orace' : 'circuit'); }); // 第 4 批：越野車行開走 → 起跑區
 
 // ---- 賽道：開進起跑區（慢一點）自己停到起跑線，交給比賽（race.src.js）；比完開回村子 ----
 function trackStep(t) {
   if (snooze.track || t.auto || !inBox(VIL.places.track.zone, t.x, t.z)) { home.slow = false; return; }
   if (Math.abs(t.v) > 22) { if (!home.slow) { home.slow = true; drv.toast('開慢一點，才停得進起跑線'); } return; }
-  drv.toast('到賽道了！'); snooze.track = true;
+  drv.toast('直線加速：自己停到起跑線'); snooze.track = true;
   drv.parkAt(VIL.places.track.start, toRace);
 }
 function toRace() {
@@ -26784,14 +32502,14 @@ function toRace() {
   tripS?.dmg?.clearDebris(); // 掉在村子裡的零件、煙、嘶嘶聲收掉（車子還是凹的）
   drv.release(); // 車子放回原點、不轉、輪子歸零（carSize、putCar 要）
   DRIVE.on = false; document.body.classList.remove('driving'); bodyWalking(false); driveBar.hidden = true;
-  townFog(false); npcShow(false);
+  townFog(false); npcShow(false); police?.setEnabled(false); bodyFlag('wanted', false); // 第 3 批：比賽的時候警察藏起來（星星留著）
   enterRace(); // 賽道已經蓋好了：不用等，這一行就進去了
   if (!RACE.on) resumeDrive(VIL.places.track.spawn, 'garage'); // 進不去（不會發生）：接著開
 }
 function resumeDrive(pose, dest) {
   DRIVE.on = true; controls.enabled = false;
   document.body.classList.add('driving'); driveBar.hidden = false;
-  townFog(true); npcShow(true);
+  townFog(true); npcShow(true); police?.setEnabled(true);
   // 比賽可能贏了錢：開車的重新做（馬力照現在的零件），車子停在起跑區外面
   drv.dispose(); makeDrv(pose); setDest(dest);
   lastD = performance.now();
@@ -26857,8 +32575,9 @@ function orStart(lv) {
     onAbort: (why) => { if (drv === d) d.toast(why === 'left' ? '開出越野車場了：比賽取消' : '比賽取消了', 2000); setTimeout(orEnd, 0); },
   });
   document.body.classList.add('orracing'); // 比賽中「去哪裡」那一排收起來（跟著檢查點開；garage.css）
+  polRace(true); // 第 3 批（b3-int）：比賽的時候警察藏起來、不算犯罪（星星留著）
 }
-function orEnd() { document.body.classList.remove('orracing'); if (orRace) { orRace.dispose(); orRace = null; } }
+function orEnd() { document.body.classList.remove('orracing'); if (orRace) { orRace.dispose(); orRace = null; polRace(false); } }
 // 越野車行的展示台（門口的大圓台）：還沒買的第一台越野車；開到附近才載（輕量車；沒有輕量車的才載完整的車），遠了不畫
 const oFree = (S2) => { if (S2.lod) { S2.car.removeFromParent(); S2.lod.dispose(); } else disposeCar(S2); }; // 收掉展示台的車（輕量車／完整的車）
 function oTick(t) {
@@ -26911,6 +32630,8 @@ function leaveDrive() {
   if (doorFade) { doorFade = null; fadeEl.style.display = 'none'; }
   if (indoor) leaveHouse(null); // 在房子裡面按「直接回車庫」：碰撞、門、鏡頭換回村子的，你搬回村子的場景
   oLeave(); // 第 4 批：越野賽、越野車行展示台的車收掉
+  ciLeave(); // 賽車場的比賽、選對手收掉
+  police?.clear(); police?.setEnabled(false); bodyFlag('wanted', false); bodyFlag('jailed', false); // 第 3 批（b3-int）：星星、警車、拘留室都清掉（回車庫頁）
   drv?.dispose(); drv = null; home = null;
   walker?.pause({ hide: true });
   npcShow(false);
@@ -27007,6 +32728,7 @@ function npcStep(dt) {
     if (out) {
       const tc = N.traffic.colliders(w.x, w.z, 12); for (let i = 0; i < tc.length; i++) M.push(tc[i]);
       const pc = N.peds.colliders(w.x, w.z, 4); for (let i = 0; i < pc.length; i++) M.push(pc[i]);
+      if (police) { const pm = police.movers; for (let i = 0; i < pm.length; i++) M.push(pm[i]); } // 第 3 批（b3-int）：警車、下車的警察（沒出來的大小是 0，walk.js 不理）
     }
   }
   const ms = performance.now() - t0; N.ms = ms; N.n++; N.avg += (ms - N.avg) / Math.min(N.n, 300); if (N.n > 30 && ms > N.max) N.max = ms; // 量：一幀花多久（前 30 格在生車、生人不算最大）
@@ -27018,9 +32740,229 @@ function npcHit(p, speed, car) {
   NPC.peds.scare(p.x, p.z, 14);
   engineAudio.crash({ strength: Math.min(0.3, 0.06 + speed / 40), glass: 0 });
   if (drv && DRIVE.on) drv.toast(speed > 6 ? '撞到人了！開慢一點' : '小心，有人！', 1800);
+  police?.crime('hit', p); // 第 3 批（b3-int）：開車撞人 +2★（小孩 npc.js 不會撞到）
 }
 // 撞到路上的車（凹、撞車聲是 drive.js 的碰撞 → damage.js）：旁邊的人嚇跑
 function npcCarHit(car) { if (!NPC) return; NPC.carHits++; NPC.peds.scare(car.x, car.z, 12); }
+
+// ==== 第 3 批（b3-int）：警察（police-ai.js）、槍（guns.js）、槍店（gunshop.js）、警察局裡面（police.js）====
+// Nick 2026-10-04：「警察追人抓人、槍店買槍射擊繼續做」（2026-09-28 做好的模組接進整個遊戲）
+// 警察：第一次出門的載入畫面做（3 台警車、3 個警察先做好、編譯 shader；警察局裡面也先蓋好），之後一直留著；回車庫頁 clear()＋藏起來，比賽的時候藏起來（星星留著）
+//   每一格（driveStep 最後，開車、走路都更新完）：開車的時候警車給 drv 當碰撞、開車撞到下車的警察（carHit）；police.update；槍 gunner.update
+//   撞到居民（npc.js 的 onHit → npcHit）報 'hit'（+2★）；按「揍」報 'punch'（+1★，揍到警察 'cop'）；槍自己報（打到人 'shoot'＝3★、打到警察 'shootCop' +1★、附近有警察的時候開槍 'gunfire'）
+//   被抓到（onCaught）：開車的拉手煞車停住、走路的停住，槍收起來 → 畫面全黑（onArrest）：開的車（或剛下車停著的）拖到警察局的停車場，人關進拘留室
+//   → 30 秒或繳罰款（onRelease）：人站在警察局門口，車在停車場
+// 槍：做走路的時候一起做（makeGuns），走路才用得到（開車、上車下車中自己收起來）；房子裡、警察局裡、拘留室、槍店櫃台不能用（setEnabled(false)）
+const PUNCH_BTN = [{ id: 'punch', label: '揍', key: 'KeyF', onClick: () => doPunch() }]; // 走路右下角的圓按鈕（電腦 F）；拿槍的時候收起來（開槍鈕在同一個地方，F 也是開槍）
+const PUNCH_ME = { x: 0, z: 0, heading: 0 }, PL_CAR = { hx: 2.2, hz: 0.9, cx: 0 }; // 每一格重複用的
+const GS_DESK = { label: '買槍、子彈', icon: 'hand', onClick: () => openDesk() }, GS_RANGE = { label: '開始練習', icon: 'hand', onClick: () => startRange() };
+const jailed = () => !!police && (police.state === 'caught' || police.state === 'jail' || police.state === 'release'); // 被抓到、關著、放出來那一下：不能上車下車、開門、用槍
+async function warmPolice() {
+  try { await Promise.race([gunShopFonts(VIL.places.gunshop?.name), new Promise((r) => setTimeout(r, 1600))]); } catch (e) { console.error(e); } // 槍店招牌、貼圖上的字
+  police = createPolice({ scene: TR.scene, world: VIL, colliders: stripColliders(), hudParent: stage,
+    obstacles: NPC ? (x, z, r) => NPC.traffic.colliders(x, z, r) : null, // 路上的車：警車會閃、會撞到
+    sound: { ctx: () => engineAudio.context, get out() { return engineAudio.input; }, muted: () => engineAudio.muted, gain: 0.2 }, // 警笛：跟引擎聲同一條總輸出（音量、靜音）
+    makePoliceCar, makeOfficer: () => buildCharacter(POLICE_LOOK),
+    jail: { setCellDoor: (open) => PI?.setCellDoor(open) },
+    getPlayer: polPlayer,
+    money: { get: () => GAME.money, spend: (n) => { if (GAME.money < n) return false; GAME.money -= n; save(true); renderWallet(); return true; } },
+    onCaught, onArrest, onRelease,
+    toast: (text, ms, red) => { if (red) return false; const w = walker && walker.mode !== 'off' ? walker : drv; if (!w || !DRIVE.on) return false; w.toast(text, ms); return true; } }); // 警察的話：跟走路／開車的提示同一個地方（被抓到那一下的大紅字還是警察自己的）
+  if (NPC) { NPC.OBS.push(...police.npcCars); NPC.OBSW.push(...police.npcCars); NPC.PCARS.push(police.npcCars); NPC.PCARSW.push(police.npcCars); } // 路上的車讓警車、居民閃警車（警車撞不飛人）
+  police.preload(renderer, dcam);
+  stationBuild();
+  if (renderer.compileAsync) await renderer.compileAsync(PSC, dcam); else renderer.compile(PSC, dcam);
+}
+// 給警察看的你（每一格）：開車／走路／'off'（改車廠、車店、槍店櫃台、睡覺、換車中：警察停著等）；在房子、槍店裡面＝看不到（hidden）；在自己車庫裡、鐵捲門關著＝safe（星星清掉）
+function polPlayer(o) {
+  o.car = null; o.safe = false; o.hidden = !!indoor && !indoor.jail;
+  if (!walker) { o.mode = 'off'; o.x = 0; o.z = 0; o.heading = 0; o.v = 0; return o; }
+  const driving = !!drv && walker.mode === 'off' && !sleep, t = driving ? drv.telemetry() : walker.telemetry();
+  o.x = t.x; o.z = t.z; o.heading = t.heading; o.v = driving ? t.v : t.speed;
+  o.mode = !DRIVE.on || sleep || gsDesk || boarding || document.body.classList.contains('shopping') || (!driving && walker.mode === 'off') ? 'off' : driving ? 'drive' : 'walk';
+  if (driving) { const ci = drv.carInfo; PL_CAR.hx = ci.len / 2; PL_CAR.hz = ci.halfW; PL_CAR.cx = (ci.nose + ci.tail) / 2; o.car = PL_CAR; }
+  if (GAR && !indoor) { const q = garLocal(t.x, t.z); o.safe = inBox(GAR.zones.inside, q.x, q.z) && GAR.door.t === 0 && !GAR.door.moving; }
+  return o;
+}
+function onCaught() {
+  gunner?.holster(); closeDesk(true);
+  if (drv && walker?.mode === 'off') { drv.setInput({ throttle: 0, brake: 0, steer: 0, handbrake: 1 }); drv.setAction(null); drv.setAction2(null); } // 手煞車（按著煞車＝倒車）
+  else walker?.pause();
+}
+function onArrest(i) { // 畫面全黑：車拖到警察局的停車場、人關進拘留室
+  if (!DRIVE.on || !walker || !trip) return;
+  if (doorFade) { doorFade = null; fadeEl.style.display = 'none'; }
+  endSleep();
+  if (indoor) leaveHouse(null);
+  impounded = false;
+  if (drv) { // 開的那台（或剛下車停著的那台）：開車的收掉，完整的車停到停車場
+    drv.setInput(null); drv.dispose(); drv = null; dvoice?.dispose(); dvoice = null; if (home) home.open = null;
+    tripS?.dmg?.clearDebris();
+    if (tripFull === cur && i.yard && tripS) { tripPose[cur] = { x: i.yard.x, z: i.yard.z, heading: i.yard.heading }; parkFull(); impounded = true; }
+    walker.setCars([], { keepParked: false }); arrangeCars();
+  }
+  enterStation(true);
+  walker.resume();
+}
+function onRelease(i) { // 畫面全黑：放出來站在警察局門口（朝外）
+  if (!DRIVE.on || !walker) return false;
+  if (indoor) leaveHouse({ spawn: i.door }); else walker.teleport(i.door);
+  walker.resume();
+  return impounded; // false：車子沒拖來，警察就不說「你的車停在警察局的停車場」
+}
+// 警察局一樓裡面：蓋一次留著（自己的場景）；出口（大門）給 walk.js 的門；拘留室的鐵門平常開著（被抓的時候 police-ai.js 關上）
+function stationBuild() {
+  if (PI) return;
+  PI = buildPoliceInterior({ renderer });
+  PSC = new THREE.Scene(); PSC.name = 'police-in'; PSC.background = PI.background; PSC.add(PI.group);
+  const ex = PI.exitDoor, lz = ex.hz - 0.35; // 大門：出口長方形靠外面那一邊往裡面 0.35 公尺（跟 interiors.js 一樣）；ry 朝裡面（往外推＝走出去）
+  PI.exitsW = [{ ...ex, door: { x: ex.x + lz * Math.sin(ex.rot), z: ex.z + lz * Math.cos(ex.rot), ry: ex.rot + Math.PI, w: ex.hx } }];
+  PI.setCellDoor(true); PI.update(5);
+}
+function enterStation(jail, b) {
+  stationBuild();
+  indoor = { b: b || VIL.buildings.find((x) => x.kind === 'police'), I: PI, scene: PSC, t: 0, dist0: walker.cameraDist, folks: [], kind: 'police', keep: true, jail, exits: PI.exitsW };
+  PSC.add(walker.character.group);
+  walker.removeColliders('world'); walker.setCarReach(false);
+  houseSet(jail ? PI.cell : PI.spawn); // 碰撞（拘留室的鐵門照現在關著還是開著）、門、鏡頭、警察
+  return { say: jail ? null : '警察局：拘留室在後面' };
+}
+// 警察局裡的警察：櫃台後面站一個、辦公桌坐一個（POLICE_LOOK；跟房子裡的人一樣，出去就收掉）
+function stationFolks() {
+  const H = indoor, sp = PI.spots, cols = [];
+  for (const f of H.folks) f.C.dispose();
+  H.folks.length = 0;
+  for (const [p, st] of [[sp.counter[1], 'idle'], [sp.sit[0], 'sit']]) {
+    if (!p) continue;
+    let C = null; try { C = buildCharacter(POLICE_LOOK, { state: st }); } catch (e) { console.error(e); continue; }
+    C.group.position.set(p.x, st === 'sit' ? Math.max(0, (p.y ?? 0.45) - 0.45) : 0, p.z); C.group.rotation.set(0, p.heading, 0);
+    C.update(0, { speed: 0, state: st }); C.update(0.05, FOLK_POSE);
+    H.scene.add(C.group); H.folks.push({ C, st });
+    if (st !== 'sit') cols.push({ t: 'circle', x: p.x, z: p.z, r: 0.3, h: 1.7 });
+  }
+  if (cols.length) walker.addColliders(cols, 'interior');
+}
+// 槍：走路的 walker 做好以後做；「揍」的按鈕；警車、下車的警察擋人（npcStep 放進 NPC.MOV）；小地圖的警車
+function makeGuns() {
+  if (police) { walker.setMarkers(police.markers); if (!NPC) walker.setMovers(police.movers); }
+  try {
+    townWorld = { scene: TR.scene, colliders: [...VIL.colliders, ...stripColliders(), ...garCols(true)], crime: true, name: 'village' };
+    townTargets = [NPC && gunTargets.pedestrians(NPC.peds), NPC && gunTargets.traffic(NPC.traffic), police && gunTargets.police(police), gunTargets.boxes(gunParked, { kind: 'parked' })].filter(Boolean);
+    gunner = createGunner({ scene: TR.scene, camera: dcam, renderer, walker, character: walker.character, GAME, hudParent: stage, keyboard: true, world: townWorld, targets: townTargets,
+      audio: { muted: () => engineAudio.muted },
+      onChange: () => save(), onEquip: (id) => walker.setButtons(id ? null : PUNCH_BTN), // 拿槍：開槍鈕放在「揍」的地方（F 也變開槍）
+      onCrime: (kind, info) => police?.crime(kind, info) });
+  } catch (e) { console.error(e); gunner = null; }
+  walker.setButtons(PUNCH_BTN);
+}
+// 子彈打得到的停著的車（你的車：停在哪就在哪；剛下車停著的那台也算）：一格算一次（有開槍才問）
+const GP = []; let gpN = 0, gpAt = -1;
+function gunParked() {
+  if (gpAt === gpN) return GP;
+  gpAt = gpN; GP.length = 0;
+  if (!trip || !tripPose) return GP;
+  for (const c of walkCars()) { const b = carBox(c, c); b.h = c.h || 1.35; b.obj = c.object; GP.push(b); }
+  if (drv && walker && walker.mode !== 'off' && tripS && tripBox && tripPose[cur]) { const b = carBox(tripBox, tripPose[cur]); b.obj = tripS.car; GP.push(b); }
+  return GP;
+}
+// 槍什麼時候可以用：被抓到、關著、在房子／警察局裡、槍店櫃台打開的時候不行（槍店裡面可以：只有靶場打得出去）
+function gunSync() {
+  const on = !jailed() && !gsDesk && !(indoor && indoor.kind !== 'gunshop');
+  if (on !== gunSync.on) { gunSync.on = on; gunner.setEnabled(on); }
+}
+// 揍：揮一拳；前面 1.2 公尺以內的人（小孩不會被打到）倒下去再爬起來（police-ai.js 判斷、報 'punch'）
+const punchKnock = (p, dx, dz) => NPC?.peds.knock(p, dx, dz, 4);
+function doPunch() {
+  if (!walker || walker.mode !== 'walk' || !DRIVE.on) return;
+  walker.play('punch');
+  if (!police || jailed()) return;
+  const t = walker.telemetry(); PUNCH_ME.x = t.x; PUNCH_ME.z = t.z; PUNCH_ME.heading = t.heading;
+  const hit = police.punch(PUNCH_ME, NPC && !indoor ? NPC.peds.people : null, punchKnock);
+  if (hit && NPC && !indoor) NPC.peds.scare(hit.x, hit.z, 10); // 旁邊的人嚇跑
+}
+// 槍店：第一次走進去才蓋（字型載入畫面等過了），之後留著；裡面是自己的場景（店員、靶 gunshop.js 自己有）
+function enterGunShop(b) {
+  let first = false;
+  if (!GS) {
+    try { GS = buildGunShopInterior({ door: b.door, name: VIL.places.gunshop?.name || b.name, renderer, makeCharacter: buildCharacter, quality: roomQ, GAME, onRangeEnd: gsRangeEnd }); } catch (e) { console.error(e); GS = null; }
+    if (!GS) return { say: '槍店今天沒開' };
+    GSC = new THREE.Scene(); GSC.name = 'gunshop'; GSC.background = GS.background; GSC.environment = GS.environment; GSC.add(GS.group);
+    shopWorld = { scene: GSC, colliders: GS.colliders, ceiling: GS.camera.ceiling, raycast: GS.raycast, rule: GS.fireRule, crime: false, name: 'gunshop' };
+    GS.exitsW = [{ ...GS.exitDoor, door: GS.doors[0] }];
+    first = true;
+  }
+  indoor = { b, I: GS, scene: GSC, t: 0, dist0: walker.cameraDist, folks: [], kind: 'gunshop', keep: true, exits: GS.exitsW };
+  GSC.add(walker.character.group);
+  walker.removeColliders('world'); walker.setCarReach(false);
+  houseSet(GS.spawn); GS.range.stop();
+  if (gunner) { gunner.setWorld(shopWorld); gunner.setTargets([]); } // 店裡：子彈只打得到牆、靶（不算犯罪；店裡面不能開槍，後面的靶場可以）
+  return { wait: first && renderer.compileAsync ? renderer.compileAsync(GSC, dcam) : null, say: `${VIL.places.gunshop?.name || '槍店'}：櫃台買槍，後面是靶場` };
+}
+function gsLeave() { closeDesk(true); GS?.range.stop(); if (gunner) { gunner.setWorld(townWorld); gunner.setTargets(townTargets); } }
+function gsStep(dt) {
+  const t = walker.telemetry(); GS.update(dt, t);
+  if (gsDesk || walker.mode !== 'walk') return;
+  const z = GS.zoneAt(t.x, t.z);
+  walker.setAction(z === 'counter' ? GS_DESK : z === 'range' && (GS.range.state === 'idle' || GS.range.state === 'done') ? GS_RANGE : null);
+}
+// 櫃台：走路停住、畫面變矮（跟改車廠一樣）、鏡頭擺到櫃台、下面打開買槍畫面；「離開櫃台」接著走
+function openDesk() {
+  if (gsDesk || !GS || indoor?.kind !== 'gunshop' || walker.mode !== 'walk') return;
+  const v = GS.views.counter, z = GS.zones.counter;
+  walker.teleport({ x: z.x, z: z.z, heading: Math.atan2(-(v.look[2] - z.z), v.look[0] - z.x) }, { keepCamera: true });
+  walker.setAction(null); walker.pause(); GS.setClerk('talk');
+  document.body.classList.add('shopping'); driveBar.hidden = true;
+  gsFov = dcam.fov; dcam.position.set(...v.pos); dcam.lookAt(...v.look); dcam.fov = v.fov || 50; dcam.near = 0.1; dcam.updateProjectionMatrix();
+  gsDesk = openGunShop(dealerEl.parentElement, GAME, (kind, id) => { save(true); renderWallet(); gunner?.refresh(); if (kind === 'gun' && gunner && !gunner.telemetry().drawn) gunner.draw(id); },
+    { name: VIL.places.gunshop?.name, onClose: () => closeDesk() });
+  if (gsDesk.el) dealerEl.after(gsDesk.el);
+  requestAnimationFrame(() => stage.scrollIntoView({ block: 'start', behavior: calm ? 'auto' : 'smooth' })); // 畫面變矮了：畫面、下面的東西一起看得到
+}
+function closeDesk(quiet) {
+  if (!gsDesk) return;
+  gsDesk.close(); gsDesk = null; GS?.setClerk('idle');
+  document.body.classList.remove('shopping');
+  dcam.fov = gsFov; dcam.updateProjectionMatrix();
+  if (quiet) return;
+  driveBar.hidden = false; walker.resume({ blend: 0.5 }); gunner?.refresh();
+  stage.scrollIntoView({ block: 'nearest', behavior: calm ? 'auto' : 'smooth' });
+}
+// 靶場：站到射擊台後面按「開始練習」（沒拿槍先拿；沒有槍先去櫃台買）→ 倒數、計時；打完 onRangeEnd：紀錄、第一次全部打倒的獎金
+function startRange() {
+  if (!gunner || !GS) return;
+  const g = gunner.telemetry();
+  if (!g.drawn) { if (!(GAME.guns?.owned?.length)) { walker.toast('還沒有槍：先去櫃台買', 2000); return; } gunner.draw(); }
+  GS.range.start(gunner.telemetry().cur);
+}
+function gsRangeEnd(res) {
+  const r = gunShop.rangeResult(GAME, res.weapon, res);
+  save(true); renderWallet(); GS?.range.say(r.msg); walker?.toast(r.msg, 3200);
+}
+function closeDoor() { if (GAR && GAR.door.t === 1 && !GAR.door.moving) GAR.door.close(calm ? 1 : 1.8); }
+// 通緝中、人或車在自己車庫裡面（不在門下面）、門開著：給「關鐵捲門」（關好了＝躲起來，星星清掉）
+function hideAct(x, z, hl) {
+  if (!police || police.state !== 'wanted' || !GAR || GAR.door.t !== 1 || GAR.door.moving) return null;
+  const q = garLocal(x, z), D = GAR.zones.door.x;
+  return inBox(GAR.zones.inside, q.x, q.z) && q.x + hl < D - 0.3 ? CLOSE_ACT : null;
+}
+// 每一格（driveStep 最後）：警車的碰撞給開車的、開車撞到下車的警察、警察、槍
+function polStep(dt) {
+  gpN++;
+  if (police) {
+    if (drv) drv.removeColliders('police');
+    if (drv && walker.mode === 'off' && !sleep) { const t = drv.telemetry(); drv.addColliders(police.colliders(t.x, t.z, 60), 'police'); if (!t.paused) police.carHit(null, null); }
+    police.update(dt);
+    bodyFlag('wanted', !polRace.on && stage.classList.contains('pw-on')); bodyFlag('jailed', jailed()); // garage.css：通緝中全螢幕鈕、聲音往下推；被抓到、關著去哪裡那一排藏起來
+    if (bodyFlags.jailed !== polStep.jl) { polStep.jl = bodyFlags.jailed; walker.setButtons(polStep.jl || gunner?.arms.cur ? null : PUNCH_BTN); } // 關著的時候「揍」收起來
+  }
+  if (gunner) { gunSync(); gunner.update(dt); }
+}
+// 比賽（賽車場、越野賽）的時候：警察藏起來、不算犯罪（police-ai.js crime() 關掉的時候不算）；比完照舊（星星留著）
+function polRace(on) { polRace.on = !!on; if (!police) return; police.setEnabled(!on && DRIVE.on); if (on) bodyFlag('wanted', false); }
+const bodyFlags = {};
+function bodyFlag(k, on) { if (bodyFlags[k] !== on) { bodyFlags[k] = on; document.body.classList.toggle(k, on); } }
+// 重新開始（garage.src.html）：星星清掉、槍收起來
+function townReset() { police?.clear(); gunner?.holster(); gunner?.refresh(); }
 
 // ---- 每一幀：門、升降機 → 開車 → 走路（走路一定在開車後面：上車那一下鏡頭從走路接到開車）----
 function driveStep(dt) {
@@ -27029,16 +32971,19 @@ function driveStep(dt) {
   if (drv) {
     drv.update(dt); // 開進賽道、快速道路的事（arrive）在這裡面叫
     if (drv && DRIVE.on) orRace?.update(dt); // 第 4 批：越野賽（drive.update 之後）
+    if (drv && DRIVE.on) ciTick(dt); // 賽車場的比賽（circuit.src.js）
     if (drv && DRIVE.on) {
       const t = drv.telemetry();
       dvoice?.set({ rpm: t.rpm, throttle: t.load, speed: Math.abs(t.v) });
       tripS?.cabin?.userData.setGauges(t.rpm, t.kmh); // 駕駛座視角看得到轉速表、速度表
-      if (!t.paused) {
+      if (jailed()) { drv.setAction(null); drv.setAction2(null); } // 第 3 批（b3-int）：被抓到了（手煞車停住）：沒有按鈕
+      else if (!t.paused) {
         drv.setAction(homeAct(t) || bayAct(t)); // HUD 的大按鈕：開鐵捲門、停在這裡改車／看車
         const t2 = drv.telemetry(); // 停進改車區（parkAt）、開正停上升降機的時候就不能下車
         drv.setAction2(!t2.paused && !t2.auto && Math.abs(t2.v) < 1 ? OUT_ACT : null); // 停住了：右邊多一顆「下車」
         if (!drv.telemetry().paused) trackStep(t);
         if (drv && !drv.telemetry().paused) orStep(t); // 第 4 批：越野車場（展示台的車、起跑區）
+        if (drv && !drv.telemetry().paused) ciStep(t); // 賽車場：報名處、比賽中沒有「下車」
       }
       if (snooze.track && Math.hypot(t.x - VIL.places.track.zone.x, t.z - VIL.places.track.zone.z) > 30) snooze.track = false;
     }
@@ -27047,9 +32992,11 @@ function driveStep(dt) {
   if (sleep) sleepStep(dt); // 睡覺：躺著的時候走路的停住了（mode off）；醒來（慢慢亮的時候）就可以走了
   if (doorFade) fadeStep(dt); // 走進門口：黑掉 → 換成房子裡面（樓上、外面）→ 亮起來
   if (indoor) { indoor.t += dt; for (const f of indoor.folks) f.C.update(dt, FOLK_POSE); } // 裡面的人：站著、坐著會動一動
+  if (indoor?.kind === 'police') PI.update(dt); else if (indoor?.kind === 'gunshop' && walker) gsStep(dt); // 第 3 批：拘留室的鐵門；槍店的靶、店員、櫃台／靶場的按鈕
   if (walker && walker.mode === 'walk' && DRIVE.on && !indoor) { homeWalk(); oTick(walker.telemetry()); } // 升降機、睡覺的按鈕；鏡頭頭上多高；越野車行展示台的車（走路也看得到、擋人）
   if (DRIVE.on) npcStep(dt); // 路上的車、居民（走路的碰撞要在 walker.update 前面放好）
   walker?.update(dt); // 走路（開車的時候只有上車那一下鏡頭接過去）
+  if (DRIVE.on && walker) polStep(dt); // 第 3 批（b3-int）：警察、槍（開車、走路都更新完以後；槍在 walker 後面）
   bodyWalking(DRIVE.on && (walker?.mode === 'walk' || !!doorFade)); // 門口黑掉的那一下走路停住了：版面照走路的（去哪裡那一排不要跳）
 }
 // 走路的時候 body.walking（garage.css：全螢幕的時候去哪裡那一排放到搖桿上面，不要蓋到搖桿）
@@ -27069,6 +33016,143 @@ function driveFrame(now) {
   GAR.cull(dcam); // 門關著、鏡頭在外面就不畫裡面；鏡頭在裡面不畫外殼
   renderer.render(TR.scene, dcam);
 }
+
+// ---- circuit.src.js ----
+// ==== 賽車場（circuit.js）：直線加速賽道北邊的長賽道，自己開過去，一圈一圈跟對手比（race.src.js 的對手名單搬到這裡）====
+// Nick 2026-10-04「賽道要很長不要只是直線」
+// build-art.mjs／build-app.mjs 把這個檔接在 town.src.js 後面（用得到 VIL、drv、DRIVE、TR、stage、tripS、home、snooze、inBox、setDest、canShop、canBuy、GAR；
+//   race.src.js 的 OPPS、oppLook、unlocked、calm；車庫頁的 GAME、PERF、CARS、DEFAULT_LOOK、save、renderWallet、money、trophyCount；carlod.js 的 LOD_CARS、buildLodCar）
+// 怎麼玩：開進維修區的報名處（慢一點）→ 自己停好 → 選對手（贏過前一個，下一個才會出現：GAME.wins[對手 id]，跟以前的直線加速同一個，舊存檔照算）
+//   → 開始比賽：放到最後一個起跑格、五顆紅燈一顆一顆亮、全部熄掉就出發 → 2 圈（後面三關 3 圈）→ 第 1 名拿獎金、記一次贏（車庫的獎盃）→「再比一次」「開走」
+//   一場三台對手：這一關的對手（最快、排第一格）＋前面兩關的（第一、二關用練習的車手補）；對手開輕量車（carlod.js）
+//   比賽中撞壞了不會變慢（比完才照撞壞的開；凹痕照樣有）；「放棄比賽」、開出賽車場、「直接回車庫」都會收掉
+// 直線加速（race.src.js）還在原來的起跑區：同一群對手、贏了一樣有獎金，但是不會開新的對手（記在 GAME.wins['dr:<id>']，不算獎盃）
+let ciRace = null, ciMenuEl = null, ciBusy = false, ciSel = null, ciCars = [], ciDmgOff = false, ciLv = 0;
+const CI_PACE = [0.55, 0.62, 0.68, 0.73, 0.77, 0.8, 0.83, 0.86, 0.89]; // 每一關對手的功力（過彎抓地：開得最好的你＝1）：越後面越快
+const ciLaps = (i) => (i < 6 ? 2 : 3);
+const CI_FILL = [{ id: 'ci-f1', name: '賽車學校學生', key: 'gc8', hp: 230, look: { paint: '#2a7de1', livery: 'none' } }, { id: 'ci-f2', name: '週末車手', key: 'supra', hp: 330, look: { paint: '#f2c230', livery: 'none' } }];
+function ciField(i) { // 這一關的對手＋前面兩關的（不夠用練習的車手補）
+  const f = [{ o: OPPS[i], pace: CI_PACE[i] }];
+  for (let k = i - 1; k >= 0 && f.length < 3; k--) f.push({ o: OPPS[k], pace: CI_PACE[k] });
+  for (const o of CI_FILL) if (f.length < 3) f.push({ o, pace: 0.5 });
+  return f;
+}
+// 每一格（driveStep：drive.update、越野賽之後）：比賽
+function ciTick(dt) {
+  if (ciRace) {
+    if (ciRace.drive !== drv) { ciEnd(); return; } // 開車的換了（不會發生）
+    ciRace.update(dt);
+    if (ciRace && tripS?.dmg) { drv.setDamage(null); ciDmgOff = true; } // 比賽中撞壞了不變慢
+  }
+  if (ciMenuEl && (!drv || drv.telemetry().paused)) ciMenuClose();
+}
+// 每一格（沒暫停的時候、越野車場之後）：開進報名處、比賽中沒有「下車」
+function ciStep(t) {
+  const P = VIL.places.circuit; if (!P?.zone || !home) return;
+  if (ciMenuEl && !ciRace && !inBox(P.zone, t.x, t.z, 6)) ciMenuClose(); // 選對手的時候車子被開走了（不會發生）：收起來
+  if (ciRace || ciMenuEl) { drv.setAction(null); drv.setAction2(null); return; }
+  if (!home.ci && VIL.circuit?.inside(t.x, t.z) && !t.auto) { home.ci = true; drv.toast('到賽車場了！開進維修區的報名處比賽', 2600); }
+  if (snooze.circuit && !inBox(P.zone, t.x, t.z, 15)) snooze.circuit = false; // 開出報名處 15 公尺才會再問
+  if (snooze.circuit || t.auto || !inBox(P.zone, t.x, t.z)) { home.cslow = home.cwant = false; return; }
+  if (police?.wanted) { if (!home.cwant) { home.cwant = true; drv.toast('警察在追你：先甩掉警察才能報名', 2400); } return; } // 第 3 批（b3-int）：通緝中不能報名（比賽中沒有警察）
+  home.cwant = false;
+  if (Math.abs(t.v) > 12) { if (!home.cslow) { home.cslow = true; drv.toast('開慢一點，停進報名處'); } return; }
+  snooze.circuit = true;
+  const d = drv;
+  drv.setAction(null);
+  drv.parkAt(P.park, () => { if (drv === d && DRIVE.on) ciMenuOpen(); });
+}
+// 選對手（疊在畫面下面）：鎖住的是「？？？」；贏過的打勾
+function ciMenuOpen() {
+  if (!DRIVE.on || !drv || ciRace || ciMenuEl) return;
+  circuitCSS();
+  drv.setInput({ throttle: 0, brake: 1, steer: 0, handbrake: 1 });
+  document.body.classList.add('ciracing', 'cimenu'); drv.toast('', 0); // 「直接回車庫」那一排先收起來（按「離開」才回來）
+  if (ciSel == null || !unlocked(ciSel)) { const i = OPPS.findIndex((o, k) => unlocked(k) && !GAME.wins[o.id]); ciSel = i >= 0 ? i : OPPS.length - 1; }
+  const el = document.createElement('div'); el.className = 'cir-m';
+  const h = document.createElement('h3'); h.textContent = '大便龍賽車場';
+  const p = document.createElement('p'); p.textContent = '選一個對手比賽。第 1 名才有獎金；贏過了，下一個對手才會出現。';
+  const list = document.createElement('div'); list.className = 'list';
+  const row = document.createElement('div'); row.className = 'row';
+  const go = document.createElement('button'), out = document.createElement('button');
+  go.type = out.type = 'button'; go.className = 'a'; out.className = 'b'; go.textContent = '開始比賽'; out.textContent = '離開';
+  OPPS.forEach((o, i) => {
+    const open = unlocked(i), b = document.createElement('button'), t = document.createElement('b'), s2 = document.createElement('span'), s3 = document.createElement('small');
+    b.type = 'button'; b.disabled = !open; b.setAttribute('aria-pressed', String(i === ciSel)); if (GAME.wins[o.id]) b.classList.add('beaten');
+    if (open) { t.textContent = o.name; s2.textContent = `${CARS[o.key].btn[0]} · ${o.hp.toLocaleString('en-US')} 匹`; s3.textContent = `獎金 ${money(o.prize)} · ${ciLaps(i)} 圈`; }
+    else { t.textContent = '？？？'; s2.textContent = unlocked(i - 1) ? `先贏${OPPS[i - 1].name}` : '還沒出現'; }
+    b.append(t, s2, s3);
+    b.addEventListener('click', () => { if (ciBusy) return; ciSel = i; list.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); });
+    list.append(b);
+    if (i === ciSel) requestAnimationFrame(() => b.scrollIntoView?.({ block: 'nearest' }));
+  });
+  go.addEventListener('click', () => ciStart(ciSel));
+  out.addEventListener('click', () => ciMenuClose());
+  row.append(go, out); el.append(h, p, list, row); stage.appendChild(el);
+  ciMenuEl = el; ciMenuEl.goBtn = go;
+}
+function ciMenuClose(keep) {
+  if (ciMenuEl) { ciMenuEl.remove(); ciMenuEl = null; }
+  document.body.classList.remove('cimenu');
+  if (!ciRace) document.body.classList.remove('ciracing');
+  if (!keep && drv && !ciRace) drv.setInput(null);
+}
+// 開始：對手的車（輕量車）載好 → 放到起跑格 → 紅燈
+async function ciStart(i) {
+  if (ciBusy || !DRIVE.on || !drv || ciRace || !unlocked(i)) return;
+  ciBusy = true; ciLv = i;
+  if (ciMenuEl) { ciMenuEl.goBtn.disabled = true; ciMenuEl.goBtn.textContent = '準備中⋯'; }
+  const d = drv, field = ciField(i);
+  let cars;
+  try {
+    cars = await Promise.all(field.map(async (f) => {
+      const k = LOD_CARS[f.o.key] ? f.o.key : LOD_CARS.gc8 ? 'gc8' : Object.keys(LOD_CARS)[0]; // 沒有這台的輕量車（試做頁沒打包 Yaris）：換一台、顏色照舊
+      const sc = await LOD_CARS[k].load(), look = k === f.o.key ? oppLook(f.o) : { ...DEFAULT_LOOK[k], paint: oppLook(f.o).paint || DEFAULT_LOOK[k].paint };
+      return { f, k, lod: buildLodCar(k, sc, look) };
+    }));
+  } catch (e) { console.error(e); cars = null; }
+  ciBusy = false;
+  if (!cars || drv !== d || !DRIVE.on || ciRace) {
+    if (cars) for (const c of cars) c.lod.dispose();
+    if (ciMenuEl) { ciMenuEl.goBtn.disabled = false; ciMenuEl.goBtn.textContent = '開始比賽'; }
+    if (!cars && drv) drv.toast('對手的車沒載好，再按一次', 2000);
+    return;
+  }
+  ciMenuClose(true);
+  ciCars = cars;
+  const o = OPPS[i];
+  d.toast('', 0);
+  ciRace = createCircuitRace({ world: VIL, scene: TR.scene, drive: d, laps: ciLaps(i), hudParent: stage, title: o.name, calm,
+    opps: cars.map((c) => ({ name: c.f.o.name, obj: c.lod, perf: { ...PERF[c.k], hp: c.f.o.hp }, skill: { lat: c.f.pace, brk: c.f.pace + 0.08, react: 0.95 - c.f.pace * 0.75 } })),
+    onFinish: (r) => {
+      if (!r.won) return { lines: [`${o.name}贏了。轉彎前早一點煞車，或是去改車廠裝零件再來！`] };
+      const first = !GAME.wins[o.id];
+      GAME.money += o.prize; GAME.wins[o.id] = (GAME.wins[o.id] || 0) + 1; save(true); renderWallet(); GAR?.setTrophies(trophyCount());
+      const nx = OPPS[i + 1];
+      return { lines: [`獎金 +${money(o.prize)}`, first ? (nx ? `新對手出現了：${nx.name}（獎金 ${money(nx.prize)}）` : '你打敗大魔王了！所有對手都贏過了。') : `你現在有 NT$ ${money(GAME.money)}`] };
+    },
+    onDone: ({ again }) => {
+      ciEnd();
+      if (drv !== d || !DRIVE.on) return;
+      if (again) ciStart(i);
+      else setDest(canShop() ? 'shop' : canBuy() ? 'dealer' : 'garage');
+    },
+    onAbort: (why) => { if (drv === d) d.toast(why === 'left' ? '開出賽車場了：比賽取消' : '比賽取消了', 2000); setTimeout(ciEnd, 0); },
+  });
+  for (const c of cars) c.lod.car.visible = true;
+  polRace(true); // 第 3 批（b3-int）：比賽中警察藏起來、不算犯罪
+  document.body.classList.add('ciracing'); // 比賽中「去哪裡」那一排收起來（circuit.js 的樣式）
+}
+function ciEnd() {
+  document.body.classList.remove('ciracing');
+  if (ciRace) { ciRace.dispose(); ciRace = null; polRace(false); } // 第 3 批（b3-int）：警察回來
+  for (const c of ciCars) { c.lod.car.removeFromParent(); c.lod.dispose(); }
+  ciCars = [];
+  if (ciDmgOff && drv && tripS?.dmg) drv.setDamage(tripS.dmg.perf); // 比完：撞壞的照撞壞的開
+  ciDmgOff = false;
+}
+// 回車庫頁：比賽、選對手收掉
+function ciLeave() { ciMenuClose(true); ciEnd(); }
 
 
 // ---- 全螢幕（Nick 2026-09-28：「可以全螢幕」）----

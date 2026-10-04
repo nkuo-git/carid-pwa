@@ -549,9 +549,49 @@ body.fs.walking #drivebar { bottom: calc(var(--fs-b) + 172px); }
 /* 開車停住了右邊多的「下車」（drive.js 的 .dv-act2，平常在換視角下面）：矮的畫面（手機橫拿）會壓到油門、煞車 →
    放到全螢幕鈕、聲音那一排的左邊（跟換視角同一排） */
 @media (max-height: 560px) { #stage .dv-act2 { top: 142px; right: 166px; } }
+/* 第 3 批（b3-int）：沒全螢幕又矮（手機橫拿）：畫面只剩 260～300 高，換視角（小地圖下面）會壓到油門 → 放到上面全螢幕鈕的左邊（同一排） */
+@media (max-height: 560px) { body.driving:not(.fs):not(.racing) #stage .dv-cam { top: 10px; right: 194px; } }
 /* 速度表（drive.js 的 .dv-spd）：寬度算到外框。App 的 tune.css 全部都是 border-box（58 寬），網頁版沒有 → 多了左右 padding 變 74 寬，
    全螢幕 390 寬的時候壓到右轉鍵和煞車；兩邊一樣寬 */
 #stage .dv-spd { box-sizing: border-box; }
+/* ---- 第 3 批（b3-int）：警察、槍 ----
+   通緝中（body.wanted，town.src.js 跟著 police-ai.js 的 pw-on 開關）：上面多一條星星，小地圖、換視角（drive.js／walk.js）police-ai.js 往下推 46px；
+   全螢幕鈕、聲音（全螢幕的時候在小地圖下面那一排）也一起往下推，不然被推下來的小地圖壓到；
+   矮的畫面（手機橫拿）：畫面很寬，星星在正中間碰不到左上、右上角的東西 → 都不推（不然推下來壓到油門、煞車、直接回車庫） */
+@media (min-height: 561px) { body.wanted .fsbtn, body.fs.wanted #drivebar .minirow .snd { margin-top: 46px; } }
+.fsbtn, body.fs #drivebar .minirow .snd { transition: margin-top .2s; } /* 跟小地圖一起慢慢移（police-ai.js 的 .pw-host 也是 .2s） */
+@media (max-height: 560px) { #stage.pw-on .dv-chip, #stage.pw-on .dv-act, #stage.pw-on .dv-map, #stage.pw-on .dv-cam, #stage.pw-on .wk-chip, #stage.pw-on .wk-act, #stage.pw-on .wk-map, #stage.pw-on .wk-cam, #stage.pw-on .gn-pill { margin-top: 0; } }
+/* 通緝中的提示（走路的 .wk-toast、警察的 .pw-toast）：直的畫面放低一點，不要蓋到往下推的子彈膠囊（右邊 242–288px） */
+@media (min-height: 561px) { body.wanted #stage .wk-toast { top: max(34%, 322px); } body.wanted #stage .pw-toast { top: calc(max(34%, 322px) + 66px); } }
+/* 賽車場的比賽（circuit.js 的 .cir）跟甩尾、警察、槍放在一起（b3-int）：全螢幕往內縮到 safe-area 裡面（跟 .dv 一樣）；
+   矮的畫面（手機橫拿）：名次那一塊收小（名次、圈數、時間還在，下面的排名表收起來），才不會壓到「直接回車庫」、方向鍵；
+   直的、沒全螢幕：紅燈放低一點（名次那一塊、全螢幕鈕的下面） */
+body.fs #stage .cir { inset: var(--fs-t) var(--fs-r) var(--fs-b) var(--fs-l); }
+@media (max-height: 560px) { #stage .cir-p { padding: 6px 10px 7px; } #stage .cir-p b { font-size: 20px; } #stage .cir-p span { font-size: 13px; } #stage .cir-p ol { display: none; } #stage .cir-p button { margin-top: 5px; } }
+@media (min-height: 561px) { body:not(.fs) #stage .cir-l { top: max(36%, 290px); } }
+/* 被抓到、關在拘留室（body.jailed）：去哪裡、直接回車庫那一排先藏起來（全螢幕的時候疊在畫面上，會蓋到「被警察抓到了！」、拘留室的倒數） */
+body.jailed #drivebar { visibility: hidden; }
+body.jailed #drivebar button { pointer-events: none; }
+/* 槍（guns.js 的 .gn）、警察（police-ai.js 的 .pw）：全螢幕的時候跟走路的 .wk 一樣往內縮到 safe-area 裡面 */
+body.fs #stage .gn, body.fs #stage .pw { inset: var(--fs-t) var(--fs-r) var(--fs-b) var(--fs-l); }
+/* 矮的畫面（手機橫拿）：右邊那一欄小地圖、換視角就滿了 → 開槍、瞄準、換彈匣排成一排貼著下面；
+   全螢幕：開槍在右下角，子彈的膠囊放到換視角那一排（聲音的左邊）；沒全螢幕（畫面更矮）：整排放到小地圖左邊，膠囊也在同一排
+   換槍的清單：一排三個（沒全螢幕兩個）、從下面往上排（打開的時候開槍那些按鈕本來就收起來；全螢幕的時候左下角的去哪裡先藏起來）；沒全螢幕的時候在膠囊那一排上面、全螢幕鈕的左邊 */
+@media (max-height: 560px) {
+  #stage .gn-fire { right: 10px; bottom: 8px; }
+  #stage .gn-aim { right: 110px; bottom: 8px; }
+  #stage .gn-rel { right: 186px; bottom: 8px; }
+  body.fs #stage .gn-pill { top: 142px; right: 166px; }
+  body:not(.fs) #stage .gn-fire, body:not(.fs) #stage .wk-btns { right: 142px; bottom: 10px; }
+  body:not(.fs) #stage .gn-aim { right: 240px; bottom: 10px; }
+  body:not(.fs) #stage .gn-rel { right: 314px; bottom: 10px; }
+  body:not(.fs) #stage .gn-pill { top: auto; right: 374px; bottom: 10px; margin-top: 0; }
+  #stage .gn-wheel { top: auto; right: 10px; bottom: 8px; margin-top: 0; width: 516px; flex-direction: row; flex-wrap: wrap-reverse; justify-content: flex-end; max-height: none; overflow: visible; }
+  #stage .gn-wheel button { width: 168px; min-width: 0; gap: 7px; padding: 0 10px 0 8px; font-size: 14px; white-space: nowrap; }
+  #stage .gn-wheel button svg { width: 34px; }
+  body:not(.fs) #stage .gn-wheel { right: 192px; bottom: 66px; width: 342px; }
+  body.fs:has(#stage .gn.wheel) #drivebar { visibility: hidden; }
+}
 
 /* ---- 自訂角色（第 2 批：lookpanel.js）：蓋滿整個畫面；上面 3D 預覽（人在轉盤上轉）、下面選項；寬的畫面（手機橫拿、電腦）預覽在左邊 ----
    車庫頁的「自訂角色」、小房子衣櫃前面的「換衣服」打開；跟車庫頁一樣的深色、主色（App 換了亮色、主色也跟著） */
