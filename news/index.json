@@ -2,6 +2,46 @@
  "v": 1,
  "items": [
   {
+   "id": "2026-10-04-how",
+   "date": "2026-10-04",
+   "kind": "how",
+   "title": "雙離合變速箱：換檔為什麼能這麼快又順？",
+   "lede": "雙離合變速箱用兩組離合器分別處理奇數與偶數檔，在換檔時無縫接軌，兼具手排效率與自排便利。",
+   "sections": [
+    {
+     "h": "它在做什麼",
+     "p": [
+      "雙離合變速箱（DCT）本質上就像把兩台手排變速箱裝進同一個外殼裡，一組離合器負責奇數檔，另一組負責偶數檔。雖然內部機械結構接近手排，但它全靠電腦控制換檔撥叉與離合器，對開車的人來說，操作起來就像一般的自排變速箱一樣簡單。"
+     ]
+    },
+    {
+     "h": "怎麼運作",
+     "p": [
+      "當你掛著奇數檔加速時，負責偶數檔的離合器其實已經提前把下一個檔位掛好在旁邊待命。等電腦決定升檔，工作中的離合器剛分離，待命的離合器就同時精準接合，就像接力賽跑交接棒一樣。",
+      "因為檔位早就預先掛好，換檔時不會中斷輪胎的扭力傳遞，速度比手排快上許多。此外，它不像傳統自排變速箱使用扭矩轉換器，而是採用乾式或泡在油腔冷卻的濕式離合器片來傳遞動力。"
+     ]
+    },
+    {
+     "h": "開起來有什麼差別",
+     "p": [
+      "少了扭矩轉換器的能量耗損，動力傳輸更直接，換檔乾脆俐落，Volkswagen 曾表示它能比傳統自排更省油。不過在起步與低速慢行時，離合器必須長時間處於半聯動狀態，如果遇上塞車走走停停，離合器容易累積過多熱量，特別是散熱較弱的乾式設計，低速也可能出現抖動或頓挫感。"
+     ]
+    }
+   ],
+   "sources": [
+    {
+     "name": "維基百科：Dual-clutch transmission",
+     "url": "https://en.wikipedia.org/wiki/Dual-clutch_transmission"
+    },
+    {
+     "name": "中文維基百科",
+     "url": "https://zh.wikipedia.org/zh-tw/%E9%9B%99%E9%9B%A2%E5%90%88%E8%AE%8A%E9%80%9F%E7%AE%B1"
+    }
+   ],
+   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c4/Dual-clutch_transmission.svg/1280px-Dual-clutch_transmission.svg.png?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "imgCredit": "Doppelkupplungsgetriebe-A.svg : Reworked Version by Xavax derivative work: C-Lov／Public domain，Wikimedia Commons"
+  },
+  {
    "id": "2026-10-03-new",
    "date": "2026-10-03",
    "kind": "new",
@@ -198,5 +238,5 @@
    "imgCredit": "Mr.choppers／CC BY-SA 3.0，Wikimedia Commons"
   }
  ],
- "updated": "2026-10-03T01:12:30.528Z"
+ "updated": "2026-10-04T00:36:23.770Z"
 }
