@@ -460,7 +460,7 @@ body.driving .stage { max-height: 72vh; }
 /* 在改車廠裡：畫面矮一點，停好的車和下面的零件一起看得到 */
 body.driving.shopping .stage { aspect-ratio: 16 / 9; height: auto; max-height: 40vh; }
 .drivebar, .shop { display: flex; flex-direction: column; gap: 12px; }
-.dests { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; } /* 五個目的地：上面三個、下面兩個 */
+.dests { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 8px; } /* 內湖：七個目的地＝上面四個、下面三個（一樣寬）；字小一點才放得下「去快速道路」 */ .dests button { font-size: 14px; padding: 0 2px; } /* 五個目的地：上面三個、下面兩個 */
 .dests button { grid-column: span 2; min-width: 0; height: 48px; border-radius: 12px; border: 1px solid var(--line); background: var(--surf); color: var(--soft); font: 700 15px var(--sans); cursor: pointer; }
 .dests button:nth-child(4):nth-last-child(2), .dests button:nth-child(5):nth-last-child(1) { grid-column: span 3; } /* 五個：下面兩個比較寬；第 4 批多了越野車場＝六個：上下各三個 */
 .dests button[aria-pressed="true"] { border-color: var(--accent); background: var(--sel); color: var(--accent); }
