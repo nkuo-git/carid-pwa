@@ -2,6 +2,51 @@
  "v": 1,
  "items": [
   {
+   "id": "2026-10-07-lux",
+   "date": "2026-10-07",
+   "kind": "lux",
+   "title": "Countach",
+   "lede": "由義大利 Bertone 設計的 Lamborghini Countach，開創了車壇少見的楔形跑車風潮，是 1970 到 1980 年代的傳奇超跑。",
+   "sections": [
+    {
+     "h": "為什麼值得認識",
+     "p": [
+      "這台車是 Ferruccio Lamborghini 為了打造 Miura 後繼車而啟動的計畫，由義大利設計公司 Bertone 的 Marcello Gandini 操刀。它延續了 Miura 的後置中引擎與後輪驅動佈局，但工程團隊大幅改善了 Miura 的高速穩定性、散熱與重量分配等缺點，成為車壇中極具代表性的不妥協跑車。",
+      "車名源自皮埃蒙特語的驚嘆號「Countach」，打破了 Lamborghini 以往用知名公牛來命名的傳統。後來在 2021 年，原廠也以 Sián 為基礎，推出了限量生產的油電混合車型 Countach LPI 800-4。"
+     ]
+    },
+    {
+     "h": "在路上怎麼認出它",
+     "p": [
+      "Countach 擁有極為流線且銳利的楔形車身外觀，車頭低平且流暢，頭燈採用隱藏式設計。車身充滿了梯形設計，包括擋風玻璃、側窗、車門開口、引擎蓋與尾燈都能看到這個幾形元素，而它最具標誌性的特徵之一便是剪刀門設計。"
+     ]
+    }
+   ],
+   "make": "Lamborghini",
+   "specs": [
+    [
+     "生產年份",
+     "1974年至1990年"
+    ],
+    [
+     "佈局",
+     "後置中引擎、後輪驅動"
+    ]
+   ],
+   "sources": [
+    {
+     "name": "維基百科：Lamborghini Countach",
+     "url": "https://en.wikipedia.org/wiki/Lamborghini_Countach"
+    },
+    {
+     "name": "中文維基百科",
+     "url": "https://zh.wikipedia.org/zh-tw/%E6%9E%97%E5%AF%B6%E5%A0%85%E5%B0%BCCountach"
+    }
+   ],
+   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/48/Lamborghini_Countach_-_Flickr_-_exfordy_%282%29_%28cropped-2%29.jpg/1280px-Lamborghini_Countach_-_Flickr_-_exfordy_%282%29_%28cropped-2%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "imgCredit": "Brian Snelson from Hockley, Essex, England／CC BY 2.0，Wikimedia Commons"
+  },
+  {
    "id": "2026-10-04-how",
    "date": "2026-10-04",
    "kind": "how",
@@ -238,5 +283,5 @@
    "imgCredit": "Mr.choppers／CC BY-SA 3.0，Wikimedia Commons"
   }
  ],
- "updated": "2026-10-04T00:36:23.770Z"
+ "updated": "2026-10-07T01:33:41.967Z"
 }
