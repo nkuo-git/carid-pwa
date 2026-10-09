@@ -1,11 +1,11 @@
 // 大便龍的萬能軟體 — Service Worker
 // 只快取 App 本身（殼），辨識一定要連網，API 的請求永遠不進快取。
 
-const CACHE = "carid-v39";
+const CACHE = "carid-v40";
 
 /* 跟 index.html 裡 styles.css / app.js 後面的 ?v= 一樣。
    換版就換網址，任何一層快取（瀏覽器、CDN、這裡）都不可能給到舊檔。 */
-const V = "39";
+const V = "40";
 
 const SHELL = [
   "./",
@@ -67,6 +67,8 @@ self.addEventListener("fetch", (event) => {
   if (url.hostname === "www.google.com" || url.hostname.endsWith("recaptcha.net") || url.pathname.startsWith("/recaptcha/")) return;
   // 查 App 有沒有新版（GitHub API）也一律走網路，拿到快取的舊答案就會晚一輪才知道
   if (url.hostname === "api.github.com") return;
+  // 車訊寄信（Apps Script）：本來就只有 POST 會送過去（上面已經不管），它轉過去的那一頁也一律走網路
+  if (url.hostname === "script.google.com" || url.hostname.endsWith(".googleusercontent.com")) return;
 
   // 車訊：一定先連網拿最新的，沒網路才用上次抓到的
   if (url.origin === self.location.origin && url.pathname.includes("/news/")) {

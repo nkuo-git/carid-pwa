@@ -1172,8 +1172,45 @@ body.sharing { overflow: hidden; }
   font-size: 16px;
   font-weight: 700;
 }
-.sharego svg { width: 18px; height: 18px; }
+.sharego svg { width: 18px; height: 18px; flex: none; }
+.sharego .i-spin { display: none; }
+/* 寄出中：按鈕還是橘色但淡一點、轉圈圈，不能再按 */
+.btnlike.sharego:disabled { opacity: .7; cursor: default; }
+.sharego.busy .i-send { display: none; }
+.sharego.busy .i-spin { display: block; animation: acct-spin 1s linear infinite; }
+.btnlike.sharego:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); filter: brightness(1.08); }
 .sharenote { margin: -6px 0 0; font-size: 12px; line-height: 1.6; color: var(--ink-soft); text-align: center; }
+.sharestep { display: flex; flex-direction: column; gap: 18px; }
+.sharesend { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.sharesend .sharego { align-self: stretch; }
+.sharefail { text-align: center; }
+.sharealt {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 10px;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+/* 寄出了：綠色勾勾 */
+.sharedone:focus { outline: none; }
+.sharedone-top { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 18px 0 6px; text-align: center; }
+.sharecheck {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--ok-bg);
+  color: var(--glow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sharecheck svg { width: 30px; height: 30px; }
+.sharedone-top b { font-size: 20px; font-weight: 700; }
+.sharedone-top p { margin: 0; font-size: 14px; line-height: 1.7; color: var(--ink-mid); overflow-wrap: anywhere; }
 
 /* ---------- 帳號：紀錄頁上面、設定裡、登入頁 ---------- */
 

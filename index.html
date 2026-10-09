@@ -17,7 +17,7 @@
 
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap">
-<link rel="stylesheet" href="./styles.css?v=39">
+<link rel="stylesheet" href="./styles.css?v=40">
 </head>
 <body data-view="car">
 
@@ -279,21 +279,35 @@
         <h2 id="shareTitle">寄給別人看</h2>
         <button type="button" class="icon-btn" id="shareClose" aria-label="關掉"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div>
-      <form class="login-field" id="shareForm" novalidate>
-        <label for="shareTo">寄到哪個信箱</label>
-        <input id="shareTo" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="name@example.com">
-        <p class="login-err" id="shareErr" role="alert" hidden></p>
-        <div class="sharechips" id="shareChips" hidden></div>
-      </form>
-      <div class="sharepre">
-        <span class="spl">信裡會寫</span>
-        <b id="sharePreSubj"></b>
-        <span class="spt" id="sharePreText"></span>
-        <span class="spu" id="sharePreUrl"></span>
-        <span class="spl">（收到的人點連結就能看整篇和照片，不用裝 App）</span>
+      <div class="sharestep" id="shareFormBox">
+        <form class="login-field" id="shareForm" novalidate>
+          <label for="shareTo">寄到哪個信箱</label>
+          <input id="shareTo" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="name@example.com">
+          <p class="login-err" id="shareErr" role="alert" hidden></p>
+          <div class="sharechips" id="shareChips" hidden></div>
+        </form>
+        <div class="sharepre">
+          <span class="spl">信裡會寫</span>
+          <b id="sharePreSubj"></b>
+          <span class="spt" id="sharePreText"></span>
+          <span class="spu" id="sharePreUrl"></span>
+          <span class="spl">（收到的人點連結就能看整篇和照片，不用裝 App）</span>
+        </div>
+        <div class="sharesend">
+          <button type="button" class="btnlike sharego" id="shareGo"><svg class="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l16-8-6 16-2.5-6.5z"/></svg><svg class="i-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 1 0 8.5 8.5"/></svg><span id="shareGoText">寄出</span></button>
+          <p class="login-err sharefail" id="shareFail" role="alert" hidden></p>
+          <a class="sharealt" id="shareAlt" href="mailto:" hidden>改用手機的信箱寄</a>
+        </div>
+        <p class="sharenote">按下去就直接寄出，寄件人是 sl2827.bot@gmail.com</p>
       </div>
-      <a class="btnlike sharego" id="shareGo" href="mailto:"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l16-8-6 16-2.5-6.5z"/></svg>打開信箱寄出</a>
-      <p class="sharenote">會打開手機的信箱，信已經寫好，按「傳送」就寄出去</p>
+      <div class="sharestep sharedone" id="shareDone" tabindex="-1" hidden>
+        <div class="sharedone-top">
+          <span class="sharecheck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
+          <b role="status">寄出了</b>
+          <p><span id="shareDoneSubj"></span><br>已經寄到 <span id="shareDoneTo"></span></p>
+        </div>
+        <button type="button" id="shareOk">好</button>
+      </div>
     </div>
   </div>
 
@@ -314,6 +328,6 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=39"></script>
+<script type="module" src="./app.js?v=40"></script>
 </body>
 </html>

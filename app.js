@@ -168,7 +168,7 @@ $("prefsBtn").addEventListener("click", () => setPrefs(prefsSheetEl.hidden));
 
 /* 網頁內容的版號，跟 sw.js 的 CACHE、index.html 和 mc.html 裡的 ?v= 一起加
    （account.js 也用這個版號載入） */
-const WEB_BUILD = 39;
+const WEB_BUILD = 40;
 
 function appBuild() {
   const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
@@ -1784,17 +1784,33 @@ async function paintArticle(id) {
 }
 
 /* ---------- 寄給別人看 ----------
-   用 mailto: 打開手機的信箱，收件人、主旨、內容都先寫好。App 的外殼會把站外的網址
-   （mailto: 也算）丟給系統開，所以舊版 App 也能用。信裡放的是網站上這篇的連結，
-   收到的人不用裝 App 就看得到。 */
+   按「寄出」就直接寄：把 {to, id} 送到 sl2827.bot@gmail.com 的 Google Apps Script
+   （repo 裡 scripts/mailer/Code.gs），那邊自己去網站拿這篇車訊組成信寄出，所以只寄得出車訊。
+   用 text/plain 送，瀏覽器不會先問一次（CORS preflight）；Apps Script 會轉到
+   script.googleusercontent.com 回 JSON，fetch 自己會跟過去。
+   沒寄出去（網路不好）的時候，還可以用舊的方法：mailto: 打開手機的信箱，收件人、主旨、內容都先寫好
+   （App 的外殼會把站外的網址丟給系統開）。信裡放的是網站上這篇的連結，收到的人不用裝 App 就看得到。 */
 const SITE_URL = "https://nkuo-git.github.io/carid-pwa/";
+const MAILER = "https://script.google.com/macros/s/AKfycbztPRvlka4ELYrL6uR7qJKjJ9HSchLjA6DDUcps9ItCx2xjnBi0EI1HdHX-lpVe7K4Y/exec";
+const MAIL_WAIT = 20000;                // 等寄信的回答最多 20 秒
 const SHARE_RECENT = "carid.shareTo";   // 寄過的信箱，新的在前面
 const MAIL_MAX = 1500;                  // 信的內容太長，有些信箱 App 會打不開
 const shareWrap = $("shareWrap");
 const shareTo = $("shareTo");
 const shareErr = $("shareErr");
 const shareGo = $("shareGo");
+const shareFail = $("shareFail");
+const shareAlt = $("shareAlt");
 let shareArt = null;                    // 現在這頁的文章
+let shareSeq = 0;                       // 每打開一次就換號，舊的寄信回答回來時就不動畫面
+let sending = false;
+// Apps Script 回的 err → 給 Nick 看的話；其他（網路、逾時、server、看不懂的）都是 null → 「沒寄出去」＋改用手機的信箱
+const SEND_ERR = {
+  "bad-to": "這個信箱好像打錯了",
+  "too-many": "寄給這個信箱太多次了，等一下再寄",
+  "quota": "今天寄太多了，明天再寄",
+  "no-article": "這篇找不到了，沒辦法寄",
+};
 
 function setShareArt(a) {
   shareArt = a;
@@ -1847,9 +1863,27 @@ function shareError(msg) {
   shareTo.setAttribute("aria-invalid", msg ? "true" : "false");
 }
 
+function setSending(on) {
+  sending = on;
+  shareGo.disabled = on;
+  shareGo.classList.toggle("busy", on);
+  shareGo.setAttribute("aria-busy", on ? "true" : "false");
+  $("shareGoText").textContent = on ? "寄出中…" : "寄出";
+  shareTo.readOnly = on;
+}
+function sendFail(msg, alt) {
+  showErr(shareFail, msg);
+  shareAlt.hidden = !alt;
+}
+
 function openShare() {
   if (!shareArt || !shareWrap.hidden) return;
   const a = shareArt;
+  shareSeq++;
+  setSending(false);
+  sendFail("", false);
+  $("shareFormBox").hidden = false;
+  $("shareDone").hidden = true;
   shareTo.value = recentTo()[0] || "";   // 先填上次寄的人，換人就點下面的或自己打
   shareError("");
   paintChips();
@@ -1873,40 +1907,92 @@ function closeShare(fromHistory) {
 $("shareTop").addEventListener("click", openShare);
 $("shareBottom").addEventListener("click", openShare);
 $("shareClose").addEventListener("click", () => closeShare());
+$("shareOk").addEventListener("click", () => closeShare());
 $("shareDim").addEventListener("click", () => closeShare());
 window.addEventListener("popstate", () => { if (!history.state?.share) closeShare(true); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeShare(); });
 
 $("shareChips").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-to]");
-  if (!b) return;
+  if (!b || sending) return;
   shareTo.value = b.dataset.to;
+  sendFail("", false);
   shareError("");
   paintChips();
 });
 shareTo.addEventListener("input", () => {
   shareError("");
+  sendFail("", false);
   $("shareChips").querySelectorAll("button").forEach((b) =>
     b.classList.toggle("on", b.dataset.to.toLowerCase() === shareTo.value.trim().toLowerCase()));
 });
 
-// 「打開信箱寄出」本身就是 mailto: 的連結，按下去才把網址換成現在填的信箱
-shareGo.addEventListener("click", (e) => {
+// 送去 Apps Script 寄；回 "" 是寄出了，不然是 err（網路不好、逾時是 "net"）
+async function postMail(to, id) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), MAIL_WAIT);
+  try {
+    const res = await fetch(MAILER, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ to, id }),
+      credentials: "omit",
+      cache: "no-store",
+      signal: ctl.signal,
+    });
+    if (!res.ok) return "server";
+    const j = await res.json();
+    return j && j.ok === true ? "" : String((j && j.err) || "server");
+  } catch {
+    return "net";
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function checkTo() {
   const to = shareTo.value.trim();
-  if (!shareArt || !EMAIL_RE.test(to)) {
-    e.preventDefault();
-    shareError(to ? "這個信箱看起來不太對，再檢查一下。" : "先填要寄到哪個信箱。");
-    shareTo.focus();
+  if (shareArt && EMAIL_RE.test(to)) return to;
+  shareError(to ? "這個信箱看起來不太對，再檢查一下。" : "先填要寄到哪個信箱。");
+  shareTo.focus();
+  return "";
+}
+
+shareGo.addEventListener("click", async () => {
+  if (sending) return;                   // 連按兩下只寄一次
+  sendFail("", false);
+  const to = checkTo();
+  if (!to) return;
+  const a = shareArt, seq = shareSeq;
+  setSending(true);
+  const err = await postMail(to, a.id);
+  if (!err) saveTo(to);                  // 寄出了才記到「寄過的」
+  if (seq !== shareSeq || shareWrap.hidden) return;   // 等的時候關掉了：畫面不用動
+  setSending(false);
+  if (!err) {
+    $("shareDoneSubj").textContent = mailSubject(a);
+    $("shareDoneTo").textContent = to;
+    $("shareFormBox").hidden = true;
+    $("shareDone").hidden = false;
+    $("shareDone").focus();   // 焦點移到這一塊（按鈕不會出現框框），鍵盤再按 Tab 就到「好」
     return;
   }
-  shareGo.href = mailtoUrl(shareArt, to);
-  saveTo(to);
-  paintChips();
+  if (err === "bad-to") shareTo.setAttribute("aria-invalid", "true");
+  const msg = SEND_ERR[err];
+  sendFail(msg || "沒寄出去，可能是網路不好", !msg);
 });
 // 在輸入框按 Enter 也一樣
 $("shareForm").addEventListener("submit", (e) => {
   e.preventDefault();
   shareGo.click();
+});
+// 沒寄出去的時候：改用手機的信箱（舊的 mailto: 方法），按下去才把網址換成現在填的信箱
+shareAlt.addEventListener("click", (e) => {
+  const to = checkTo();
+  if (!to) { e.preventDefault(); return; }
+  shareAlt.href = mailtoUrl(shareArt, to);
+  saveTo(to);
+  paintChips();
 });
 
 /* ================= 改車：搬家 =================
