@@ -168,7 +168,7 @@ $("prefsBtn").addEventListener("click", () => setPrefs(prefsSheetEl.hidden));
 
 /* 網頁內容的版號，跟 sw.js 的 CACHE、index.html、mc.html 和 tune.html 裡的 ?v= 一起加
    （account.js 也用這個版號載入） */
-const WEB_BUILD = 37;
+const WEB_BUILD = 38;
 
 function appBuild() {
   const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
@@ -910,6 +910,7 @@ function route() {
   else if (view === "login") paintLogin();
   else if (view === "news") paintNews();
   else if (view === "article") paintArticle(id);
+  if (view !== "article") setShareArt(null);
 }
 window.addEventListener("hashchange", route);
 
@@ -1738,13 +1739,16 @@ function safeUrl(u) {
 
 async function paintArticle(id) {
   const box = $("articleBody");
+  setShareArt(null);
   let items = newsData;
   if (!items) {
     box.innerHTML = '<p class="empty">讀取中…</p>';
     try { items = await loadNews(); } catch { box.innerHTML = '<p class="empty">連不上網路，文章讀不到。</p>'; return; }
   }
   const a = items.find((x) => x.id === id);
-  if (!a) { location.hash = "#news"; return; }
+  // 別人寄來的連結可能是很久以前的一篇，已經不在清單裡了
+  if (!a) { box.innerHTML = '<p class="empty">這篇找不到了，可能是比較舊的車訊。<br><a href="#news">看最新的車訊</a></p>'; return; }
+  setShareArt(a);
 
   let html = "";
   if (safeUrl(a.img)) {
@@ -1775,6 +1779,132 @@ async function paintArticle(id) {
   }
   box.innerHTML = html;
 }
+
+/* ---------- 寄給別人看 ----------
+   用 mailto: 打開手機的信箱，收件人、主旨、內容都先寫好。App 的外殼會把站外的網址
+   （mailto: 也算）丟給系統開，所以舊版 App 也能用。信裡放的是網站上這篇的連結，
+   收到的人不用裝 App 就看得到。 */
+const SITE_URL = "https://nkuo-git.github.io/carid-pwa/";
+const SHARE_RECENT = "carid.shareTo";   // 寄過的信箱，新的在前面
+const MAIL_MAX = 1500;                  // 信的內容太長，有些信箱 App 會打不開
+const shareWrap = $("shareWrap");
+const shareTo = $("shareTo");
+const shareErr = $("shareErr");
+const shareGo = $("shareGo");
+let shareArt = null;                    // 現在這頁的文章
+
+function setShareArt(a) {
+  shareArt = a;
+  $("shareTop").hidden = !a;
+  $("shareBottom").hidden = !a;
+  if (!a) closeShare(true);
+}
+
+const artLink = (a) => SITE_URL + "#news/" + encodeURIComponent(a.id);
+function mailSubject(a) {
+  const make = a.make && !a.title.includes(a.make) ? a.make + " " : "";
+  return "【車訊】" + make + a.title;
+}
+function mailBody(a) {
+  const specs = Array.isArray(a.specs) ? a.specs.filter((r) => Array.isArray(r) && r[0] && r[1]) : [];
+  let head = [a.lede, specs.map(([k, v]) => k + "：" + v).join("\n")].filter(Boolean).join("\n\n");
+  const tail = "看整篇（有照片）：\n" + artLink(a) + "\n\n— 從「大便龍的萬能軟體」分享";
+  // 太長就剪前面，連結一定要留著
+  const room = MAIL_MAX - tail.length - 2;
+  if (head.length > room) head = head.slice(0, room - 1).trimEnd() + "⋯";
+  return (head ? head + "\n\n" : "") + tail;
+}
+function mailtoUrl(a, to) {
+  return "mailto:" + encodeURIComponent(to).replace(/%40/g, "@") +
+    "?subject=" + encodeURIComponent(mailSubject(a)) +
+    "&body=" + encodeURIComponent(mailBody(a));
+}
+
+function recentTo() {
+  try {
+    const v = JSON.parse(load(SHARE_RECENT) || "[]");
+    return Array.isArray(v) ? v.filter((x) => typeof x === "string" && EMAIL_RE.test(x)).slice(0, 5) : [];
+  } catch { return []; }
+}
+function saveTo(addr) {
+  const low = addr.toLowerCase();
+  store(SHARE_RECENT, JSON.stringify([addr, ...recentTo().filter((x) => x.toLowerCase() !== low)].slice(0, 5)));
+}
+
+function paintChips() {
+  const list = recentTo();
+  const box = $("shareChips");
+  box.hidden = !list.length;
+  const cur = shareTo.value.trim().toLowerCase();
+  box.innerHTML = "<span>寄過的：</span>" + list.map((x) =>
+    `<button type="button" data-to="${esc(x)}"${x.toLowerCase() === cur ? ' class="on"' : ""}>${esc(x)}</button>`).join("");
+}
+function shareError(msg) {
+  showErr(shareErr, msg);
+  shareTo.setAttribute("aria-invalid", msg ? "true" : "false");
+}
+
+function openShare() {
+  if (!shareArt || !shareWrap.hidden) return;
+  const a = shareArt;
+  shareTo.value = recentTo()[0] || "";   // 先填上次寄的人，換人就點下面的或自己打
+  shareError("");
+  paintChips();
+  $("sharePreSubj").textContent = mailSubject(a);
+  const lede = String(a.lede || "");
+  $("sharePreText").textContent = lede.length > 40 ? lede.slice(0, 38) + "⋯" : lede;
+  $("sharePreText").hidden = !lede;
+  $("sharePreUrl").textContent = artLink(a).replace(/^https:\/\//, "");
+  shareWrap.hidden = false;
+  document.body.classList.add("sharing");
+  // 多記一筆歷史：按手機的返回鍵時先把這張關掉，不會直接離開文章
+  history.pushState({ share: true }, "", location.href);
+}
+function closeShare(fromHistory) {
+  if (shareWrap.hidden) return;
+  shareWrap.hidden = true;
+  document.body.classList.remove("sharing");
+  if (!fromHistory && history.state?.share) history.back();
+}
+
+$("shareTop").addEventListener("click", openShare);
+$("shareBottom").addEventListener("click", openShare);
+$("shareClose").addEventListener("click", () => closeShare());
+$("shareDim").addEventListener("click", () => closeShare());
+window.addEventListener("popstate", () => { if (!history.state?.share) closeShare(true); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeShare(); });
+
+$("shareChips").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-to]");
+  if (!b) return;
+  shareTo.value = b.dataset.to;
+  shareError("");
+  paintChips();
+});
+shareTo.addEventListener("input", () => {
+  shareError("");
+  $("shareChips").querySelectorAll("button").forEach((b) =>
+    b.classList.toggle("on", b.dataset.to.toLowerCase() === shareTo.value.trim().toLowerCase()));
+});
+
+// 「打開信箱寄出」本身就是 mailto: 的連結，按下去才把網址換成現在填的信箱
+shareGo.addEventListener("click", (e) => {
+  const to = shareTo.value.trim();
+  if (!shareArt || !EMAIL_RE.test(to)) {
+    e.preventDefault();
+    shareError(to ? "這個信箱看起來不太對，再檢查一下。" : "先填要寄到哪個信箱。");
+    shareTo.focus();
+    return;
+  }
+  shareGo.href = mailtoUrl(shareArt, to);
+  saveTo(to);
+  paintChips();
+});
+// 在輸入框按 Enter 也一樣
+$("shareForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  shareGo.click();
+});
 
 /* ================= 啟動 ================= */
 

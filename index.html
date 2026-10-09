@@ -21,7 +21,7 @@
 /* 從麥塊按「汽車」回來（網址沒有 #）而上次看的是改車：直接回改車那頁 */
 try { if (!location.hash && sessionStorage.getItem("carid.tab") === "tune") location.replace("./tune.html"); } catch (e) { /* 不給用就算了 */ }
 </script>
-<link rel="stylesheet" href="./styles.css?v=37">
+<link rel="stylesheet" href="./styles.css?v=38">
 </head>
 <body data-view="car">
 
@@ -231,13 +231,44 @@ try { if (!location.hash && sessionStorage.getItem("carid.tab") === "tune") loca
     <header class="backhead">
       <a class="icon-btn" href="#news" aria-label="回車訊"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></a>
       <span>車訊</span>
+      <button type="button" class="sharebtn" id="shareTop" aria-label="分享這篇" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5.5" width="17" height="13" rx="2.2"/><path d="M4 7l8 6 8-6"/></svg>分享</button>
     </header>
     <article id="articleBody"></article>
-    <div class="btnrow">
-      <a class="btnlike big" href="#news">回車訊</a>
-      <a class="btnlike big primary" href="#car">路上看到就拍</a>
+    <div class="afoot">
+      <button type="button" class="sharewide" id="shareBottom" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5.5" width="17" height="13" rx="2.2"/><path d="M4 7l8 6 8-6"/></svg>寄給別人看</button>
+      <div class="btnrow">
+        <a class="btnlike big" href="#news">回車訊</a>
+        <a class="btnlike big primary" href="#car">路上看到就拍</a>
+      </div>
     </div>
   </section>
+
+  <!-- 車訊文章：寄給別人看（從下面滑上來的一張） -->
+  <div class="sharewrap" id="shareWrap" hidden>
+    <div class="sharedim" id="shareDim"></div>
+    <div class="sharesheet" role="dialog" aria-modal="true" aria-labelledby="shareTitle">
+      <div class="grab" aria-hidden="true"></div>
+      <div class="sharehead">
+        <h2 id="shareTitle">寄給別人看</h2>
+        <button type="button" class="icon-btn" id="shareClose" aria-label="關掉"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <form class="login-field" id="shareForm" novalidate>
+        <label for="shareTo">寄到哪個信箱</label>
+        <input id="shareTo" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="name@example.com">
+        <p class="login-err" id="shareErr" role="alert" hidden></p>
+        <div class="sharechips" id="shareChips" hidden></div>
+      </form>
+      <div class="sharepre">
+        <span class="spl">信裡會寫</span>
+        <b id="sharePreSubj"></b>
+        <span class="spt" id="sharePreText"></span>
+        <span class="spu" id="sharePreUrl"></span>
+        <span class="spl">（收到的人點連結就能看整篇和照片，不用裝 App）</span>
+      </div>
+      <a class="btnlike sharego" id="shareGo" href="mailto:"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l16-8-6 16-2.5-6.5z"/></svg>打開信箱寄出</a>
+      <p class="sharenote">會打開手機的信箱，信已經寫好，按「傳送」就寄出去</p>
+    </div>
+  </div>
 
   <div class="dock">
   <div class="actionbar car-only" id="actionbar">
@@ -256,6 +287,6 @@ try { if (!location.hash && sessionStorage.getItem("carid.tab") === "tune") loca
   </div>
 </div>
 
-<script type="module" src="./app.js?v=37"></script>
+<script type="module" src="./app.js?v=38"></script>
 </body>
 </html>

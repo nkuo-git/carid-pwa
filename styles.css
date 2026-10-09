@@ -1079,6 +1079,102 @@ button.danger { color: var(--danger); border-color: color-mix(in srgb, var(--dan
 .asrc { margin: 22px 0 0; padding-top: 14px; border-top: 1px solid var(--line); font-size: 12px; line-height: 1.8; color: var(--ink-soft); }
 .asrc a { overflow-wrap: anywhere; }
 
+/* ---------- 車訊文章：寄給別人看 ---------- */
+
+/* 標題列右邊的「分享」和下面整排的「寄給別人看」：橘色外框 */
+.sharebtn,
+.sharewide {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-weight: 700;
+}
+.sharebtn { margin-left: auto; height: 40px; padding: 0 14px; border-radius: 12px; font-size: 14px; }
+.sharewide { width: 100%; height: 50px; border-radius: 14px; font-size: 15px; gap: 8px; }
+.sharebtn:hover:not(:disabled),
+.sharewide:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-wash); }
+.sharebtn svg, .sharewide svg { width: 18px; height: 18px; flex: none; }
+.afoot { display: flex; flex-direction: column; gap: 10px; margin: 24px 0 14px; }
+.afoot .btnrow { margin: 0; }
+
+/* 從下面滑上來的一張，後面的頁面變暗 */
+body.sharing { overflow: hidden; }
+.sharewrap { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; justify-content: flex-end; }
+.sharedim { position: absolute; inset: 0; background: rgba(0, 0, 0, .55); }
+.sharesheet {
+  position: relative;
+  width: 100%;
+  max-width: 460px;
+  max-height: 100%;
+  margin: 0 auto;
+  overflow-y: auto;
+  padding: 10px 20px calc(28px + env(safe-area-inset-bottom, 0px));
+  background: var(--surface);
+  border-top: 1px solid var(--line-mid);
+  border-radius: 22px 22px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  animation: sheetUp .2s ease-out;
+}
+@keyframes sheetUp { from { transform: translateY(40px); opacity: 0; } }
+.sharesheet .grab { align-self: center; width: 40px; height: 4px; border-radius: 2px; background: var(--line-strong); }
+.sharehead { display: flex; align-items: center; justify-content: space-between; }
+.sharehead h2 { margin: 0; font-size: 20px; font-weight: 700; }
+.sharehead .icon-btn { margin-right: -12px; }
+.sharehead .icon-btn svg { width: 20px; height: 20px; }
+.sharesheet .login-field input { background: var(--ground); }
+.sharesheet .login-field input:focus { border-color: var(--accent); }
+.sharesheet .login-field input[aria-invalid="true"] { border-color: var(--danger); }
+.sharechips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12px; color: var(--ink-soft); }
+.sharechips button {
+  height: 34px;
+  max-width: 100%;
+  padding: 0 12px;
+  border-radius: 17px;
+  border-color: var(--line-strong);
+  color: var(--ink-mid);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sharechips button.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  color: color-mix(in srgb, var(--accent) 70%, var(--ink));
+}
+.sharepre {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--ground);
+  border: 1px solid var(--line);
+}
+.sharepre b { font-size: 15px; font-weight: 700; line-height: 1.45; }
+.sharepre .spl { font-size: 12px; color: var(--ink-soft); }
+.sharepre .spt { font-size: 13px; line-height: 1.7; color: var(--ink-mid); }
+.sharepre .spu { font-size: 12px; color: var(--accent); word-break: break-all; }
+.btnlike.sharego {
+  height: 54px;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 15px;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 16px;
+  font-weight: 700;
+}
+.sharego svg { width: 18px; height: 18px; }
+.sharenote { margin: -6px 0 0; font-size: 12px; line-height: 1.6; color: var(--ink-soft); text-align: center; }
+
 /* ---------- 帳號：紀錄頁上面、設定裡、登入頁 ---------- */
 
 /* 還沒登入：紀錄頁最上面一張卡片 */
