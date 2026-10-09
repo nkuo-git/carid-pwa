@@ -168,7 +168,7 @@ $("prefsBtn").addEventListener("click", () => setPrefs(prefsSheetEl.hidden));
 
 /* 網頁內容的版號，跟 sw.js 的 CACHE、index.html 和 mc.html 裡的 ?v= 一起加
    （account.js 也用這個版號載入） */
-const WEB_BUILD = 40;
+const WEB_BUILD = 41;
 
 function appBuild() {
   const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
@@ -1671,6 +1671,59 @@ function longDate(key) {
 }
 const ktag = (k) => `<span class="ktag ${esc(k)}">${esc(KINDS[k]?.tag || "車訊")}</span>`;
 
+/* ---------- 置頂 ----------
+   置頂的文章存在這支手機（localStorage），連整篇一起存一份：
+   車訊只留最新 60 篇，比較舊的掉出清單以後，置頂的還打得開。新置頂的排前面。 */
+const NEWS_PINS = "carid.newsPins";
+const NEWS_TAB = "carid.newsTab";   // 車訊下面的分頁：pin（置頂）／old（之前的）
+const PIN_MAX = 100;
+const PIN_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3.5h6l-1 5.5 3.5 3.5v1.5h-11V12.5L10 9z"/><path d="M12 14v6.5"/></svg>';
+
+function loadPins() {
+  try {
+    const v = JSON.parse(load(NEWS_PINS) || "[]");
+    return Array.isArray(v) ? v.filter((a) => a && typeof a.id === "string" && typeof a.title === "string") : [];
+  } catch { return []; }
+}
+function savePins(list) {
+  store(NEWS_PINS, list.length ? JSON.stringify(list.slice(0, PIN_MAX)) : null);
+}
+const isPinned = (id) => loadPins().some((a) => a.id === id);
+
+function nrow(it, mark) {
+  return `<a class="nrow" href="#news/${encodeURIComponent(it.id)}"><span class="ninfo">` +
+    `<span class="kline">${ktag(it.kind)}<span class="kdate">${shortDate(it.date)}</span>` +
+    (mark ? `<span class="pinmark" aria-label="已置頂">${PIN_SVG}</span>` : "") + "</span>" +
+    `<span class="nt">${esc(it.title)}</span></span>${CHEV}</a>`;
+}
+
+/* 「最新一篇」下面的兩個分頁：置頂（左）／之前的（右） */
+function newsTabsHtml(rest, pins) {
+  let tab = load(NEWS_TAB);
+  if (tab !== "pin" && tab !== "old") tab = pins.length ? "pin" : "old";
+  const pinIds = new Set(pins.map((a) => a.id));
+  const btn = (k, label, extra) =>
+    `<button type="button" class="ntab" role="tab" data-tab="${k}" aria-selected="${tab === k}">${extra || ""}${label}` +
+    (k === "pin" && pins.length ? `<span class="ncount">${pins.length}</span>` : "") + "</button>";
+  let html = '<div class="ntabs" role="tablist" id="newsTabs">' +
+    btn("pin", "置頂", `<span class="pinic">${PIN_SVG}</span>`) + btn("old", "之前的") + "</div>";
+  html += `<div class="npane" data-pane="pin"${tab === "pin" ? "" : " hidden"}>` +
+    pins.map((a) => nrow(a, false)).join("") +
+    `<p class="nhint">${pins.length ? "在文章上面按「置頂」，就會放到這裡。" : "還沒有置頂的文章。<br>打開一篇，按上面的「置頂」，就會放到這裡。"}</p></div>`;
+  html += `<div class="npane" data-pane="old"${tab === "old" ? "" : " hidden"}>` +
+    (rest.length ? rest.map((it) => nrow(it, pinIds.has(it.id))).join("") : '<p class="nhint">還沒有更早的車訊。</p>') + "</div>";
+  return html;
+}
+
+$("newsBody").addEventListener("click", (e) => {
+  const t = e.target.closest(".ntab");
+  if (!t) return;
+  const k = t.dataset.tab;
+  store(NEWS_TAB, k);
+  for (const b of document.querySelectorAll("#newsTabs .ntab")) b.setAttribute("aria-selected", String(b.dataset.tab === k));
+  for (const pane of document.querySelectorAll("#newsBody .npane")) pane.hidden = pane.dataset.pane !== k;
+});
+
 /* 有沒看過的車訊時，「車訊」旁邊和底部的「汽車」各亮一個小點 */
 function paintNewsDots(on) {
   $("segNewsDot").hidden = !on;
@@ -1707,8 +1760,11 @@ async function paintNews() {
       `<span class="wn">${KINDS[k].short}</span><span class="ws">${state}</span></${tagName}>`;
   }).join("");
 
+  const pins = loadPins();
   if (!items.length) {
-    if (newsData) body.innerHTML = '<p class="empty">第一篇還在路上。每週三、六、日早上六點多會出刊。</p>';
+    // 沒網路（或還沒出刊）的時候，置頂的還是看得到
+    if (pins.length) body.innerHTML = (newsData ? "" : '<p class="empty">連不上網路，車訊讀不到。</p>') + newsTabsHtml([], pins);
+    else if (newsData) body.innerHTML = '<p class="empty">第一篇還在路上。每週三、六、日早上六點多會出刊。</p>';
     return;
   }
   store(NEWS_SEEN, items[0].id);
@@ -1726,13 +1782,7 @@ async function paintNews() {
     `<span class="ftitle">${esc(first.title)}</span>` +
     (first.lede ? `<span class="flede">${esc(first.lede)}</span>` : "") +
     "</span></a>";
-  if (rest.length) {
-    html += '<div class="nlabel">之前的</div>';
-    html += rest.map((it) =>
-      `<a class="nrow" href="#news/${encodeURIComponent(it.id)}"><span class="ninfo">` +
-      `<span class="kline">${ktag(it.kind)}<span class="kdate">${shortDate(it.date)}</span></span>` +
-      `<span class="nt">${esc(it.title)}</span></span>${CHEV}</a>`).join("");
-  }
+  html += newsTabsHtml(rest, pins);
   body.innerHTML = html;
 }
 
@@ -1743,15 +1793,22 @@ function safeUrl(u) {
 async function paintArticle(id) {
   const box = $("articleBody");
   setShareArt(null);
+  setPinArt(null);
   let items = newsData;
   if (!items) {
     box.innerHTML = '<p class="empty">讀取中…</p>';
-    try { items = await loadNews(); } catch { box.innerHTML = '<p class="empty">連不上網路，文章讀不到。</p>'; return; }
+    try { items = await loadNews(); } catch { items = null; }
   }
-  const a = items.find((x) => x.id === id);
+  // 置頂的有存一份：沒網路、或已經掉出清單的舊文章也打得開
+  const pinned = loadPins().find((x) => x.id === id);
+  const a = (items && items.find((x) => x.id === id)) || pinned;
+  if (!a && !items) { box.innerHTML = '<p class="empty">連不上網路，文章讀不到。</p>'; return; }
   // 別人寄來的連結可能是很久以前的一篇，已經不在清單裡了
   if (!a) { box.innerHTML = '<p class="empty">這篇找不到了，可能是比較舊的車訊。<br><a href="#news">看最新的車訊</a></p>'; return; }
   setShareArt(a);
+  setPinArt(a);
+  // 清單裡的是最新的內容，順便更新存的那份
+  if (pinned && a !== pinned) savePins(loadPins().map((x) => (x.id === a.id ? a : x)));
 
   let html = "";
   if (safeUrl(a.img)) {
@@ -1782,6 +1839,47 @@ async function paintArticle(id) {
   }
   box.innerHTML = html;
 }
+
+/* 文章上面的「置頂」：按一下置頂（變「已置頂」），再按一下拿掉 */
+let pinArt = null;
+let pinToastTimer = 0;
+function paintPinBtn() {
+  const btn = $("pinTop");
+  btn.hidden = !pinArt;
+  if (!pinArt) return;
+  const on = isPinned(pinArt.id);
+  btn.setAttribute("aria-pressed", String(on));
+  btn.querySelector("span").textContent = on ? "已置頂" : "置頂";
+  btn.setAttribute("aria-label", on ? "已置頂，按一下拿掉" : "置頂這篇");
+}
+function setPinArt(a) {
+  pinArt = a;
+  paintPinBtn();
+  if (!a) hidePinToast();
+}
+function hidePinToast() {
+  clearTimeout(pinToastTimer);
+  $("pinToast").hidden = true;
+}
+function showPinToast(on) {
+  $("pinToastText").textContent = on ? "置頂了！在車訊的「置頂」分頁看得到。" : "拿掉置頂了。";
+  $("pinToastGo").hidden = !on;
+  $("pinToast").hidden = false;
+  clearTimeout(pinToastTimer);
+  pinToastTimer = setTimeout(hidePinToast, 3500);
+}
+$("pinTop").addEventListener("click", () => {
+  if (!pinArt) return;
+  const list = loadPins();
+  const on = !list.some((x) => x.id === pinArt.id);
+  savePins(on ? [pinArt, ...list] : list.filter((x) => x.id !== pinArt.id));
+  paintPinBtn();
+  showPinToast(on);
+});
+$("pinToastGo").addEventListener("click", () => {
+  store(NEWS_TAB, "pin");
+  hidePinToast();
+});
 
 /* ---------- 寄給別人看 ----------
    按「寄出」就直接寄：把 {to, id} 送到 sl2827.bot@gmail.com 的 Google Apps Script

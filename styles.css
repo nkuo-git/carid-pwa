@@ -1474,3 +1474,107 @@ button.linkish:hover:not(:disabled) { background: transparent; text-decoration: 
   gap: 8px;
 }
 .mv-btn svg { width: 19px; height: 19px; }
+
+/* ---------- 車訊：置頂 ---------- */
+
+/* 文章標題列：「置頂」在「分享」左邊；置頂了變成實心橘色「已置頂」 */
+.pinbtn {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 700;
+}
+.pinbtn svg { width: 18px; height: 18px; flex: none; }
+.pinbtn svg path:first-child { fill: none; }
+.pinbtn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.pinbtn[aria-pressed="true"] svg path:first-child { fill: currentColor; }
+.pinbtn:not([hidden]) + .sharebtn { margin-left: 8px; }
+
+/* 按了以後下面跳一張小卡 */
+.pintoast {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  z-index: 40;
+  max-width: 520px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.pintoast .pinic { display: flex; color: var(--accent); }
+.pintoast .pinic svg { width: 18px; height: 18px; }
+.pintoast .pinic svg path:first-child { fill: currentColor; }
+.pintoast #pinToastText { flex: 1; min-width: 0; }
+.pintoast a { font-weight: 700; color: var(--accent); text-decoration: none; white-space: nowrap; }
+
+/* 「最新一篇」下面的分頁：置頂／之前的 */
+.ntabs {
+  display: flex;
+  gap: 4px;
+  margin: 22px 0 10px;
+  padding: 4px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.ntab {
+  flex: 1 1 0;
+  height: 40px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 15px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.ntab[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.ntab .pinic { display: flex; color: var(--accent); }
+.ntab[aria-selected="true"] .pinic { color: inherit; }
+.ntab .pinic svg { width: 14px; height: 14px; }
+.ncount {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border-radius: 10px;
+  background: var(--line-mid);
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ntab[aria-selected="true"] .ncount { background: var(--accent-ink); color: var(--accent); }
+.pinmark { display: flex; color: var(--accent); }
+.pinmark svg { width: 14px; height: 14px; }
+.nhint { margin: 0 -12px 0 -16px; padding: 16px 16px 0; border-top: 1px solid var(--line); font-size: 13px; line-height: 1.7; color: var(--ink-faint); }
+/* 手機按完以後 :hover 會一直留著，不能讓通用的 button:hover 蓋掉顏色 */
+.pinbtn:hover:not(:disabled) { background: transparent; border-color: var(--ink-faint); }
+.pinbtn[aria-pressed="true"]:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); }
+.ntab:hover:not(:disabled) { background: transparent; }
+.ntab[aria-selected="true"]:hover:not(:disabled) { background: var(--accent); }
