@@ -2,6 +2,28 @@
  "v": 1,
  "items": [
   {
+   "id": "2026-10-10-new",
+   "date": "2026-10-10",
+   "kind": "new",
+   "title": "全新Honda Civic Type R美規亮相",
+   "lede": "Honda於美國發表全新Civic Type R，換上新車頭造型並首度加入座椅加熱功能。",
+   "sections": [
+    {
+     "h": "",
+     "p": [
+      "喜歡熱血手排性能車的朋友注意了，Honda正式在美國發表全新Civic Type R五門跑車。這次新車在外觀部分換上了全新設計的車頭造型，視覺感受煥然一新。至於車迷相當關心的售價，新車開出768萬日圓的定價，再度引發廣大討論。",
+      "核心動力依然相當吸引人，新車搭載強悍的2.0升Turbo渦輪增壓引擎，並且維持車迷最愛的6速手排變速箱配置，保留最純粹的駕駛樂趣。另外在配備方面，車內更首次加入了座椅加熱功能，讓這部熱血鋼砲在日常生活中使用也更加貼心與便利。"
+     ]
+    }
+   ],
+   "sources": [
+    {
+     "name": "carnews.com",
+     "url": "https://news.google.com/rss/articles/CBMib0FVX3lxTE1DdHo3ZWlCZEVSd3VDZ2hEZjFWVzBwS3pJQ0FQMDEwT0swcl9xUHZMTHZBQlVtODFQQW12bC05ZVotRjZHWm9rNDVON0dtR0JWZHFZbkpnLTdmZXNUMFFJSVZlS01iemZocUdocWVqZw?oc=5"
+    }
+   ]
+  },
+  {
    "id": "2026-10-07-lux",
    "date": "2026-10-07",
    "kind": "lux",
@@ -283,5 +305,5 @@
    "imgCredit": "Mr.choppers／CC BY-SA 3.0，Wikimedia Commons"
   }
  ],
- "updated": "2026-10-07T01:33:41.967Z"
+ "updated": "2026-10-10T01:46:29.766Z"
 }
