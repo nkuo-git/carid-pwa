@@ -168,7 +168,7 @@ $("prefsBtn").addEventListener("click", () => setPrefs(prefsSheetEl.hidden));
 
 /* 網頁內容的版號，跟 sw.js 的 CACHE、index.html 和 mc.html 裡的 ?v= 一起加
    （account.js 也用這個版號載入） */
-const WEB_BUILD = 42;
+const WEB_BUILD = 43;
 
 function appBuild() {
   const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
@@ -858,7 +858,7 @@ redoBtn.addEventListener("click", run);
 
 /* ================= 分頁 ================= */
 // 底部分頁是 汽車／麥塊（麥塊是另一頁 mc.html）。
-// 汽車裡面用網址的 # 切換：#car、#history、#history/<id>、#news、#news/<id>、#tune（改車：搬家頁），
+// 汽車裡面用網址的 # 切換：#car、#history、#history/<id>、#news、#news/<id>，
 // 登入頁是 #login（算在紀錄底下）
 
 const views = {
@@ -867,15 +867,14 @@ const views = {
   login: $("screenLogin"),
   news: $("screenNews"),
   article: $("screenArticle"),
-  tune: $("screenTune"),
 };
 
-/* 記住汽車裡上次看的是辨車、紀錄、車訊還是改車，從麥塊切回來時回到同一頁 */
+/* 記住汽車裡上次看的是辨車、紀錄還是車訊，從麥塊切回來時回到同一頁 */
 const CAR_TAB = "carid.tab";
 function lastCarTab() {
   let t = null;
   try { t = sessionStorage.getItem(CAR_TAB); } catch { /* 不給用就算了 */ }
-  return t === "history" || t === "news" || t === "tune" ? t : "car";
+  return t === "history" || t === "news" ? t : "car";
 }
 
 function route() {
@@ -891,7 +890,6 @@ function route() {
   if (tab === "history") view = id ? "histitem" : "history";
   else if (tab === "news") view = id ? "article" : "news";
   else if (tab === "login") view = "login";
-  else if (tab === "tune") view = "tune";
 
   // 「登入好了」只在剛登入後的紀錄頁出現一次，離開就收起來
   if (view !== "history" && view !== "login" && acctSnap.sync.phase === "idle") justIn = false;
@@ -912,7 +910,6 @@ function route() {
   else if (view === "login") paintLogin();
   else if (view === "news") paintNews();
   else if (view === "article") paintArticle(id);
-  else if (view === "tune") paintMove();
   if (view !== "article") setShareArt(null);
 }
 window.addEventListener("hashchange", route);
@@ -2127,73 +2124,6 @@ shareAlt.addEventListener("click", (e) => {
   shareAlt.href = mailtoUrl(shareArt, to);
   saveTo(to);
   paintChips();
-});
-
-/* ================= 改車：搬家 =================
-   改車遊戲搬到自己的 App（大便龍的改車遊戲，repo nkuo-git/beau-car-game）了，這裡不再載入遊戲，
-   只把這支手機裡的進度搬過去。格式照那邊 src/site/site.js 的 decodeSave（CLAUDE.md「存檔，和從萬能軟體搬進度」）：
-   base64url（不補 =）( UTF-8 JSON {"v":1,"from":"carid-pwa","keys":{…}} )，keys 只放下面這幾個、值是 localStorage 原封不動的字串，
-   一定要有 carid.tune（有 v 數字的存檔 JSON），每個值最多 512 KB。
-   App 裡：開 beaucargame://import?save=…（外殼把站外的網址交給 Android，就會打開改車遊戲 App）；
-   一般瀏覽器：開改車遊戲的網站 #import=…。兩邊都會先問要不要搬，這裡的進度不會動。 */
-const MOVE_KEYS = ["carid.tune", "carid.tune.full", "carid.sound", "carid.roomq", "carid.theme", "carid.accent"];
-const MOVE_MAX = 512 * 1024;
-const MOVE_SITE = "https://nkuo-git.github.io/beau-car-game/";
-// 車的短名字（遊戲裡車庫的 CARS：鍵和按鈕上的名字），照價錢排；怪獸卡車是越野車，排最後
-const MOVE_CARS = [["gc8", "GC8"], ["yaris", "Yaris"], ["supra", "Supra"], ["gtr", "GT-R"], ["p918", "918"], ["sp3", "SP3"], ["jesko", "Jesko"], ["monster", "怪獸卡車"]];
-const MOVE_GUNS = ["pistol", "smg", "shotgun", "rifle"];
-
-// 讀這支手機的改車存檔；沒有、或壞掉（新 App 也讀不進去）就是 null
-function moveSave() {
-  const raw = load("carid.tune");
-  if (!raw || raw.length > MOVE_MAX) return null;
-  let d;
-  try { d = JSON.parse(raw); } catch { return null; }
-  if (!d || typeof d !== "object" || Array.isArray(d) || typeof d.v !== "number") return null;
-  return d;
-}
-
-// 存檔裡有什麼（照遊戲 restore() 的讀法：v2 才有錢、車、槍；GC8 一開始就有）
-function moveSummary(d) {
-  const v2 = d.v === 2;
-  const money = v2 ? Math.max(0, Math.floor(+d.money || 0)) : 0;
-  const own = new Set(["gc8"]);
-  if (v2 && Array.isArray(d.owned)) for (const k of d.owned) own.add(k);
-  const cars = MOVE_CARS.filter(([k]) => own.has(k)).map(([, n]) => n);
-  const g = v2 && d.guns && typeof d.guns === "object" && Array.isArray(d.guns.owned) ? d.guns.owned : [];
-  const guns = MOVE_GUNS.filter((id) => g.includes(id)).length;
-  return { money, cars, guns };
-}
-
-function paintMove() {
-  const d = moveSave();
-  $("moveTable").hidden = $("moveGoWrap").hidden = !d;
-  $("moveEmpty").hidden = !!d;
-  $("moveNeedApp").hidden = appBuild() === null;
-  if (!d) return;
-  const m = moveSummary(d);
-  $("moveMoney").textContent = m.money.toLocaleString("en-US") + " 萬";
-  $("moveCars").textContent = m.cars.length + " 台（" + m.cars.join("、") + "）";
-  $("moveGuns").textContent = m.guns ? m.guns + " 把" : "沒有";
-}
-
-function movePayload() {
-  const keys = {};
-  for (const k of MOVE_KEYS) {
-    const v = load(k);
-    if (v != null && v.length <= MOVE_MAX) keys[k] = v;
-  }
-  const bytes = new TextEncoder().encode(JSON.stringify({ v: 1, from: "carid-pwa", keys }));
-  let bin = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-$("moveGo").addEventListener("click", () => {
-  if (!moveSave()) { paintMove(); return; }
-  const save = movePayload();
-  if (appBuild() !== null) location.href = "beaucargame://import?save=" + save;
-  else location.href = MOVE_SITE + "#import=" + save;
 });
 
 /* ================= 啟動 ================= */

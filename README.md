@@ -73,8 +73,6 @@ carid-pwa/
 ├── manifest.webmanifest        App 名稱、圖示、啟動方式
 ├── sw.js                       Service Worker，快取 App 本體
 ├── mc.html / mc.css / mc.js    麥塊建築（底部「麥塊」分頁）
-├── tune.html                   舊的改車網址：直接轉到 index.html#tune（搬家頁）
-├── tune.css / tune.js / tune/  舊的改車遊戲（內容 38 以前），已經沒有頁面載入，先留著
 ├── firebase.json               Firebase Hosting 設定
 └── icons/                      主畫面圖示
 ```
@@ -86,15 +84,11 @@ carid-pwa/
 模型依序試 `gemini-flash-lite-latest` → `gemini-flash-latest`，前一個失敗（例如額度用完）就自動換下一個，兩個都失敗才顯示錯誤。使用者不用選。「深入」才帶 `generation_config.thinking_level: "high"`，「標準」不帶，讓每個模型用自己的預設值（有些模型不收這個欄位會回 400）。
 回應的文字在 `steps` 裡 `type: "model_output"` 那一段，取出來解析成 JSON 後畫成表格；解析失敗會提示再試一次。照片不會被存到任何地方。
 
-### 改車（內容 39 起：搬家頁）
+### 改車（內容 43 起拿掉了）
 
 改車遊戲搬到自己的 App 和網站了：「大便龍的改車遊戲」（<https://github.com/nkuo-git/beau-car-game>，
-網站 <https://nkuo-git.github.io/beau-car-game/>）。汽車裡的「改車」（`#tune`）現在是搬家頁，不再載入遊戲：
-上面是下載新 App 的鈕（Releases 最新版），下面照這支手機的存檔（localStorage `carid.tune`）列出錢、車、槍，
-按「搬過去」把 `carid.tune`、`carid.tune.full`、`carid.sound`、`carid.roomq`、`carid.theme`、`carid.accent`
-包成 base64url（UTF-8 JSON `{"v":1,"from":"carid-pwa","keys":{…}}`），App 裡開 `beaucargame://import?save=…`，
-一般瀏覽器開 `https://nkuo-git.github.io/beau-car-game/#import=…`。這裡的進度不會刪掉。
-`tune.css`、`tune.js`、`tune/*.glb` 是舊遊戲的檔案，現在沒有頁面用到。
+網站 <https://nkuo-git.github.io/beau-car-game/>）。內容 39–42 汽車裡還有「改車」搬家頁，內容 43 整個拿掉
+（分頁、搬家頁、舊遊戲的 tune.* 檔案）。手機裡舊的改車存檔（localStorage `carid.tune`）還在，沒有刪。
 
 ### 要改辨識內容
 

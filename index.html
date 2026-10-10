@@ -17,7 +17,7 @@
 
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap">
-<link rel="stylesheet" href="./styles.css?v=42">
+<link rel="stylesheet" href="./styles.css?v=43">
 </head>
 <body data-view="car">
 
@@ -87,7 +87,6 @@
       <a href="#car" data-seg="car">辨車</a>
       <a href="#history" data-seg="history">紀錄</a>
       <a href="#news" data-seg="news">車訊<span class="sdot" id="segNewsDot" hidden></span></a>
-      <a href="#tune" data-seg="tune">改車</a>
     </nav>
   </div>
 
@@ -250,37 +249,6 @@
     </div>
   </section>
 
-  <!-- 改車：遊戲搬到自己的 App（大便龍的改車遊戲），這裡只幫忙把進度搬過去 -->
-  <section class="screen" id="screenTune" hidden>
-    <div class="mv-head">
-      <span class="mv-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 13l1.7-4.3A3 3 0 0 1 8 6.8h8a3 3 0 0 1 2.8 1.9L20.5 13"/><path d="M3.5 13h17v3.8h-17z"/><path d="M6.8 16.8v1.4"/><path d="M17.2 16.8v1.4"/></svg><i class="mv-flag" aria-hidden="true"></i></span>
-      <div>
-        <h2>改車遊戲搬家了</h2>
-        <p>現在是另一個 App：<b>大便龍的改車遊戲</b></p>
-      </div>
-    </div>
-    <div class="mv-card">
-      <div class="mv-step">1　還沒裝的話，先裝</div>
-      <a class="btnlike big mv-dl" id="moveDl" href="https://github.com/nkuo-git/beau-car-game/releases/latest" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/></svg>下載改車遊戲 App</a>
-      <p class="mv-note">桌面會多一個「改車遊戲」</p>
-    </div>
-    <div class="mv-card">
-      <div class="mv-step">2　把這裡的進度搬過去</div>
-      <table class="mv-table" id="moveTable" hidden>
-        <tr><th scope="row">錢</th><td id="moveMoney"></td></tr>
-        <tr><th scope="row">車</th><td id="moveCars"></td></tr>
-        <tr><th scope="row">改裝和外觀</th><td>全部一起搬</td></tr>
-        <tr><th scope="row">槍和子彈</th><td id="moveGuns"></td></tr>
-      </table>
-      <p class="mv-empty" id="moveEmpty" hidden>這裡還沒有改車的進度</p>
-      <div class="mv-go" id="moveGoWrap" hidden>
-        <button type="button" class="primary mv-btn" id="moveGo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h13"/><path d="M13 6l6 6-6 6"/></svg>搬過去，打開改車遊戲</button>
-        <p class="mv-note mv-c">這裡的進度不會刪掉，想再搬一次也可以</p>
-        <p class="mv-note mv-c mv-need" id="moveNeedApp">要先裝好改車遊戲 App 才搬得過去</p>
-      </div>
-    </div>
-  </section>
-
   <!-- 車訊文章：寄給別人看（從下面滑上來的一張） -->
   <div class="sharewrap" id="shareWrap" hidden>
     <div class="sharedim" id="shareDim"></div>
@@ -339,6 +307,6 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=42"></script>
+<script type="module" src="./app.js?v=43"></script>
 </body>
 </html>

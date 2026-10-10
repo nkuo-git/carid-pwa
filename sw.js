@@ -1,11 +1,11 @@
 // 大便龍的萬能軟體 — Service Worker
 // 只快取 App 本身（殼），辨識一定要連網，API 的請求永遠不進快取。
 
-const CACHE = "carid-v42";
+const CACHE = "carid-v43";
 
 /* 跟 index.html 裡 styles.css / app.js 後面的 ?v= 一樣。
    換版就換網址，任何一層快取（瀏覽器、CDN、這裡）都不可能給到舊檔。 */
-const V = "42";
+const V = "43";
 
 const SHELL = [
   "./",
@@ -16,7 +16,6 @@ const SHELL = [
   "./mc.html",
   "./mc.css?v=" + V,
   "./mc.js?v=" + V,
-  "./tune.html",   // 改車遊戲搬到自己的 App 了：tune.html 只剩轉到 index.html#tune（搬家頁）
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
@@ -48,10 +47,9 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// 頁面各存各的（汽車、麥塊、舊的改車網址），不然開過 tune.html，離線時汽車那頁會變成它
+// 頁面各存各的（汽車、麥塊），不然開過 mc.html，離線時汽車那頁會變成它
 function pageKey(url) {
   if (url.pathname.endsWith("/mc.html")) return "./mc.html";
-  if (url.pathname.endsWith("/tune.html")) return "./tune.html";
   return "./index.html";
 }
 
