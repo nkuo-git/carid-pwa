@@ -168,7 +168,7 @@ $("prefsBtn").addEventListener("click", () => setPrefs(prefsSheetEl.hidden));
 
 /* 網頁內容的版號，跟 sw.js 的 CACHE、index.html 和 mc.html 裡的 ?v= 一起加
    （account.js 也用這個版號載入） */
-const WEB_BUILD = 41;
+const WEB_BUILD = 42;
 
 function appBuild() {
   const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
@@ -1724,6 +1724,40 @@ $("newsBody").addEventListener("click", (e) => {
   for (const pane of document.querySelectorAll("#newsBody .npane")) pane.hidden = pane.dataset.pane !== k;
 });
 
+/* ---------- 新車訊通知（新的 App 外殼才有：CaridApp.newsNotify） ----------
+   外殼自己大約每小時看一次有沒有新車訊，有就跳通知；這裡只管設定那一行的開／關。 */
+const notifyApi = () => {
+  const app = window.CaridApp;
+  return app && typeof app.newsNotify === "function" && typeof app.setNewsNotify === "function" ? app : null;
+};
+const NOTIFY_HINT = {
+  on: "有新車訊（週三、六、日早上）就跳通知。",
+  off: "關掉了，有新車訊不會跳通知。",
+  blocked: "手機的設定不讓這個 App 跳通知。按「開」去打開。",
+};
+function paintNotify() {
+  const app = notifyApi();
+  $("notifyRow").hidden = !app;
+  if (!app) return;
+  let st = "off";
+  try { st = String(app.newsNotify()); } catch { /* 外殼出錯就當作關 */ }
+  if (!NOTIFY_HINT[st]) st = "off";
+  $("notifyOn").checked = st === "on";
+  $("notifyOff").checked = st !== "on";
+  $("notifyHint").textContent = NOTIFY_HINT[st];
+}
+for (const el of document.querySelectorAll('input[name="notify"]')) {
+  el.addEventListener("change", () => {
+    const app = notifyApi();
+    if (!app || !el.checked) return;
+    try { app.setNewsNotify(el.value === "on"); } catch { /* 忽略 */ }
+    paintNotify();
+  });
+}
+// 外殼問完權限、或從手機設定回來，會叫這個重畫
+window.caridNotifyChanged = paintNotify;
+paintNotify();
+
 /* 有沒看過的車訊時，「車訊」旁邊和底部的「汽車」各亮一個小點 */
 function paintNewsDots(on) {
   $("segNewsDot").hidden = !on;
@@ -1769,6 +1803,8 @@ async function paintNews() {
   }
   store(NEWS_SEEN, items[0].id);
   paintNewsDots(false);
+  // 已經在車訊頁看到了，外殼就不用再為這篇跳通知
+  try { notifyApi()?.newsSeen?.(items[0].id, items[0].date); } catch { /* 舊外殼沒有 */ }
 
   const [first, ...rest] = items;
   const img = first.img

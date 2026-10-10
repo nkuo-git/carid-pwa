@@ -17,7 +17,7 @@
 
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap">
-<link rel="stylesheet" href="./styles.css?v=41">
+<link rel="stylesheet" href="./styles.css?v=42">
 </head>
 <body data-view="car">
 
@@ -69,6 +69,15 @@
         <label><input type="radio" name="tier" id="tierDeep" value="deep"><span>深入</span></label>
       </div>
       <p class="hint-sm">深入會多想一下，比較慢，冷門車款認得準一些。</p>
+    </div>
+    <!-- 新車訊通知：只有新的 App（有 CaridApp.newsNotify）才看得到這一行 -->
+    <div class="sheet-row" id="notifyRow" hidden>
+      <span class="sheet-label">車訊通知</span>
+      <div class="seg" role="group" aria-label="車訊通知">
+        <label><input type="radio" name="notify" value="on" id="notifyOn"><span>開</span></label>
+        <label><input type="radio" name="notify" value="off" id="notifyOff"><span>關</span></label>
+      </div>
+      <p class="hint-sm" id="notifyHint">有新車訊（週三、六、日早上）就跳通知。</p>
     </div>
   </div>
 
@@ -330,6 +339,6 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=41"></script>
+<script type="module" src="./app.js?v=42"></script>
 </body>
 </html>
