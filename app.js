@@ -168,7 +168,7 @@ $("prefsBtn").addEventListener("click", () => setPrefs(prefsSheetEl.hidden));
 
 /* 網頁內容的版號，跟 sw.js 的 CACHE、index.html 和 mc.html 裡的 ?v= 一起加
    （account.js 也用這個版號載入） */
-const WEB_BUILD = 43;
+const WEB_BUILD = 44;
 
 function appBuild() {
   const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
@@ -185,7 +185,8 @@ function paintVersion() {
 
 /* ---------- 有新版本的那一條 ----------
    外殼（APK）和內容各自可能有新版，但一次只跳一條，字也一樣，只是按下去做的事不同：
-   外殼有新版就開瀏覽器下載 APK（裝好重開時，已經下載好的新內容也會一起換上）；
+   外殼有新版：新的外殼在 App 裡自己下載、叫手機安裝（舊的外殼沒有這個功能，就開瀏覽器下載 APK）；
+   裝好重開時，已經下載好的新內容也會一起換上；
    只有內容有新版就馬上換。 */
 const APK_NEW = "carid.apknew";   // 查到的新版 App 記起來，重開 App 不用等下次查就跳得出來
 let webWaiting = false;           // 新內容下載好了，等使用者按「更新」
@@ -208,6 +209,56 @@ function paintUpdate() {
   if (appBar) appBar.hidden = !apkNew;
   if (webBar) webBar.hidden = !webWaiting || !!apkNew;
 }
+
+/* ---------- App 裡直接更新 ----------
+   按「更新」→ 外殼（CaridApp.installUpdate）在 App 裡下載新版 APK，進度用
+   window.caridUpdateProgress(state, pct) 回報 → 叫出手機的「要更新這個應用程式嗎？」。
+   第一次手機會先要你允許這個 App 安裝更新。 */
+const UPD_TEXT = {
+  idle: "有新版本，要更新嗎",
+  dl: "正在下載新版本…",
+  install: "下載好了，安裝中…",
+  allow: "要先允許這個 App 安裝更新",
+  denied: "要先打開「允許這個來源的應用程式」才能裝",
+  error: "沒下載成功，再按一次更新",
+};
+let updState = "idle";
+
+function paintAppUpdate(state, pct) {
+  const txt = $("appUpdateTxt");
+  const link = $("appUpdateLink");
+  const prog = $("appUpdateProg");
+  const fill = $("appUpdateFill");
+  if (!txt || !link || !prog || !fill) return;
+  if (!(state in UPD_TEXT)) state = "error";
+  updState = state;
+  const p = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
+  const busy = state === "dl" || state === "install";
+  const known = !(state === "dl" && Number(pct) < 0);
+  txt.textContent = UPD_TEXT[state] + (state === "dl" && known ? " " + p + "%" : "");
+  link.textContent = state === "dl" ? "下載中" : state === "install" ? "安裝中" : state === "denied" ? "再試一次" : "更新";
+  link.setAttribute("aria-disabled", busy ? "true" : "false");
+  prog.hidden = !(busy || state === "allow");
+  prog.classList.toggle("unknown", !known);
+  fill.style.width = known ? (state === "dl" ? p : 100) + "%" : "";
+}
+window.caridUpdateProgress = (state, pct) => paintAppUpdate(String(state), pct);
+
+$("appUpdateLink")?.addEventListener("click", (e) => {
+  if (!apkNew) return;
+  if (updState === "dl" || updState === "install") { e.preventDefault(); return; }
+  const shell = window.CaridApp;
+  if (typeof shell?.installUpdate !== "function") return;   // 舊的外殼：照舊開瀏覽器下載
+  let took = false;
+  try {
+    took = shell.installUpdate(apkNew.url) === true;
+  } catch {
+    took = false;
+  }
+  if (!took) return;                                        // 外殼不收：照舊開瀏覽器下載
+  e.preventDefault();
+  if (updState !== "allow") paintAppUpdate("dl", -1);
+});
 
 /* ================= Firebase ================= */
 

@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
   <cache-path name="shots" path="shots/" />
+  <!-- App 裡直接更新：下載下來的新版 APK -->
+  <cache-path name="updates" path="updates/" />
 </paths>

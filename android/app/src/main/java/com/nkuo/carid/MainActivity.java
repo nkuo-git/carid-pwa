@@ -46,6 +46,11 @@ public class MainActivity extends Activity {
   private static final int REQ_FILE = 1001;
   private static final int REQ_NOTIFY = 1002;
 
+  /** App 裡直接更新：下載好了、在等使用者去手機設定允許安裝。 */
+  private boolean installPending;
+  /** 已經叫出手機的安裝畫面；回來（按了取消）時要讓網頁把「更新」鈕放回來。 */
+  private boolean installerShown;
+
   /** 按「車訊通知 開」的時候手機不准：問完還是不准，就帶去手機的通知設定。 */
   private boolean notifyFromToggle;
 
@@ -199,6 +204,36 @@ public class MainActivity extends Activity {
     }
   }
 
+  /** 把更新的進度告訴網頁（window.caridUpdateProgress）。 */
+  private void sendUpdate(String state, int pct) {
+    if (web != null) {
+      web.evaluateJavascript("window.caridUpdateProgress&&window.caridUpdateProgress(" + JSONObject.quote(state) + "," + pct + ")", null);
+    }
+  }
+
+  /** 下載好了：還沒允許安裝就先帶去手機設定，允許了就叫出安裝畫面。 */
+  private void proceedInstall() {
+    if (!AppUpdate.canInstall(this)) {
+      installPending = true;
+      sendUpdate("allow", 100);
+      try {
+        startActivity(AppUpdate.allowIntent(this));
+      } catch (Exception e) {
+        installPending = false;
+        sendUpdate("error", 0);
+      }
+      return;
+    }
+    installPending = false;
+    sendUpdate("install", 100);
+    try {
+      startActivity(AppUpdate.installIntent(this));
+      installerShown = true;
+    } catch (Exception e) {
+      sendUpdate("error", 0);
+    }
+  }
+
   /** 通知的開關可能變了（剛問完、從手機設定回來），叫網頁重畫設定那一行。 */
   private void notifyWeb() {
     if (web != null) web.evaluateJavascript("window.caridNotifyChanged&&window.caridNotifyChanged()", null);
@@ -284,6 +319,25 @@ public class MainActivity extends Activity {
       });
     }
 
+    /**
+     * 按「更新」：在 App 裡下載新版 APK 再叫手機安裝，進度用 window.caridUpdateProgress(state, pct) 回報。
+     * 只收這個 repo 的 Release 網址；回傳 false＝不收（網頁就改用舊的方法：開瀏覽器下載）。
+     * 舊版 APK 沒有這個，網頁看到沒有就用舊的方法。
+     */
+    @JavascriptInterface
+    public boolean installUpdate(String url) {
+      if (!AppUpdate.allowedUrl(url)) return false;
+      if (AppUpdate.downloaded(MainActivity.this)) {
+        // 已經下載好了，剛剛只是還沒允許安裝、或安裝畫面按了取消：直接再試，不用重新下載
+        runOnUiThread(MainActivity.this::proceedInstall);
+        return true;
+      }
+      return AppUpdate.start(MainActivity.this, url, (state, pct) -> runOnUiThread(() -> {
+        if ("install".equals(state)) proceedInstall();
+        else sendUpdate(state, pct);
+      }));
+    }
+
     /** 網頁的車訊頁已經秀出這篇了，就不用再通知它。 */
     @JavascriptInterface
     public void newsSeen(String id, String date) {
@@ -325,6 +379,14 @@ public class MainActivity extends Activity {
     if (fullscreen) applyFullscreen();
     // 可能剛從手機的通知設定回來
     notifyWeb();
+    // App 裡直接更新：從「允許安裝」那頁回來，允許了就繼續裝；從安裝畫面回來（按了取消）就把「更新」鈕放回來
+    if (installPending) {
+      if (AppUpdate.canInstall(this)) proceedInstall();
+      else sendUpdate("denied", 100);
+    } else if (installerShown) {
+      installerShown = false;
+      sendUpdate("idle", 0);
+    }
   }
 
   @Override

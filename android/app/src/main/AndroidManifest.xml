@@ -5,6 +5,8 @@
   <!-- 新車訊通知：Android 13 以上要問過才能跳通知；每小時看一次的排程關機重開後還要在 -->
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+  <!-- App 裡直接更新：下載好的新版交給手機安裝（手機還是會問一次要不要更新） -->
+  <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
   <!-- targetSdk 30 以上要宣告才看得到相機 App -->
   <queries>
