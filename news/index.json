@@ -2,6 +2,46 @@
  "v": 1,
  "items": [
   {
+   "id": "2026-10-11-how",
+   "date": "2026-10-11",
+   "kind": "how",
+   "title": "ABS防鎖死煞車：急煞時為什麼不能鎖死",
+   "lede": "ABS 是一套能在煞車時防止車輪鎖死、讓車輛維持轉向能力與抓地力的安全輔助系統。",
+   "sections": [
+    {
+     "h": "它在做什麼",
+     "p": [
+      "遇到緊急狀況用力踩死煞車時，輪胎很容易因為煞車力道過大而完全鎖死打滑。一旦前輪鎖死，車輛就會喪失轉向能力；若是後輪鎖死則會引起甩尾失控。ABS 的核心目的並不單純是為了縮短煞車距離，而是避免車輪咬死，讓車輛在減速過程中依然能受駕駛控制。"
+     ]
+    },
+    {
+     "h": "怎麼運作",
+     "p": [
+      "系統會依據各車輪的訊號，計算出車速與輪胎的滑移率。當偵測到車輪快要鎖死時，系統便會主動減小煞車力道，等輪速回升後再恢復力道，運作原理就像頂尖車手在做點放煞車，但作動頻率遠比一般人更快且更精準。",
+      "這套快速調控的循環機制，會讓駕駛在踩下煞車踏板或拉緊拉桿時感受到明顯震動。現代的新型系統除了防止輪胎鎖死，還能進一步調整前後輪的煞車力道分配。"
+     ]
+    },
+    {
+     "h": "開起來有什麼差別",
+     "p": [
+      "在一般乾燥或濕滑的柏油路面上，ABS 能讓輪胎維持在理想抓地力區間，有效縮短煞車距離，並讓駕駛在急煞時依然能轉向閃避障礙物。不過在鬆軟的沙地或積雪路面上，因為車輪無法鏟起碎石堆形成阻力，煞車距離反而會明顯拉長，但依然能保有轉向閃避的控制力。"
+     ]
+    }
+   ],
+   "sources": [
+    {
+     "name": "維基百科：Anti-lock braking system",
+     "url": "https://en.wikipedia.org/wiki/Anti-lock_braking_system"
+    },
+    {
+     "name": "中文維基百科",
+     "url": "https://zh.wikipedia.org/zh-tw/%E9%98%B2%E9%8E%96%E6%AD%BB%E7%85%9E%E8%BB%8A%E7%B3%BB%E7%B5%B1"
+    }
+   ],
+   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/86/Antilock_Braking_System.svg/1280px-Antilock_Braking_System.svg.png?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "imgCredit": "Chris828／Public domain，Wikimedia Commons"
+  },
+  {
    "id": "2026-10-10-new",
    "date": "2026-10-10",
    "kind": "new",
@@ -305,5 +345,5 @@
    "imgCredit": "Mr.choppers／CC BY-SA 3.0，Wikimedia Commons"
   }
  ],
- "updated": "2026-10-10T01:46:29.766Z"
+ "updated": "2026-10-11T00:59:51.039Z"
 }
