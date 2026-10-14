@@ -2,6 +2,67 @@
  "v": 1,
  "items": [
   {
+   "id": "2026-10-14-lux",
+   "date": "2026-10-14",
+   "kind": "lux",
+   "title": "F1",
+   "lede": "首款採用碳纖維單體底盤的量產車，曾以 386.4 km/h 創下世界極速紀錄，更是奪下利曼冠軍的傳奇超跑。",
+   "sections": [
+    {
+     "h": "為什麼值得認識",
+     "p": [
+      "McLaren F1 是 McLaren 推出的首款公路跑車，更曾贏得利曼 24 小時耐力賽冠軍。1998 年它以 386.4 km/h 創下全球最快量產車紀錄。雜誌 Autocar 曾讚譽它是公路上最棒的駕駛機器，包括 Lewis Hamilton 與 Elon Musk 等人都是車主。",
+      "工程師 Gordon Murray 堅持自然進氣設定，由 BMW 專屬打造 6.1 升 V12 引擎，並用約 16 克金箔為引擎室隔熱。座艙採用少見的三座佈局，中央駕駛座能提供寬廣視野。全車大量採用碳纖維與鈦等高科技材質，大幅降低車重並提升操控性能。"
+     ]
+    },
+    {
+     "h": "在路上怎麼認出它",
+     "p": [
+      "車頂配置類似 F1 的進氣口，前雨刷底部有小型擾流板。車頭下方具備電腦風扇進氣口，車尾上方則裝有煞車時會自動升起的擾流板，車尾底部還有氣流擴散器，以及位於兩組尾燈之間的散熱開口。"
+     ]
+    }
+   ],
+   "make": "McLaren",
+   "specs": [
+    [
+     "引擎",
+     "6.1 升 V12 自然進氣（BMW S70/2）"
+    ],
+    [
+     "最大馬力",
+     "627 PS / 618 hp（461 kW）"
+    ],
+    [
+     "最大扭力",
+     "650 N⋅m / 5,600 rpm"
+    ],
+    [
+     "極速紀錄",
+     "386.4 km/h（240.1 mph）"
+    ],
+    [
+     "生產年份",
+     "1992 年至 1998 年"
+    ],
+    [
+     "總生產量",
+     "106 輛"
+    ]
+   ],
+   "sources": [
+    {
+     "name": "維基百科：McLaren F1",
+     "url": "https://en.wikipedia.org/wiki/McLaren_F1"
+    },
+    {
+     "name": "中文維基百科",
+     "url": "https://zh.wikipedia.org/zh-tw/%E8%BF%88%E5%87%AF%E4%BC%A6F1"
+    }
+   ],
+   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/16/1996_McLaren_F1_Chassis_No_63_6.1_Front.jpg/1280px-1996_McLaren_F1_Chassis_No_63_6.1_Front.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "imgCredit": "Chelsea Jay／CC BY-SA 4.0，Wikimedia Commons"
+  },
+  {
    "id": "2026-10-11-how",
    "date": "2026-10-11",
    "kind": "how",
@@ -345,5 +406,5 @@
    "imgCredit": "Mr.choppers／CC BY-SA 3.0，Wikimedia Commons"
   }
  ],
- "updated": "2026-10-11T00:59:51.039Z"
+ "updated": "2026-10-14T01:13:32.897Z"
 }

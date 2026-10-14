@@ -1,6 +1,12 @@
 {
  "used": [
   {
+   "kind": "lux",
+   "k": "McLaren F1",
+   "t": "F1",
+   "d": "2026-10-14"
+  },
+  {
    "kind": "how",
    "k": "Anti-lock braking system",
    "t": "ABS防鎖死煞車：急煞時為什麼不能鎖死",
