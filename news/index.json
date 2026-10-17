@@ -2,6 +2,28 @@
  "v": 1,
  "items": [
   {
+   "id": "2026-10-17-new",
+   "date": "2026-10-17",
+   "kind": "new",
+   "title": "Hyundai Kona Hybrid預售價99萬起",
+   "lede": "Hyundai Kona Hybrid確認上市日期，預售價99萬元起並於10月20日發表。",
+   "sections": [
+    {
+     "h": "",
+     "p": [
+      "關注油電車款的朋友有新選擇了。Hyundai 旗下備受期待的 Kona Hybrid 正式確認上市日期，確定將在 10 月 20 日發表登場。這次新車發表時程敲定，也讓等待這款車型的車迷能夠提早掌握最新動態。",
+      "大家最關心的價格部分，Hyundai Kona Hybrid 目前公布的預售價為 99 萬元起。不到百萬的預售門檻，讓這款油電車型更具吸引力。對這台新車有興趣的準車主，可以好好期待 10 月 20 日的正式發表。"
+     ]
+    }
+   ],
+   "sources": [
+    {
+     "name": "U-CAR新聞",
+     "url": "https://news.google.com/rss/articles/CBMiV0FVX3lxTE1QOFJiRWhCajBMS2hlandJaXFCZ1JEVzc1aVFrVXVNdm0wXzZXWWlxVUpCQkMyQ2Y3c3dlQW8tSEhMM0lNMk5FYVQxRTRucWY3WmdIZFJJVQ?oc=5"
+    }
+   ]
+  },
+  {
    "id": "2026-10-14-lux",
    "date": "2026-10-14",
    "kind": "lux",
@@ -406,5 +428,5 @@
    "imgCredit": "Mr.choppers／CC BY-SA 3.0，Wikimedia Commons"
   }
  ],
- "updated": "2026-10-14T01:13:32.897Z"
+ "updated": "2026-10-17T00:26:48.735Z"
 }
