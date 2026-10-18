@@ -2,6 +2,46 @@
  "v": 1,
  "items": [
   {
+   "id": "2026-10-18-how",
+   "date": "2026-10-18",
+   "kind": "how",
+   "title": "差速器：轉彎時車輪怎麼轉得不一樣快",
+   "lede": "差速器是傳動系統的齒輪機構，讓驅動軸左右兩側的車輪在過彎時能以不同速度旋轉。",
+   "sections": [
+    {
+     "h": "它在做什麼",
+     "p": [
+      "車輛轉彎時，外側車輪劃過的弧度較大、走的路程比內側車輪更長。如果左右輪被硬性連在一起，輪胎就只能在路面上打滑硬磨，就像卡丁車那樣。差速器的核心功能，就是讓引擎把動力同時傳給兩顆驅動輪，並允許它們依路況以不同轉速旋轉，順暢完成過彎。"
+     ]
+    },
+    {
+     "h": "怎麼運作",
+     "p": [
+      "差速器內部通常由一組行星齒輪與兩側半軸齒輪互相咬合而成。直線行駛時，兩側車輪所受的地面阻力相同，中間的行星齒輪只會跟著殼體繞著大齒輪公轉，本身不產生自轉，兩邊輪子便以相同轉速平穩前進。",
+      "一旦車輛開始轉彎，內側輪路程較短且阻力變大，這股阻力打破了平衡，促使內部的行星齒輪開始自轉。這項特性讓一側半軸多出來或減少的旋轉量，能透過齒輪帶動另一側半軸，進而加速外側車輪，使單一軸的轉速成為另外兩軸轉速的平均值。"
+     ]
+    },
+    {
+     "h": "開起來有什麼差別",
+     "p": [
+      "標準差速器雖然讓轉彎更順暢，但在遇到單邊輪胎打滑或離地時，往往會把動力全都送往失去抓地力的那一側，導致空轉而受困。因此，有些越野車或追求性能的車輛會配備差速鎖來強制兩輪同步轉動，或是換上限滑差速器與扭力分配系統，避免動力流失並加強過彎穩定度。"
+     ]
+    }
+   ],
+   "sources": [
+    {
+     "name": "維基百科：Differential (mechanical device)",
+     "url": "https://en.wikipedia.org/wiki/Differential_(mechanical_device)"
+    },
+    {
+     "name": "中文維基百科",
+     "url": "https://zh.wikipedia.org/zh-tw/%E5%B7%AE%E9%80%9F%E5%99%A8"
+    }
+   ],
+   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ad/BAUMA_2004_ZF_Differentialgetriebe.jpg/1280px-BAUMA_2004_ZF_Differentialgetriebe.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "imgCredit": "Aconcagua ( talk )／CC BY-SA 3.0，Wikimedia Commons"
+  },
+  {
    "id": "2026-10-17-new",
    "date": "2026-10-17",
    "kind": "new",
@@ -428,5 +468,5 @@
    "imgCredit": "Mr.choppers／CC BY-SA 3.0，Wikimedia Commons"
   }
  ],
- "updated": "2026-10-17T00:26:48.735Z"
+ "updated": "2026-10-18T00:02:10.305Z"
 }
