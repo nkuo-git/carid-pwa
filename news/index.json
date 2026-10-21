@@ -2,6 +2,75 @@
  "v": 1,
  "items": [
   {
+   "id": "2026-10-21-lux",
+   "date": "2026-10-21",
+   "kind": "lux",
+   "title": "918 Spyder",
+   "lede": "Porsche 918 Spyder 是限量 918 輛的油電超跑，擁有 887 匹馬力，更是首款在紐柏林賽道跑進 7 分鐘內的量產車。",
+   "sections": [
+    {
+     "h": "為什麼值得認識",
+     "p": [
+      "918 Spyder 於 2010 年日內瓦車展以概念車亮相，獲得熱烈迴響後投入量產，全球僅生產 918 輛。它是保時捷繼 2014 Panamera S E-Hybrid 之後推出的第二款插電式油電車，正式量產版在 2013 年法蘭克福車展發表，並在 2014 年底全數完售、2015 年 6 月正式停產。",
+      "它的 4.6 升自然進氣 V8 引擎架構源自 RS Spyder 賽車，結合前後軸兩具電動馬達與碳纖維複合材質底盤。2013 年 9 月，選配 Weissach 套件的 918 在紐柏林賽道跑出 6 分 57 秒的成績，成為歷史上第一輛打破 7 分鐘門檻的合法上路量產車。"
+     ]
+    },
+    {
+     "h": "在路上怎麼認出它",
+     "p": [
+      "這款車在副駕駛側的 B 柱設有外接充電孔，排氣管則罕見地直接設計在引擎本體正上方。若是車主選配了 Weissach 套件，外觀還能看到專屬的 BBS 鎂合金輪圈、加長後下擾流板，以及在車頂、後照鏡與尾翼運用的碳纖維材質。"
+     ]
+    }
+   ],
+   "make": "Porsche",
+   "specs": [
+    [
+     "動力系統",
+     "4.6 升 V8 引擎搭配前後雙馬達"
+    ],
+    [
+     "最大綜效馬力",
+     "887 PS（652 kW）"
+    ],
+    [
+     "最大綜效扭力",
+     "1,280 N⋅m"
+    ],
+    [
+     "0–100 km/h 加速",
+     "2.6 秒（官方數據）"
+    ],
+    [
+     "極速",
+     "345 km/h"
+    ],
+    [
+     "純電續航里程",
+     "19 公里（EPA 測試）"
+    ],
+    [
+     "全球限量產量",
+     "918 輛"
+    ],
+    [
+     "生產期間",
+     "2013 年 9 月至 2015 年 6 月"
+    ]
+   ],
+   "sources": [
+    {
+     "name": "維基百科：Porsche 918 Spyder",
+     "url": "https://en.wikipedia.org/wiki/Porsche_918_Spyder"
+    },
+    {
+     "name": "中文維基百科",
+     "url": "https://zh.wikipedia.org/zh-tw/%E4%BF%9D%E6%97%B6%E6%8D%B7918"
+    }
+   ],
+   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/1a/2015_Porsche_918_Spyder_Platinum_Silver_Metallic_SCD_24.jpg/1280px-2015_Porsche_918_Spyder_Platinum_Silver_Metallic_SCD_24.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "imgCredit": "MrWalkr／CC BY-SA 4.0，Wikimedia Commons"
+  },
+  {
    "id": "2026-10-18-how",
    "date": "2026-10-18",
    "kind": "how",
@@ -468,5 +537,5 @@
    "imgCredit": "Mr.choppers／CC BY-SA 3.0，Wikimedia Commons"
   }
  ],
- "updated": "2026-10-18T00:02:10.305Z"
+ "updated": "2026-10-21T00:37:16.644Z"
 }

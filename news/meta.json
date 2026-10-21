@@ -1,6 +1,12 @@
 {
  "used": [
   {
+   "kind": "lux",
+   "k": "Porsche 918 Spyder",
+   "t": "918 Spyder",
+   "d": "2026-10-21"
+  },
+  {
    "kind": "how",
    "k": "Differential (mechanical device)",
    "t": "差速器：轉彎時車輪怎麼轉得不一樣快",
