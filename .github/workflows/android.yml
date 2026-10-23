@@ -22,37 +22,44 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # 第一次跑的時候用 Secret 裡的密碼產一把固定的簽章金鑰，並存回 repo。
-      # 之後每次都用同一把簽，新版 APK 才能直接蓋過舊版安裝，不用先移除。
+      # 固定的 release 金鑰（apk-4 起一直是同一把，別名 carid）。
+      # 金鑰檔放在 Secret CARID_KEYSTORE_B64（base64），密碼在 CARID_KEY_PASS，
+      # 這裡寫出 android/app/carid-release.jks 和 android/key.properties，兩個都不進 repo。
+      # 缺任何一個就直接失敗，絕不自己產新金鑰、也不退回 debug 簽章。
       - name: 準備簽章金鑰
         env:
+          CARID_KEYSTORE_B64: ${{ secrets.CARID_KEYSTORE_B64 }}
           CARID_KEY_PASS: ${{ secrets.CARID_KEY_PASS }}
         run: |
-          if [ -z "$CARID_KEY_PASS" ]; then
-            echo "::warning::還沒設定 CARID_KEY_PASS，這次會用臨時的 debug 簽章，裝之前要先移除舊版"
-            exit 0
+          if [ -z "$CARID_KEYSTORE_B64" ] || [ -z "$CARID_KEY_PASS" ]; then
+            echo "::error::缺少 Secret CARID_KEYSTORE_B64 或 CARID_KEY_PASS，不能簽 release APK"
+            exit 1
           fi
-          if [ -f android/keystore/carid.jks ]; then
-            echo "已經有固定的簽章金鑰了"
-            exit 0
-          fi
-          mkdir -p android/keystore
-          keytool -genkeypair -v \
-            -keystore android/keystore/carid.jks \
-            -storepass "$CARID_KEY_PASS" -keypass "$CARID_KEY_PASS" \
-            -alias carid -keyalg RSA -keysize 2048 -validity 10950 \
-            -dname "CN=carid, OU=personal, O=carid, L=Taipei, S=Taipei, C=TW"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add android/keystore/carid.jks
-          git commit -m "建立固定的簽章金鑰，之後的 APK 都用這一把簽"
-          git push origin HEAD:main
+          echo "$CARID_KEYSTORE_B64" | tr -d " \r\n" | base64 -d > android/app/carid-release.jks
+          {
+            echo "storeFile=carid-release.jks"
+            echo "storePassword=$CARID_KEY_PASS"
+            echo "keyAlias=carid"
+            echo "keyPassword=$CARID_KEY_PASS"
+          } > android/key.properties
 
       - name: 編譯
         working-directory: android
-        env:
-          CARID_KEY_PASS: ${{ secrets.CARID_KEY_PASS }}
         run: ./gradlew --no-daemon assembleRelease
+
+      # 每次都印出簽章指紋，跟 apk-4 起的那一把比對，不一樣就不發
+      - name: 檢查簽章指紋
+        run: |
+          APK=$(ls android/app/build/outputs/apk/release/*.apk)
+          case "$APK" in *unsigned*) echo "::error::APK 沒有簽章"; exit 1 ;; esac
+          SIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner
+          "$SIGNER" verify --print-certs "$APK" | tee certs.txt
+          grep -qi "SHA-256 digest: ecddf4e8159dcc6a250853a373a600edad2110b3e84ac7df1c106ff4c974dffb" certs.txt \
+            || { echo "::error::簽章指紋跟固定金鑰不一樣，裝了會蓋不過舊版"; exit 1; }
+
+      - name: 收掉金鑰
+        if: always()
+        run: rm -f android/app/carid-release.jks android/key.properties
 
       - name: 改個看得懂的檔名
         run: |
