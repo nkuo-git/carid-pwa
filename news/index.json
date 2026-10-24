@@ -2,6 +2,28 @@
  "v": 1,
  "items": [
   {
+   "id": "2026-10-24-new",
+   "date": "2026-10-24",
+   "kind": "new",
+   "title": "Porsche Cayenne Electric 台灣上市 398萬起",
+   "lede": "Porsche Cayenne Electric家族在台上市，SUV售價398萬起、Coupé 418萬起。",
+   "sections": [
+    {
+     "h": "",
+     "p": [
+      "關注豪華純電車款的車迷朋友看過來。Porsche 旗下的 Cayenne Electric 家族如今正式在台灣市場發表上市。這次原廠同步帶來不同車體設定的車款選擇，包含標準車格的 SUV 版本，以及外型更具運動跑格線條的 Coupé 版本，讓喜愛 Cayenne 的國內買家能依照個人需求挑選喜愛的車型風格。",
+      "大家最關心的在台建議售價部分，標準休旅設定的 Cayenne Electric SUV 開出 398 萬元起的價格；如果偏好流線跑旅造型，Cayenne Electric Coupé 的建議售價則為 418 萬元起。隨著雙車型陣容同步登台，也讓鎖定頂級純電休旅的台灣消費者有了嶄新選擇。"
+     ]
+    }
+   ],
+   "sources": [
+    {
+     "name": "U-CAR新聞",
+     "url": "https://news.google.com/rss/articles/CBMiV0FVX3lxTE52SzNxNTJiUWxCNTB4NHJTV3FqRWJHdWVYOWlzYjR1cFNFQjlzbG1pX0J1MkNnTUVKUWdFNTRfZENMTEZvNEs2SzdOWjhRX2g0bkFFY1RzNA?oc=5"
+    }
+   ]
+  },
+  {
    "id": "2026-10-21-lux",
    "date": "2026-10-21",
    "kind": "lux",
@@ -537,5 +559,5 @@
    "imgCredit": "Mr.choppers／CC BY-SA 3.0，Wikimedia Commons"
   }
  ],
- "updated": "2026-10-21T00:37:16.644Z"
+ "updated": "2026-10-24T00:39:50.094Z"
 }
