@@ -54,10 +54,11 @@ jobs:
           CARID_KEY_PASS: ${{ secrets.CARID_KEY_PASS }}
         run: ./gradlew --no-daemon assembleRelease
 
+      # 檔名每次都一樣，這樣 releases/latest/download/carid.apk 永遠是最新版
       - name: 改個看得懂的檔名
         run: |
           mkdir -p out
-          cp android/app/build/outputs/apk/release/*.apk "out/carid-${{ github.run_number }}.apk"
+          cp android/app/build/outputs/apk/release/*.apk out/carid.apk
 
       - uses: actions/upload-artifact@v4
         with:
@@ -68,6 +69,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "apk-${{ github.run_number }}" out/*.apk \
+          gh release create "apk-${{ github.run_number }}" out/*.apk --latest \
             --title "大便龍的萬能軟體 APK #${{ github.run_number }}" \
-            --notes "用手機開這一頁，點下面的 .apk 就能安裝。第一次安裝要允許「安裝不明來源的應用程式」。"
+            --notes "用手機開這一頁，點下面的 .apk 就能安裝。第一次安裝要允許「安裝不明來源的應用程式」。永遠下載最新版的固定連結：https://github.com/nkuo-git/carid-pwa/releases/latest/download/carid.apk"
