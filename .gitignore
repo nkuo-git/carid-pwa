@@ -1,0 +1,10 @@
+# 簽章金鑰和密碼絕不進 repo：CI 從 GitHub Secrets 產生，自己電腦上的放在本機
+android/key.properties
+*.jks
+*.keystore
+
+# 建置產物
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties

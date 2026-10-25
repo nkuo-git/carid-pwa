@@ -126,3 +126,23 @@ Service Worker 註冊成功、回來的 JSON 能正確畫成表格、403 之類�
 
 這個 PWA 可以用 [Bubblewrap](https://github.com/GoogleChromeLabs/bubblewrap) 或 PWABuilder 包成 TWA 的 APK，
 畫面和邏輯完全沿用，不需要重寫成 Flutter。需要的話再說。
+
+## 七、APK 簽章金鑰
+
+所有 APK 都是 GitHub Actions 用 `assembleRelease` 編、用同一把固定的 release 金鑰簽（apk-4 起，別名 `carid`，效期到 2056）。
+換金鑰的話手機上的舊版就蓋不過去，只能先移除（資料會跟著不見），所以這把金鑰要永遠沿用。
+
+- 金鑰檔和密碼都**不在 repo 裡**（`.gitignore` 擋掉 `*.jks` 和 `android/key.properties`）。
+- GitHub Secrets：`CARID_KEYSTORE_B64` = 金鑰檔的 base64，`CARID_KEY_PASS` = 密碼（金鑰庫和金鑰同一組）。
+- 建置時 workflow 會寫出 `android/app/carid-release.jks` 和 `android/key.properties`，`app/build.gradle` 讀後者設定 `signingConfigs.release`；缺了就直接失敗，不會退回 debug 簽章，也不會自己產新金鑰。
+- 每次建置都會用 `apksigner verify --print-certs` 比對指紋，不一樣就不發 Release：
+  - SHA-256 `EC:DD:F4:E8:15:9D:CC:6A:25:08:53:A3:73:A6:00:ED:AD:21:10:B3:E8:4A:C7:DF:1C:10:6F:F4:C9:74:DF:FB`
+  - SHA-1 `ED:82:DC:04:A4:29:26:58:31:CD:1B:B1:9E:2D:95:38:E9:83:6A:8A`
+- 自己電腦上要編 release，就把金鑰檔放到 `android/app/carid-release.jks`，再建 `android/key.properties`：
+
+  ```
+  storeFile=carid-release.jks
+  storePassword=（密碼）
+  keyAlias=carid
+  keyPassword=（密碼）
+  ```
