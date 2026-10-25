@@ -2,6 +2,46 @@
  "v": 1,
  "items": [
   {
+   "id": "2026-10-25-how",
+   "date": "2026-10-25",
+   "kind": "how",
+   "title": "再生制軔：煞車時怎麼把動能變回電？",
+   "lede": "它是一種能量回收機制，在減速時把原本會變成廢熱的動能轉為電能儲存起來。",
+   "sections": [
+    {
+     "h": "它在做什麼",
+     "p": [
+      "傳統煞車是透過摩擦力把車輛動能變成廢熱散失掉，再生制軔則是把這股能量攔截下來。在油電車或純電車上，減速時回收能量能提升整體能源效率。另一個好處是能減少傳統煞車碟盤、卡鉗與來令片的磨損，大幅延長機械煞車零件的壽命。"
+     ]
+    },
+    {
+     "h": "怎麼運作",
+     "p": [
+      "它的關鍵是讓電動馬達身兼發電機。當車輛減速時，系統會讓馬達反向運作，利用車輛前進的慣性帶動馬達旋轉並產生反向力矩，在產生阻力讓車輛慢下來的同時發電。",
+      "這些收集來的電能會回傳並儲存到電池、超級電容或飛輪等裝置中，等之後需要加速時再拿來推進車輛。因為需要這套電能架構，所以目前主要應用在純電車與油電車上。"
+     ]
+    },
+    {
+     "h": "開起來有什麼差別",
+     "p": [
+      "再生制軔無法完全取代傳統機械煞車，特別是在低速時制軔效果會減弱，通常需要搭配摩擦煞車才能完全停下或防止在坡道滑動。部分車款如 Chevrolet Bolt 具備單踏板模式，能在平路上完全煞停。不過在單踏板模式下，駕駛在緊急時可能誤踩踏板，且需要大幅減速時，依然要依靠機械煞車來確保安全。"
+     ]
+    }
+   ],
+   "sources": [
+    {
+     "name": "維基百科：Regenerative braking",
+     "url": "https://en.wikipedia.org/wiki/Regenerative_braking"
+    },
+    {
+     "name": "中文維基百科",
+     "url": "https://zh.wikipedia.org/zh-tw/%E5%86%8D%E7%94%9F%E5%88%B6%E5%8B%95"
+    }
+   ],
+   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/94/Skoda_03_T_roof.jpg/1280px-Skoda_03_T_roof.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "imgCredit": "Michal Maňas／CC BY 4.0，Wikimedia Commons"
+  },
+  {
    "id": "2026-10-24-new",
    "date": "2026-10-24",
    "kind": "new",
@@ -559,5 +599,5 @@
    "imgCredit": "Mr.choppers／CC BY-SA 3.0，Wikimedia Commons"
   }
  ],
- "updated": "2026-10-24T00:39:50.094Z"
+ "updated": "2026-10-25T00:21:02.447Z"
 }
