@@ -1,6 +1,12 @@
 {
  "used": [
   {
+   "kind": "lux",
+   "k": "Bugatti Veyron",
+   "t": "Veyron",
+   "d": "2026-10-28"
+  },
+  {
    "kind": "how",
    "k": "Regenerative braking",
    "t": "再生制軔：煞車時怎麼把動能變回電？",

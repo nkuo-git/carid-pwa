@@ -2,6 +2,59 @@
  "v": 1,
  "items": [
   {
+   "id": "2026-10-28-lux",
+   "date": "2026-10-28",
+   "kind": "lux",
+   "title": "Veyron",
+   "lede": "Bugatti Veyron 是由福斯集團與 Bugatti 開發的中置引擎超級跑車，原版極速達 407 km/h，曾被 BBC 節目 Top Gear 封為十年風雲車。",
+   "sections": [
+    {
+     "h": "為什麼值得認識",
+     "p": [
+      "Bugatti Veyron EB 16.4 的車名是為了紀念法國賽車手皮埃爾·韋隆。「EB」代表創辦人 Ettore Bugatti，「16.4」則指引擎擁有 16 汽缸與四渦輪增壓。",
+      "這輛車由 Hartmut Warkuß 擔任主設計師，福斯集團的 Jozef Kabaň 設計外觀，並搭載 Burmester 音響系統。原版車型的 W16 引擎經德國 TÜV Süddeutschland 認證，可輸出 1,001 PS 馬力與 1,250 N⋅m 扭力。"
+     ]
+    },
+    {
+     "h": "在路上怎麼認出它",
+     "p": [
+      "當車速達到 220 km/h 時，液壓系統會自動將車身降低，使離地高降至約 9 公分，同時尾翼與擾流板會展開。若要達到絕對極速，車主必須使用專用極速鑰匙，讓尾翼收縮、前進氣擴散器關閉，離地高進一步降至 6.5 公分。在超過 200 km/h 的速度下煞車時，後尾翼也會迅速立起至 55 度角作為空氣煞車使用。"
+     ]
+    }
+   ],
+   "make": "Bugatti",
+   "specs": [
+    [
+     "引擎",
+     "8.0升四渦輪增壓W16汽缸引擎"
+    ],
+    [
+     "馬力",
+     "1001 PS"
+    ],
+    [
+     "扭力",
+     "1,250 N⋅m"
+    ],
+    [
+     "極速",
+     "407 km/h"
+    ]
+   ],
+   "sources": [
+    {
+     "name": "維基百科：Bugatti Veyron",
+     "url": "https://en.wikipedia.org/wiki/Bugatti_Veyron"
+    },
+    {
+     "name": "中文維基百科",
+     "url": "https://zh.wikipedia.org/zh-tw/%E5%B8%83%E5%8A%A0%E8%BF%AA%E5%A8%81%E9%BE%99"
+    }
+   ],
+   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c9/Bugatti_Veyron_16.4_%E2%80%93_Frontansicht_%281%29%2C_5._April_2012%2C_D%C3%BCsseldorf.jpg/1280px-Bugatti_Veyron_16.4_%E2%80%93_Frontansicht_%281%29%2C_5._April_2012%2C_D%C3%BCsseldorf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "imgCredit": "M 93／CC BY-SA 3.0 de，Wikimedia Commons"
+  },
+  {
    "id": "2026-10-25-how",
    "date": "2026-10-25",
    "kind": "how",
@@ -599,5 +652,5 @@
    "imgCredit": "Mr.choppers／CC BY-SA 3.0，Wikimedia Commons"
   }
  ],
- "updated": "2026-10-25T00:21:02.447Z"
+ "updated": "2026-10-28T01:22:02.419Z"
 }
