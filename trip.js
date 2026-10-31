@@ -968,7 +968,9 @@ function paintLiveNumbers() {
 /* 手機打橫：CSS 會把曲線框變寬變矮，SVG 就照框的大小畫 */
 const isLand = () => matchMedia("(orientation: landscape) and (max-height: 600px)").matches;
 function chartSize(box, h) {
-  if (!isLand()) return { w: 358, h };
+  // 記錄中（直的也全螢幕）和橫的：框是固定高度，照框算；其他時候照預設比例
+  const fixed = isLand() || (box === S.tripChart && document.body.classList.contains("triplive"));
+  if (!fixed) return { w: 358, h };
   return { w: box.clientWidth || 358, h: box.clientHeight || h };
 }
 let itemChartW = 358;
