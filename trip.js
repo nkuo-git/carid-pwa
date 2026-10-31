@@ -909,7 +909,7 @@ function paintPanel() {
   const M = MODES[mode];
   const live = !!rec;
   S.tripRecBar.hidden = !live;
-  S.tripStats.hidden = !live || gauge === "simple";   // 簡潔面板把這三個數字放在旁邊了
+  S.tripStats.hidden = !live || gauge === "simple" || (focus && gauge === "race");   // 簡潔面板把這三個數字放在旁邊了
   S.tripMapBox.hidden = !live || focus;
   S.tripChartBox.hidden = !live || focus;
   S.tripFocus.hidden = !live;
