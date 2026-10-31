@@ -34,9 +34,11 @@ const MODES = {
 const GAUGES = { num: "數字", dial: "圓錶", arc: "弧形", race: "賽車", simple: "簡潔" };
 const MODE_KEY = "carid.trip.mode";
 const GAUGE_KEY = "carid.trip.gauge";
+const FOCUS_KEY = "carid.trip.focus";   // 記錄中「只看時速」：藏地圖和曲線，時速放最大
 
 let mode = MODES[load(MODE_KEY)] ? load(MODE_KEY) : "car";
 let gauge = GAUGES[load(GAUGE_KEY)] ? load(GAUGE_KEY) : "num";
+let focus = load(FOCUS_KEY) === "1";
 
 const ICONS = {
   bike: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5.8" cy="16" r="3.6"/><circle cx="18.2" cy="16" r="3.6"/><path d="M5.8 16 9.6 9h5.6l3 7"/><path d="M9.6 9l3.4 7h-.2"/><path d="M8.4 6.2h3"/><path d="M15.2 9l-.8-2.8h2"/></svg>',
@@ -885,7 +887,7 @@ function xLabelsFor(from, to) {
 
 const S = {};
 function grab() {
-  for (const id of ["tripModes", "tripRecBar", "tripStatus", "tripGauge", "tripGaugeSel", "tripStats", "tripMapBox", "tripMap", "tripChartBox", "tripChart", "tripStart", "tripPause", "tripStop", "tripNote", "tripList", "tripEmpty", "tripDot", "tiMode", "tiTitle", "tiMap", "tiTable", "tiChart", "tiHint", "tiDel", "tiMapBox", "tripEndWrap", "tripEndDim", "tripEndStats", "tripEndNote", "tripEndDrop", "tripEndKeep", "tripEndMore", "tripEndClose", "tripAcctCard", "tripAcctText", "tripAcctBtn", "tripAcctLine", "tripAcctStatus", "tripAcctStatusIc", "tripAcctStatusText", "tripAcctStatusNum", "tripAcctBar", "tripAcctBarFill", "tripListNote"]) S[id] = $(id);
+  for (const id of ["tripModes", "tripRecBar", "tripStatus", "tripGauge", "tripGaugeSel", "tripStats", "tripMapBox", "tripMap", "tripChartBox", "tripChart", "tripStart", "tripPause", "tripStop", "tripNote", "tripList", "tripEmpty", "tripDot", "tiMode", "tiTitle", "tiMap", "tiTable", "tiChart", "tiHint", "tiDel", "tiMapBox", "tripFocus", "tripEndWrap", "tripEndDim", "tripEndStats", "tripEndNote", "tripEndDrop", "tripEndKeep", "tripEndMore", "tripEndClose", "tripAcctCard", "tripAcctText", "tripAcctBtn", "tripAcctLine", "tripAcctStatus", "tripAcctStatusIc", "tripAcctStatusText", "tripAcctStatusNum", "tripAcctBar", "tripAcctBarFill", "tripListNote"]) S[id] = $(id);
 }
 let liveMap = null, itemMap = null;
 
@@ -908,8 +910,12 @@ function paintPanel() {
   const live = !!rec;
   S.tripRecBar.hidden = !live;
   S.tripStats.hidden = !live || gauge === "simple";   // 簡潔面板把這三個數字放在旁邊了
-  S.tripMapBox.hidden = !live;
-  S.tripChartBox.hidden = !live;
+  S.tripMapBox.hidden = !live || focus;
+  S.tripChartBox.hidden = !live || focus;
+  S.tripFocus.hidden = !live;
+  S.tripFocus.setAttribute("aria-pressed", String(focus));
+  S.tripFocus.title = focus ? "顯示地圖和曲線" : "只看時速";
+  S.tripFocus.setAttribute("aria-label", S.tripFocus.title);
   S.tripStart.hidden = live;
   S.tripPause.hidden = !live;
   S.tripStop.hidden = !live;
@@ -933,7 +939,7 @@ function paintPanel() {
   S.tripPause.innerHTML = rec?.paused ? PLAY + "繼續" : PAUSE + "暫停";
   S.tripRecBar.classList.toggle("paused", !!rec?.paused);
   paintLiveNumbers();
-  if (live) { paintLiveChart(); paintLiveMap(); }
+  if (live && !focus) { paintLiveChart(); paintLiveMap(); }
   else S.tripGauge.innerHTML = gaugeHtml(0, null);
   S.tripGauge.dataset.kind = gauge;
 }
@@ -976,20 +982,21 @@ function chartSize(box, h) {
 let itemChartW = 358;
 
 function paintLiveChart() {
-  if (view !== "trip" || !rec) return;
+  if (view !== "trip" || !rec || focus) return;
   const now = rec.paused ? rec.pausedAt : Date.now();
   const from = Math.max(rec.start, now - 10 * 60000);
   const sz = chartSize(S.tripChart, 100);
   S.tripChart.innerHTML = chartSvg(rec.pts, { ...sz, from, to: Math.max(now, from + 60000), live: true, ymax: niceMax(Math.max(10, rec.maxV * 3.6, MODES[rec.mode].max * 0.3)) });
 }
 function paintLiveMap() {
-  if (view !== "trip" || !rec) return;
+  if (view !== "trip" || !rec || focus) return;
   if (!liveMap) liveMap = new RouteMap(S.tripMap);
   liveMap.draw(rec.pts);
 }
 function paintTripDot() {
   if (S.tripDot) S.tripDot.hidden = !rec;
   document.body.classList.toggle("triplive", !!rec);
+  document.body.classList.toggle("tripfocus", !!rec && focus);
 }
 
 /* 之前的紀錄 */
@@ -1179,6 +1186,12 @@ function wire() {
   S.tripStart.addEventListener("click", startRec);
   S.tripPause.addEventListener("click", () => (rec?.paused ? resumeRec() : pauseRec()));
   S.tripStop.addEventListener("click", askEnd);
+  S.tripFocus.addEventListener("click", () => {
+    focus = !focus;
+    store(FOCUS_KEY, focus ? "1" : null);
+    paintTripDot();
+    paintPanel();
+  });
   S.tripEndKeep.addEventListener("click", endKeep);
   S.tripEndDrop.addEventListener("click", endDrop);
   S.tripEndMore.addEventListener("click", endContinue);
