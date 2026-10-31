@@ -1533,3 +1533,210 @@ button.linkish:hover:not(:disabled) { background: transparent; text-decoration: 
 .pinbtn[aria-pressed="true"]:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); }
 .ntab:hover:not(:disabled) { background: transparent; }
 .ntab[aria-selected="true"]:hover:not(:disabled) { background: var(--accent); }
+
+/* ---------- 行車紀錄（trip.js） ---------- */
+
+/* 底部分頁三格：汽車／行車紀錄／麥塊 */
+.tabbar { padding-inline: 16px; }
+.tabbar .dot.rec { background: #FF4D3D; }
+body[data-view="trip"] .segbar { display: none !important; }
+body[data-view="tripitem"] .main-only,
+body[data-view="tripitem"] .tabbar { display: none !important; }
+
+/* 腳踏車／開車／跑步 */
+.tmodes {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  margin: 0 0 12px;
+  border-radius: 13px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.tmodes button {
+  flex: 1 1 0;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 14px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.tmodes button svg { width: 18px; height: 18px; }
+.tmodes button[aria-pressed="true"] { background: var(--line-strong); color: var(--ink); font-weight: 700; }
+.tmodes[aria-disabled="true"] button:not([aria-pressed="true"]) { opacity: .4; }
+.tmodes button:hover:not(:disabled) { background: var(--line-strong); }
+
+/* 記錄中那一條 */
+.trecbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 14px;
+  margin-bottom: 12px;
+  border-radius: 13px;
+  background: var(--danger-bg);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  font-size: 14px;
+  font-weight: 700;
+}
+.trecbar.paused { background: var(--surface-2); border-color: var(--line-strong); }
+.trecbar .d, .tstatus .d { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--ink-faint); }
+.trecbar .d.rec { background: #FF4D3D; box-shadow: 0 0 0 4px rgba(255, 77, 61, .22); }
+.trecbar .gps { flex: 1; min-width: 0; font-size: 11px; font-weight: 500; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trecbar time { margin-left: auto; font-family: "Barlow Condensed", "Noto Sans TC", sans-serif; font-size: 22px; letter-spacing: .02em; }
+
+/* 速度面板 */
+.tpanel {
+  padding: 18px 16px 16px;
+  border-radius: 20px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.tstatus { display: flex; align-items: center; gap: 7px; margin: 0 0 6px; font-size: 12px; color: var(--ink-soft); text-align: center; }
+.tstatus .d { width: 8px; height: 8px; }
+.tgauge { width: 100%; display: flex; flex-direction: column; align-items: center; }
+.tgauge .big {
+  font-family: "Barlow Condensed", "Noto Sans TC", sans-serif;
+  font-size: 128px;
+  font-weight: 700;
+  line-height: .95;
+  letter-spacing: -.01em;
+  margin-top: 6px;
+}
+.tgauge .big.on { color: var(--accent); }
+.tgauge .unit { font-family: "Barlow Condensed", "Noto Sans TC", sans-serif; font-size: 18px; font-weight: 600; color: var(--ink-soft); letter-spacing: .12em; }
+.tgauge .pace { margin-top: 8px; font-size: 13px; color: var(--ink-soft); }
+.tgauge .pace b { font-family: "Barlow Condensed", "Noto Sans TC", sans-serif; font-size: 24px; color: var(--ink); margin: 0 2px; }
+.tgauge svg { display: block; max-width: 100%; height: auto; }
+
+/* 圓錶 */
+.dial .face { fill: var(--ground); stroke: var(--line-mid); stroke-width: 2; }
+.dial .redarc { fill: none; stroke: var(--accent); stroke-width: 6; opacity: .35; }
+.dial .tick { fill: none; stroke: var(--ink-mid); stroke-width: 2; }
+.dial .tick.hot { stroke: var(--accent); stroke-width: 2.5; }
+.dial .lab text { fill: var(--ink-mid); font-family: "Barlow Condensed", sans-serif; font-size: 17px; font-weight: 600; text-anchor: middle; }
+.dial .lab text.hot { fill: var(--accent); }
+.dial .maxmark { stroke: var(--ink); stroke-width: 2; opacity: .55; }
+.dial .needle { stroke: var(--ink-faint); stroke-width: 5; stroke-linecap: round; transition: all .5s linear; }
+.dial .needle.on { stroke: var(--accent); }
+.dial .hub { fill: var(--line-mid); stroke: var(--accent); stroke-width: 3; }
+.dial .num { fill: var(--ink); font-family: "Barlow Condensed", sans-serif; font-size: 46px; font-weight: 700; text-anchor: middle; }
+.dial .unit, .arcg .unit { fill: var(--ink-soft); font-family: "Barlow Condensed", sans-serif; font-size: 13px; font-weight: 600; text-anchor: middle; letter-spacing: 2px; }
+
+/* 弧形 */
+.arcg .tick { stroke: var(--line-strong); stroke-width: 2; stroke-linecap: round; }
+.arcg .track { fill: none; stroke: var(--line); stroke-width: 20; stroke-linecap: round; }
+.arcg .fill { fill: none; stroke: var(--ink-faint); stroke-width: 20; stroke-linecap: round; }
+.arcg .fill.on { stroke: var(--accent); }
+.arcg .maxmark { stroke: var(--ink); stroke-width: 3; stroke-linecap: round; }
+.arcg .lab { fill: var(--ink-faint); font-family: "Barlow Condensed", sans-serif; font-size: 15px; font-weight: 600; text-anchor: middle; }
+.arcg .num { fill: var(--ink); font-family: "Barlow Condensed", sans-serif; font-size: 120px; font-weight: 700; text-anchor: middle; }
+.arcg .unit { font-size: 16px; letter-spacing: 3px; }
+.arcg .cap { fill: var(--ink-soft); font-size: 13px; text-anchor: middle; }
+
+/* 賽車 */
+.race { width: 100%; padding: 12px 12px 10px; border-radius: 16px; background: var(--ground); border: 1px solid var(--line-mid); }
+.race .lights { display: flex; gap: 3px; }
+.race .lights i { flex: 1 1 0; height: 22px; border-radius: 3px; background: var(--surface-2); opacity: .6; }
+.race .lights i.g.lit { background: #6FCF8E; opacity: 1; }
+.race .lights i.y.lit { background: #E0B341; opacity: 1; }
+.race .lights i.o.lit { background: var(--accent); opacity: 1; }
+.race .lights i.r.lit { background: #FF4D3D; opacity: 1; }
+.race .scale { display: flex; justify-content: space-between; margin-top: 4px; font-family: "Barlow Condensed", sans-serif; font-style: italic; font-size: 12px; font-weight: 600; color: var(--ink-faint); }
+.race .scale span { flex: 1 1 0; }
+.race .rbig { display: flex; align-items: flex-end; justify-content: center; gap: 8px; margin: 6px 0 10px; }
+.race .rnum { font-family: "Barlow Condensed", "Noto Sans TC", sans-serif; font-style: italic; font-size: 150px; font-weight: 800; line-height: .82; letter-spacing: -.02em; }
+.race.on .rnum { color: var(--ink); }
+.race .rside { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding-bottom: 6px; min-width: 56px; }
+.race .runit { font-family: "Barlow Condensed", sans-serif; font-style: italic; font-size: 20px; font-weight: 700; color: var(--accent); letter-spacing: .08em; }
+.race .rdiff { height: 24px; padding: 0 8px; border-radius: 6px; background: var(--ok-bg); color: var(--glow); font-family: "Barlow Condensed", sans-serif; font-style: italic; font-size: 16px; font-weight: 700; display: inline-flex; align-items: center; }
+.race .rdiff.dn { background: var(--danger-bg); color: var(--danger); }
+.race .rcap { font-size: 11px; color: var(--ink-faint); margin-top: -4px; }
+.race .rtiles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.race .rtiles div { padding: 8px 12px; border-radius: 8px; background: var(--surface); border: 1px solid var(--line); }
+.race .rtiles .k { display: block; font-size: 11px; font-weight: 700; color: var(--accent); letter-spacing: .1em; }
+.race .rtiles b { display: block; font-family: "Barlow Condensed", "Noto Sans TC", sans-serif; font-style: italic; font-size: 30px; font-weight: 700; line-height: 1.05; }
+.race .rtiles small { font-size: 14px; color: var(--ink-soft); margin-left: 4px; font-weight: 500; }
+
+/* 面板切換、開始／暫停／結束 */
+.tgsel {
+  width: 100%;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  margin-top: 14px;
+  border-radius: 12px;
+  background: var(--ground);
+  border: 1px solid var(--line);
+}
+.tgsel button { flex: 1 1 0; height: 34px; padding: 0; border: 0; border-radius: 9px; background: transparent; color: var(--ink-soft); font-size: 13px; font-weight: 500; }
+.tgsel button[aria-pressed="true"] { background: var(--line-strong); color: var(--ink); font-weight: 700; }
+button.tstart { width: 100%; margin-top: 16px; height: 56px; border-radius: 16px; font-size: 17px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+button.tstart svg { width: 18px; height: 18px; }
+.tstats { margin-top: 12px; }
+.tstats .stat b { font-size: 28px; }
+.tstats .stat b small { font-size: 15px; color: var(--ink-soft); margin-left: 3px; font-weight: 600; }
+.tbtns { display: flex; gap: 10px; margin-top: 14px; }
+.tbtns:empty, .tbtns:not(:has(button:not([hidden]))) { display: none; }
+.tbtns button { flex: 1 1 0; height: 54px; border-radius: 16px; font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.tbtns button.primary { flex: 1.4 1 0; }
+.tbtns button svg { width: 16px; height: 16px; }
+.tnote { margin: 12px 4px 0; font-size: 12px; color: var(--ink-soft); line-height: 1.7; text-align: center; }
+.tnote button.small { margin-left: 6px; height: 28px; vertical-align: middle; }
+
+/* 地圖 */
+.tmap { position: relative; margin-top: 12px; height: 200px; border-radius: 16px; overflow: hidden; border: 1px solid var(--line); background: var(--surface-2); }
+.tmap.tall { height: 260px; margin-top: 14px; }
+.tmap canvas { display: block; width: 100%; height: 100%; }
+.tmap .osm { position: absolute; right: 8px; bottom: 6px; font-size: 10px; color: var(--ink-faint); }
+.tmap .legend { position: absolute; left: 10px; bottom: 8px; display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 8px; background: var(--bar); font-size: 11px; color: var(--ink-mid); }
+.tmap .legend i { width: 64px; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #4C9AFF, #E0B341, var(--accent)); }
+
+/* 速度曲線 */
+.tchart { margin-top: 12px; padding: 12px 0 8px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); }
+.tchart header { display: flex; justify-content: space-between; padding: 0 14px 6px; font-size: 12px; color: var(--ink-soft); }
+.tchart header b { font-size: 13px; color: var(--ink); }
+.tchart svg { display: block; width: 100%; height: auto; touch-action: pan-y; user-select: none; }
+#tripChart svg { aspect-ratio: 358 / 100; }
+#tiChart svg { aspect-ratio: 358 / 190; cursor: crosshair; }
+.tchart .grid { stroke: var(--line); stroke-width: 1; }
+.tchart .ylab text { fill: var(--ink-faint); font-family: "Barlow Condensed", sans-serif; font-size: 11px; text-anchor: end; }
+.tchart .xlab text { fill: var(--ink-faint); font-size: 11px; }
+.tchart .area { fill: var(--accent); opacity: .16; }
+.tchart .line { fill: none; stroke: var(--accent); stroke-width: 2.2; stroke-linejoin: round; }
+.tchart .maxpt, .tchart .endpt { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
+.tchart .scrub path { stroke: var(--ink); stroke-width: 1; stroke-dasharray: 3 3; opacity: .6; }
+.tchart .scrub circle { fill: var(--ink); stroke: var(--accent); stroke-width: 2.5; }
+.tchart .scrub rect { fill: var(--ground); }
+.tchart .scrub text { fill: var(--accent); font-family: "Barlow Condensed", "Noto Sans TC", sans-serif; font-size: 12px; font-weight: 700; }
+.tchart .hint { margin: 4px 14px 0; font-size: 12px; color: var(--ink-soft); line-height: 1.6; min-height: 1.6em; }
+
+/* 之前的紀錄 */
+.tlisthead { display: flex; justify-content: space-between; align-items: baseline; margin: 22px 0 6px; font-size: 12px; }
+.tlisthead span:first-child { font-weight: 700; color: var(--ink-soft); letter-spacing: .08em; }
+.tlisthead span:last-child { color: var(--ink-faint); }
+.tthumb { display: flex; align-items: center; justify-content: center; }
+.tthumb svg { width: 44px; height: 44px; }
+.tthumb path { fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.tline1 { display: flex; align-items: baseline; gap: 8px; }
+.tmode { font-size: 12px; font-weight: 700; color: var(--accent); }
+.tdist { font-family: "Barlow Condensed", "Noto Sans TC", sans-serif; font-size: 22px; font-weight: 700; line-height: 1.05; }
+.tsub { font-size: 12px; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 一筆紀錄 */
+.tihead { padding: 16px 0 0; }
+.tihead h2 { margin: 2px 0 0; font-family: "Barlow Condensed", "Noto Sans TC", sans-serif; font-size: 26px; font-weight: 700; line-height: 1.2; }
+.screen.detail .card { margin-top: 14px; }
+table.spec td b.n { font-family: "Barlow Condensed", "Noto Sans TC", sans-serif; font-size: 19px; font-weight: 700; }
+table.spec td .tsmall { font-size: 12px; color: var(--ink-soft); margin-left: 8px; }

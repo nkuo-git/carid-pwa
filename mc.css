@@ -402,7 +402,7 @@ button { font-family: inherit; }
   z-index: 5;
   display: flex;
   margin-top: 18px;
-  padding: 6px 40px calc(8px + env(safe-area-inset-bottom, 0px));
+  padding: 6px 16px calc(8px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid #23262D;
   background: #15171C;
 }

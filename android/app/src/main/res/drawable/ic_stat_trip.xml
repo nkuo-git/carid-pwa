@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 行車紀錄中那條通知的小圖示：一個速度表（系統只看形狀，顏色會自己換） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+  <path
+      android:pathData="M3.8,16.5a8.2,8.2 0,1 1,16.4 0M12,16.5l3.6,-4.6M6.2,10.6l1,0.8M12,8.3v1.2M17.8,10.6l-1,0.8"
+      android:strokeColor="#FFFFFFFF"
+      android:strokeWidth="2"
+      android:strokeLineCap="round"
+      android:strokeLineJoin="round"
+      android:fillColor="#00000000" />
+  <path
+      android:pathData="M12,16.5m-1.4,0a1.4,1.4 0,1 0,2.8 0a1.4,1.4 0,1 0,-2.8 0"
+      android:fillColor="#FFFFFFFF" />
+</vector>

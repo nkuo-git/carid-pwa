@@ -72,6 +72,7 @@ carid-pwa/
 ├── app.js                      全部邏輯：選照片、縮圖、呼叫 API、畫表格
 ├── manifest.webmanifest        App 名稱、圖示、啟動方式
 ├── sw.js                       Service Worker，快取 App 本體
+├── trip.js                     行車紀錄（底部「行車紀錄」分頁）
 ├── mc.html / mc.css / mc.js    麥塊建築（底部「麥塊」分頁）
 ├── firebase.json               Firebase Hosting 設定
 └── icons/                      主畫面圖示
@@ -83,6 +84,18 @@ carid-pwa/
 `https://generativelanguage.googleapis.com/v1beta/interactions`（`x-goog-api-key` 帶金鑰），
 模型依序試 `gemini-flash-lite-latest` → `gemini-flash-latest`，前一個失敗（例如額度用完）就自動換下一個，兩個都失敗才顯示錯誤。使用者不用選。「深入」才帶 `generation_config.thinking_level: "high"`，「標準」不帶，讓每個模型用自己的預設值（有些模型不收這個欄位會回 400）。
 回應的文字在 `steps` 裡 `type: "model_output"` 那一段，取出來解析成 JSON 後畫成表格；解析失敗會提示再試一次。照片不會被存到任何地方。
+
+### 行車紀錄（內容 45 起，APK 13 起）
+
+底部第二格。騎腳踏車、開車、跑步選一個，按「開始記錄」就用 GPS 看現在多快（數字／圓錶／弧形／賽車四種面板可以換），
+記下路線（OpenStreetMap 底圖，要有網路；沒網路只畫線）和速度曲線；結束後每趟存在手機裡（IndexedDB `carid-trip`），
+點進去有路線（越快越橘）、一張表和整趟的速度曲線，手指滑曲線可以看那一刻在哪、多快。全部在 `trip.js`。
+
+位置從哪裡來：新的 App 外殼（APK 13 起，`CaridApp.tripStart`）用前景服務 `TripService` 在背景記，
+螢幕關掉也會繼續，通知列會一直有一條「行車紀錄中」（上面可以暫停、結束）；點一個一個用
+`window.caridTrip("fix", …)` 交給網頁，沒接到的回來再用 `tripPoints` 補。一般瀏覽器用 `navigator.geolocation`，
+螢幕要亮著（有 wakeLock 就撐著）。舊的外殼（APK 12 以前）WebView 不給用定位，畫面會請使用者先更新 App。
+第一次按開始時手機會問一次位置權限，選「精確」＋「使用應用程式時」就夠了，不用「一律允許」。
 
 ### 改車（內容 43 起拿掉了）
 

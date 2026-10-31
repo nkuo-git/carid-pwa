@@ -17,7 +17,7 @@
 
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap">
-<link rel="stylesheet" href="./styles.css?v=44">
+<link rel="stylesheet" href="./styles.css?v=45">
 </head>
 <body data-view="car">
 
@@ -26,7 +26,7 @@
     <img class="mark" src="./icons/icon-192.png" alt="" width="34" height="34">
     <div class="brand">
       <h1 class="brand-name">大便龍的萬能軟體<span class="brand-ver" id="brandVer"></span></h1>
-      <p class="brand-sub">汽車</p>
+      <p class="brand-sub" id="brandSub">汽車</p>
     </div>
     <button type="button" class="icon-btn" id="prefsBtn" aria-expanded="false" aria-controls="prefsSheet" aria-label="設定">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -291,6 +291,49 @@
     </div>
   </div>
 
+  <!-- 行車紀錄：騎腳踏車、開車、跑步，看現在多快、記路線、畫速度曲線（trip.js） -->
+  <section class="screen" id="screenTrip" hidden>
+    <nav class="tmodes" id="tripModes" aria-label="怎麼移動"></nav>
+    <div class="trecbar" id="tripRecBar" hidden></div>
+    <section class="tpanel" aria-label="現在的時速">
+      <p class="tstatus" id="tripStatus"></p>
+      <div class="tgauge" id="tripGauge"></div>
+      <nav class="tgsel" id="tripGaugeSel" aria-label="時速面板"></nav>
+      <button type="button" class="primary tstart" id="tripStart"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.8v14.4a1 1 0 0 0 1.5.9l11.5-7.2a1 1 0 0 0 0-1.8L8.5 3.9A1 1 0 0 0 7 4.8z"/></svg>開始記錄</button>
+    </section>
+    <div class="stats tstats" id="tripStats" hidden></div>
+    <div class="tmap" id="tripMapBox" hidden><canvas id="tripMap"></canvas><span class="osm">© OpenStreetMap</span></div>
+    <div class="tchart" id="tripChartBox" hidden>
+      <header><span>速度（最近 10 分鐘）</span><span>km/h</span></header>
+      <div id="tripChart"></div>
+    </div>
+    <div class="tbtns">
+      <button type="button" id="tripPause" hidden>暫停</button>
+      <button type="button" class="primary" id="tripStop" hidden><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="4.5" y="4.5" width="15" height="15" rx="2.5"/></svg>結束並存起來</button>
+    </div>
+    <p class="tnote" id="tripNote" hidden></p>
+    <div class="tlisthead"><span>之前的紀錄</span><span>只存在這支手機</span></div>
+    <div id="tripList"></div>
+    <p class="empty" id="tripEmpty" hidden>還沒有紀錄。選好腳踏車、開車還是跑步，按「開始記錄」就會開始記。</p>
+  </section>
+
+  <!-- 行車紀錄：點進一筆 -->
+  <section class="screen detail" id="screenTripItem" hidden>
+    <header class="backhead">
+      <a class="icon-btn" href="#trip" aria-label="回行車紀錄"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></a>
+      <span>行車紀錄</span>
+    </header>
+    <div class="tihead"><span class="tmode" id="tiMode"></span><h2 id="tiTitle"></h2></div>
+    <div class="tmap tall" id="tiMapBox"><canvas id="tiMap"></canvas><span class="legend">慢<i></i>快</span><span class="osm">© OpenStreetMap</span></div>
+    <div class="card"><table class="spec" id="tiTable"></table></div>
+    <div class="tchart">
+      <header><b>速度曲線</b><span>km/h</span></header>
+      <div id="tiChart"></div>
+      <p class="hint" id="tiHint"></p>
+    </div>
+    <div class="btnrow"><button type="button" id="tiDel" class="danger">刪除這筆</button></div>
+  </section>
+
   <div class="dock">
   <div class="actionbar car-only" id="actionbar">
     <button type="button" id="cam" class="primary wide" hidden>拍照</button>
@@ -303,11 +346,12 @@
 
   <nav class="tabbar" aria-label="功能">
     <a href="#car" id="carTab" aria-current="page"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 13l1.7-4.3A3 3 0 0 1 8 6.8h8a3 3 0 0 1 2.8 1.9L20.5 13"/><path d="M3.5 13h17v3.8h-17z"/><path d="M6.8 16.8v1.4"/><path d="M17.2 16.8v1.4"/></svg><span class="dot" id="carDot" hidden></span></span>汽車</a>
+    <a href="#trip" id="tripTab"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.8 16.5a8.2 8.2 0 1 1 16.4 0"/><path d="M12 16.5l3.6-4.6"/><circle cx="12" cy="16.5" r="1.2"/><path d="M6.2 10.6l1 .8M12 8.3v1.2M17.8 10.6l-1 .8"/></svg><span class="dot rec" id="tripDot" hidden></span></span>行車紀錄</a>
     <a href="./mc.html"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 20.5 7.5v9L12 21 3.5 16.5v-9z"/><path d="M3.5 7.5 12 12l8.5-4.5"/><path d="M12 12v9"/></svg></span>麥塊</a>
   </nav>
   </div>
 </div>
 
-<script type="module" src="./app.js?v=44"></script>
+<script type="module" src="./app.js?v=45"></script>
 </body>
 </html>

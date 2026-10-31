@@ -7,6 +7,11 @@
   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
   <!-- App 裡直接更新：下載好的新版交給手機安裝（手機還是會問一次要不要更新） -->
   <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+  <!-- 行車紀錄：GPS 看時速、記路線；前景服務讓螢幕關掉也繼續記（Android 14 要另外宣告是「位置」那一種） -->
+  <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+  <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
   <!-- targetSdk 30 以上要宣告才看得到相機 App -->
   <queries>
@@ -51,6 +56,12 @@
         android:name=".NewsJobService"
         android:exported="false"
         android:permission="android.permission.BIND_JOB_SERVICE" />
+
+    <!-- 行車紀錄：在背景記 GPS 的前景服務（TripService） -->
+    <service
+        android:name=".TripService"
+        android:exported="false"
+        android:foregroundServiceType="location" />
 
     <provider
         android:name="androidx.core.content.FileProvider"

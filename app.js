@@ -23,6 +23,9 @@ const FIREBASE_SDK = "https://www.gstatic.com/firebasejs/12.19.0/";
 // 以前要使用者自己貼的 Gemini 金鑰，現在用不到了，順手從手機裡清掉
 const OLD_KEY_STORE = "carid.apikey";
 
+// 行車紀錄（底部第二格）在 trip.js；路由在下面的 route() 裡接
+import { tripRoute } from "./trip.js?v=45";
+
 /* ================= 外觀：配色與明暗 ================= */
 
 const PRESETS = [
@@ -167,8 +170,8 @@ $("prefsBtn").addEventListener("click", () => setPrefs(prefsSheetEl.hidden));
 /* ================= 版本 ================= */
 
 /* 網頁內容的版號，跟 sw.js 的 CACHE、index.html 和 mc.html 裡的 ?v= 一起加
-   （account.js 也用這個版號載入） */
-const WEB_BUILD = 44;
+   （account.js 也用這個版號載入；最上面 import trip.js 的 ?v= 也要一起改） */
+const WEB_BUILD = 45;
 
 function appBuild() {
   const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
@@ -908,9 +911,9 @@ goBtn.addEventListener("click", run);
 redoBtn.addEventListener("click", run);
 
 /* ================= 分頁 ================= */
-// 底部分頁是 汽車／麥塊（麥塊是另一頁 mc.html）。
+// 底部分頁是 汽車／行車紀錄／麥塊（麥塊是另一頁 mc.html）。
 // 汽車裡面用網址的 # 切換：#car、#history、#history/<id>、#news、#news/<id>，
-// 登入頁是 #login（算在紀錄底下）
+// 登入頁是 #login（算在紀錄底下）；行車紀錄是 #trip、#trip/<id>
 
 const views = {
   history: $("screenHistory"),
@@ -918,6 +921,8 @@ const views = {
   login: $("screenLogin"),
   news: $("screenNews"),
   article: $("screenArticle"),
+  trip: $("screenTrip"),
+  tripitem: $("screenTripItem"),
 };
 
 /* 記住汽車裡上次看的是辨車、紀錄還是車訊，從麥塊切回來時回到同一頁 */
@@ -941,6 +946,8 @@ function route() {
   if (tab === "history") view = id ? "histitem" : "history";
   else if (tab === "news") view = id ? "article" : "news";
   else if (tab === "login") view = "login";
+  else if (tab === "trip") view = id ? "tripitem" : "trip";   // 底部的「行車紀錄」（trip.js）
+  const onTrip = view === "trip" || view === "tripitem";
 
   // 「登入好了」只在剛登入後的紀錄頁出現一次，離開就收起來
   if (view !== "history" && view !== "login" && acctSnap.sync.phase === "idle") justIn = false;
@@ -952,7 +959,13 @@ function route() {
     if (a.dataset.seg === seg) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   });
-  try { sessionStorage.setItem(CAR_TAB, seg); } catch { /* 不給用就算了 */ }
+  if (!onTrip) { try { sessionStorage.setItem(CAR_TAB, seg); } catch { /* 不給用就算了 */ } }
+  // 底部分頁：汽車／行車紀錄 哪一格亮；在行車紀錄時按「汽車」回到上次看的那一頁
+  const carTab = $("carTab"), tripTab = $("tripTab");
+  if (onTrip) carTab.removeAttribute("aria-current"); else carTab.setAttribute("aria-current", "page");
+  if (onTrip) tripTab.setAttribute("aria-current", "page"); else tripTab.removeAttribute("aria-current");
+  carTab.href = "#" + (onTrip ? lastCarTab() : "car");
+  $("brandSub").textContent = onTrip ? "行車紀錄" : "汽車";
   setPrefs(wantPrefs);
   window.scrollTo(0, 0);
 
@@ -961,6 +974,7 @@ function route() {
   else if (view === "login") paintLogin();
   else if (view === "news") paintNews();
   else if (view === "article") paintArticle(id);
+  tripRoute(view === "trip" ? "trip" : view === "tripitem" ? "item" : null, id);
   if (view !== "article") setShareArt(null);
 }
 window.addEventListener("hashchange", route);

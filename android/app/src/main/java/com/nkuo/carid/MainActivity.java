@@ -11,6 +11,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.provider.MediaStore;
+import android.webkit.GeolocationPermissions;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -37,6 +38,7 @@ import java.util.List;
  * 這裡要自己處理的只有兩件事：網頁上的 <input type="file">（WebView 預設不會有反應，
  * 要自己把相簿與相機的 Intent 接起來），以及登入信的連結從瀏覽器跳回 App（carid://login）。
  * 另外有新車訊通知（NewsCheck）：按了通知會帶 carid://news/<id> 進來，打開那篇。
+ * 行車紀錄（TripService）：網頁按開始，這裡問位置權限、把前景服務開起來，GPS 的點用 window.caridTrip 交給網頁。
  */
 public class MainActivity extends Activity {
 
@@ -45,6 +47,10 @@ public class MainActivity extends Activity {
 
   private static final int REQ_FILE = 1001;
   private static final int REQ_NOTIFY = 1002;
+  private static final int REQ_LOCATION = 1003;
+
+  /** 行車紀錄：問完位置權限要開始記的模式（腳踏車／開車／跑步）；null＝沒有在等。 */
+  private String tripModeWanted;
 
   /** App 裡直接更新：下載好了、在等使用者去手機設定允許安裝。 */
   private boolean installPending;
@@ -115,6 +121,13 @@ public class MainActivity extends Activity {
 
     web.setWebChromeClient(new WebChromeClient() {
       @Override
+      public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
+        // 網頁自己用 navigator.geolocation 的時候（備用路徑）：是我們的網站、手機也准了就放行
+        boolean ours = origin != null && origin.startsWith("https://" + Uri.parse(START_URL).getHost());
+        callback.invoke(origin, ours && TripService.hasLocation(MainActivity.this), false);
+      }
+
+      @Override
       public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback,
                                        FileChooserParams params) {
         // 上一次沒收掉的 callback 要先結束，不然網頁的選檔會卡住
@@ -155,7 +168,21 @@ public class MainActivity extends Activity {
 
     keepLink(getIntent());
     String news = newsId(getIntent());
-    web.loadUrl(news != null ? START_URL + "#news/" + Uri.encode(news) : START_URL);
+    // 按了「行車紀錄中」的通知進來，或上次被殺掉時還在記：直接開在行車紀錄那頁
+    boolean toTrip = isTrip(getIntent()) || TripService.live != null || TripService.hasSaved(this);
+    web.loadUrl(news != null ? START_URL + "#news/" + Uri.encode(news) : toTrip ? START_URL + "#trip" : START_URL);
+
+    // 行車紀錄的點、暫停／結束的事，從服務送到網頁的 window.caridTrip(evt, data)
+    TripService.sink = (evt, json) -> runOnUiThread(() -> sendTrip(evt, json));
+    // 上次被殺掉時還在記（檔案還在）而服務沒在跑：把服務拉起來接著記
+    if (TripService.live == null && TripService.hasSaved(this) && TripService.hasLocation(this)) {
+      try {
+        Intent i = new Intent(this, TripService.class);
+        if (Build.VERSION.SDK_INT >= 26) startForegroundService(i); else startService(i);
+      } catch (Exception ignored) {
+        // 拉不起來就算了，網頁那邊會當作沒有在記
+      }
+    }
 
     // 新車訊通知：排好每小時看一次；Android 13 以上第一次打開問一次可不可以跳通知
     NewsCheck.schedule(this);
@@ -176,9 +203,36 @@ public class MainActivity extends Activity {
     return id.matches("[\\w-]{1,40}") ? id : null;
   }
 
+  /** 按「行車紀錄中」的通知進來的 carid://trip。 */
+  private static boolean isTrip(Intent intent) {
+    Uri data = intent != null ? intent.getData() : null;
+    return data != null && "carid".equals(data.getScheme()) && "trip".equals(data.getHost());
+  }
+
+  /** 把行車紀錄的事告訴網頁（window.caridTrip）。json 要是合法的 JSON 字面值。 */
+  private void sendTrip(String evt, String json) {
+    if (web == null) return;
+    String data = json == null || json.isEmpty() ? "null" : json;
+    web.evaluateJavascript("window.caridTrip&&window.caridTrip(" + JSONObject.quote(evt) + "," + data + ")", null);
+  }
+
+  /** 位置權限問完：准了就把服務開起來，不准就跟網頁說。 */
+  private void tripPermissionDone() {
+    String m = tripModeWanted;
+    tripModeWanted = null;
+    if (m == null) return;
+    if (TripService.hasLocation(this)) {
+      TripService.start(this, m);
+      sendTrip("started", "{\"start\":" + System.currentTimeMillis() + "}");
+    } else {
+      sendTrip("denied", "null");
+    }
+  }
+
   @Override
   public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
     super.onRequestPermissionsResult(requestCode, permissions, results);
+    if (requestCode == REQ_LOCATION) { tripPermissionDone(); return; }
     if (requestCode != REQ_NOTIFY) return;
     boolean fromToggle = notifyFromToggle;
     notifyFromToggle = false;
@@ -248,6 +302,14 @@ public class MainActivity extends Activity {
     // 點了新車訊的通知
     String news = newsId(intent);
     if (news != null && web != null) web.loadUrl(START_URL + "#news/" + Uri.encode(news));
+    // 點了「行車紀錄中」的通知：切到行車紀錄那頁（網頁已經開著就只換 #，不重載）
+    if (isTrip(intent) && web != null) web.evaluateJavascript("location.hash='#trip'", null);
+  }
+
+  @Override
+  protected void onDestroy() {
+    TripService.sink = null;
+    super.onDestroy();
   }
 
   /** 是 carid://login?… 就收起來，回傳有沒有收到。 */
@@ -342,6 +404,83 @@ public class MainActivity extends Activity {
     @JavascriptInterface
     public void newsSeen(String id, String date) {
       NewsCheck.seen(MainActivity.this, id, date);
+    }
+
+    /* ---------- 行車紀錄（trip.js） ----------
+       舊版 APK 沒有這些，網頁看到沒有 tripStart 就知道要請使用者更新 App。 */
+
+    /**
+     * 開始記：mode 是 bike／car／run。回 "started"（手機早就准了用位置，服務開了）、
+     * "asking"（正在問位置權限，結果會用 window.caridTrip("started"／"denied") 送過去）、
+     * "denied"（之前按過不允許、手機不會再問了：網頁要帶使用者去設定）。
+     */
+    @JavascriptInterface
+    public String tripStart(String mode) {
+      final String m = "bike".equals(mode) || "run".equals(mode) ? mode : "car";
+      if (TripService.hasLocation(MainActivity.this)) {
+        runOnUiThread(() -> TripService.start(MainActivity.this, m));
+        return "started";
+      }
+      boolean askable = shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION)
+          || !NewsCheck.prefs(MainActivity.this).getBoolean("locAsked", false);
+      if (!askable) return "denied";
+      NewsCheck.prefs(MainActivity.this).edit().putBoolean("locAsked", true).apply();
+      tripModeWanted = m;
+      runOnUiThread(() -> requestPermissions(TripService.PERMS, REQ_LOCATION));
+      return "asking";
+    }
+
+    @JavascriptInterface
+    public void tripPause() { TripService.send(MainActivity.this, TripService.ACT_PAUSE); }
+
+    @JavascriptInterface
+    public void tripResume() { TripService.send(MainActivity.this, TripService.ACT_RESUME); }
+
+    /** 結束：整趟（{ mode, start, end, pausedMs, points }）直接拿回去，服務收掉。沒有在記就回 "null"。 */
+    @JavascriptInterface
+    public String tripStop() {
+      TripService s = TripService.live;
+      if (s == null) return "null";
+      final String[] out = {"null"};
+      final Object lock = new Object();
+      synchronized (lock) {
+        runOnUiThread(() -> { synchronized (lock) { out[0] = s.stopNow(); lock.notifyAll(); } });
+        try { lock.wait(3000); } catch (InterruptedException ignored) {}
+      }
+      return out[0];
+    }
+
+    /** 現在有沒有在記：{ active, mode, start, paused, pausedAt, pausedMs, n }，沒有就 "null"。 */
+    @JavascriptInterface
+    public String tripState() {
+      TripService s = TripService.live;
+      return s == null ? "null" : s.stateJson();
+    }
+
+    /** 第 from 個以後的點，網頁螢幕關著的時候沒接到的就靠這個補。 */
+    @JavascriptInterface
+    public String tripPoints(int from) {
+      TripService s = TripService.live;
+      return s == null ? "[]" : s.pointsJson(from);
+    }
+
+    /** 網頁沒開著時從通知按了「結束」的那一趟（JSON），沒有就 ""。拿走要叫 tripPendingClear。 */
+    @JavascriptInterface
+    public String tripPending() { return TripService.pending(MainActivity.this); }
+
+    @JavascriptInterface
+    public void tripPendingClear() { TripService.clearPending(MainActivity.this); }
+
+    /** 帶去手機設定裡這個 App 的頁面（開位置權限）。 */
+    @JavascriptInterface
+    public void openLocationSettings() {
+      runOnUiThread(() -> {
+        try {
+          startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())));
+        } catch (Exception ignored) {
+          // 打不開就算了
+        }
+      });
     }
 
     /** 打開手機的信箱 App（通常是 Gmail），找不到就回 false。 */
