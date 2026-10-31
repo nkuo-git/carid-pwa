@@ -31,7 +31,10 @@ const MODES = {
   car: { name: "開車", max: 200, step: 20, launch: 60 },
   run: { name: "跑步", max: 25, step: 5, pace: true },
 };
-const GAUGES = { num: "數字", dial: "圓錶", arc: "弧形", race: "賽車", simple: "簡潔" };
+const GAUGES = { num: "數字", dial: "圓錶", arc: "弧形", race: "賽車", simple: "簡潔", scifi: "科幻", retro: "復古", vfd: "數位", synth: "霓虹", nixie: "真空管" };
+// 用 SVG 畫、要跟著格子縮放的面板；後面五種是「風格面板」，記錄中整個畫面換成同一個風格
+const SVG_GAUGES = new Set(["dial", "arc", "scifi", "retro", "vfd", "synth", "nixie"]);
+const STYLE_GAUGES = new Set(["scifi", "retro", "vfd", "synth", "nixie"]);
 const MODE_KEY = "carid.trip.mode";
 const GAUGE_KEY = "carid.trip.gauge";
 const FOCUS_KEY = "carid.trip.focus";   // 記錄中「只看時速」：藏地圖和曲線，時速放最大
@@ -585,6 +588,11 @@ function gaugeHtml(v, r) {
   if (gauge === "arc") return gaugeArc(speed, M, maxV * 3.6, on);
   if (gauge === "race") return gaugeRace(speed, M, r, on);
   if (gauge === "simple") return gaugeSimple(speed, M, r, on);
+  if (gauge === "scifi") return gaugeScifi(speed, M, r, maxV * 3.6, on);
+  if (gauge === "retro") return gaugeRetro(speed, M, r, maxV * 3.6, on);
+  if (gauge === "vfd") return gaugeVfd(speed, M, r, maxV * 3.6, on);
+  if (gauge === "synth") return gaugeSynth(speed, M, r, maxV * 3.6, on);
+  if (gauge === "nixie") return gaugeNixie(speed, M, r, maxV * 3.6, on);
   return `<div class="big${on ? " on" : ""}">${speed}</div><div class="unit">KM/H</div>` +
     (M.pace ? `<div class="pace">配速 <b>${esc(paceText(v))}</b> /km</div>` : "");
 }
@@ -672,6 +680,200 @@ function gaugeRace(speed, M, r, on) {
 <div class="rbig"><span class="rnum">${speed}</span><span class="rside"><span class="runit">KM/H</span>${diff !== null ? `<span class="rdiff${diff >= 0 ? " up" : " dn"}">${diff >= 0 ? "+" : ""}${diff}</span><span class="rcap">比平均${diff >= 0 ? "快" : "慢"}</span>` : ""}</span></div>
 <div class="rtiles">${tiles.map(([k, v, u]) => `<div><span class="k">${k}</span><b>${v}<small>${u}</small></b></div>`).join("")}</div>
 </div>`;
+}
+
+/* ================= 風格面板：科幻／復古指針／80 年代數位／霓虹／真空管 ================= */
+// 這五種記錄中會把整個畫面（底色、數字、按鈕）換成同一個風格，見 styles.css「風格面板」
+
+const angOf = (v, max) => 135 + 270 * Math.min(1, Math.max(0, v / max));
+const ptA = (cx, cy, r, a) => { const t = a * Math.PI / 180; return [cx + r * Math.cos(t), cy + r * Math.sin(t)]; };
+function arcA(cx, cy, r, a1, a2) {
+  const [x1, y1] = ptA(cx, cy, r, a1), [x2, y2] = ptA(cx, cy, r, a2);
+  return `M${f1(x1)} ${f1(y1)}A${r} ${r} 0 ${a2 - a1 > 180 ? 1 : 0} 1 ${f1(x2)} ${f1(y2)}`;
+}
+const lineA = (cx, cy, r1, r2, a) => { const [x1, y1] = ptA(cx, cy, r1, a), [x2, y2] = ptA(cx, cy, r2, a); return `M${f1(x1)} ${f1(y1)}L${f1(x2)} ${f1(y2)}`; };
+const labStep = (M) => (M.max / M.step > 6 ? M.step * 2 : M.step);
+const paceDiv = (M, speed) => (M.pace ? `<div class="pace">配速 <b>${esc(paceText(speed / 3.6))}</b> /km</div>` : "");
+const tripKm = (r) => ((r ? r.dist : 0) / 1000);
+
+function gaugeScifi(speed, M, r, maxK, on) {
+  const C = "#3DF2FF", max = M.max, N = 45, lit = Math.round(N * Math.min(1, speed / max));
+  let segOn = "", segOff = "", head = "";
+  for (let i = 0; i < N; i++) {
+    const d = arcA(180, 180, 146, 135 + i * 6, 139.6 + i * 6);
+    if (i === lit - 1) head = d; else if (i < lit) segOn += d; else segOff += d;
+  }
+  let tMin = "", tMaj = "";
+  for (let i = 0; i <= 40; i++) { const d = lineA(180, 180, i % 4 ? 160 : 156, 168, 135 + i * 6.75); if (i % 4) tMin += d; else tMaj += d; }
+  let labs = "";
+  for (let v = 0; v <= max + 1e-6; v += labStep(M)) {
+    const [x, y] = ptA(180, 180, 120, angOf(v, max));
+    labs += `<text x="${f1(x)}" y="${f1(y + 4)}">${Math.round(v)}</text>`;
+  }
+  const avg = r ? avgV(r) : 0;
+  const diff = r && avg > 0 ? speed - Math.round(avg * 3.6) : null;
+  return `<svg class="gx gsf${on ? " on" : ""}" viewBox="0 0 360 360" width="300" height="300" role="img" aria-label="現在 ${speed} km/h">
+<defs><filter id="gsfGlow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<radialGradient id="gsfCore"><stop offset="0" stop-color="${C}" stop-opacity=".16"/><stop offset="1" stop-color="${C}" stop-opacity="0"/></radialGradient></defs>
+<circle cx="180" cy="180" r="176" fill="none" stroke="${C}" stroke-opacity=".25"/>
+<path d="${arcA(180, 180, 176, 200, 250)}${arcA(180, 180, 176, 290, 340)}" stroke="${C}" stroke-width="3" fill="none"/>
+<path d="${tMin}" stroke="${C}" stroke-opacity=".35"/><path d="${tMaj}" stroke="${C}" stroke-opacity=".9" stroke-width="2"/>
+<path d="${segOff}" stroke="#0B2A33" stroke-width="16" fill="none"/>
+<g class="hl" filter="url(#gsfGlow)"><path d="${segOn}" stroke="${C}" stroke-width="16" fill="none"/>${head ? `<path d="${head}" stroke="#E8FFFF" stroke-width="16" fill="none"/>` : ""}</g>
+${maxK > 0 ? `<path d="${lineA(180, 180, 170, 180, angOf(maxK, max))}" stroke="#FFFFFF" stroke-width="3"/>` : ""}
+<circle cx="180" cy="180" r="104" fill="url(#gsfCore)" stroke="${C}" stroke-opacity=".55" stroke-dasharray="2 5"/>
+<circle cx="180" cy="180" r="94" fill="none" stroke="${C}" stroke-opacity=".2"/>
+<path d="${arcA(180, 180, 94, 300, 360)}${arcA(180, 180, 94, 120, 180)}" stroke="${C}" stroke-width="2" fill="none" stroke-opacity=".8"/>
+<g class="lab" fill="${C}" fill-opacity=".7" font-size="12" text-anchor="middle">${labs}</g>
+<text x="180" y="132" class="mono" text-anchor="middle" font-size="11" letter-spacing="3" fill="${C}" fill-opacity=".75">SPD · 時速</text>
+<text x="180" y="208" class="orb hl" text-anchor="middle" font-weight="700" font-size="80" fill="#E8FFFF" filter="url(#gsfGlow)">${String(speed).padStart(3, "0")}</text>
+<text x="180" y="236" class="orb" text-anchor="middle" font-size="13" letter-spacing="5" fill="${C}">KM/H</text>
+${diff !== null ? `<text x="180" y="262" class="mono" text-anchor="middle" font-size="10" letter-spacing="2" fill="${C}" fill-opacity=".6">${diff >= 0 ? "▲ +" : "▼ "}${diff} vs AVG</text>` : ""}
+</svg>` + paceDiv(M, speed);
+}
+
+function gaugeRetro(speed, M, r, maxK, on) {
+  const max = M.max, INK = "#1B1712", RED = "#C8402A", n = Math.round(max / (M.step / 4));
+  let tMaj = "", tMid = "", tMin = "", nums = "";
+  for (let i = 0; i <= n; i++) {
+    const v = i * max / n, a = angOf(v, max);
+    if (i % 4 === 0) {
+      tMaj += lineA(180, 180, 136, 158, a);
+      const [x, y] = ptA(180, 180, 116, a);
+      nums += `<text x="${f1(x)}" y="${f1(y + 8)}">${Math.round(v)}</text>`;
+    } else if (i % 2 === 0) tMid += lineA(180, 180, 146, 158, a);
+    else tMin += lineA(180, 180, 151, 158, a);
+  }
+  const na = angOf(speed, max);
+  const [tx, ty] = ptA(180, 180, 152, na), [bx, by] = ptA(180, 180, 16, na + 180);
+  const [l1x, l1y] = ptA(180, 180, 5, na + 90), [l2x, l2y] = ptA(180, 180, 5, na - 90);
+  const odo = String(Math.min(99999, Math.floor(tripKm(r) * 10))).padStart(5, "0");
+  let odoSvg = "";
+  for (let i = 0; i < 5; i++) {
+    const last = i === 4;
+    odoSvg += `<rect x="${126 + i * 18}" y="236" width="16" height="24" rx="2" fill="${last ? "#F4F1EA" : "#151515"}"/><text x="${134 + i * 18}" y="254" fill="${last ? "#151515" : "#F4F1EA"}">${odo[i]}</text>`;
+  }
+  return `<svg class="gx grt${on ? " on" : ""}" viewBox="0 0 360 360" width="300" height="300" role="img" aria-label="現在 ${speed} km/h">
+<defs>
+<radialGradient id="grtChrome" cx="35%" cy="25%" r="85%"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".45" stop-color="#A9AEB5"/><stop offset=".75" stop-color="#4A4E55"/><stop offset="1" stop-color="#C9CDD2"/></radialGradient>
+<radialGradient id="grtFace" cx="50%" cy="45%" r="60%"><stop offset="0" stop-color="#F6EFDD"/><stop offset=".85" stop-color="#EFE6CF"/><stop offset="1" stop-color="#D2C4A2"/></radialGradient>
+<linearGradient id="grtGlass" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".35"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/></linearGradient>
+<filter id="grtSh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="2" dy="3" stdDeviation="2" flood-opacity=".35"/></filter>
+</defs>
+<circle cx="180" cy="180" r="178" fill="url(#grtChrome)"/>
+<circle cx="180" cy="180" r="166" fill="url(#grtFace)" stroke="#2A241C" stroke-width="2"/>
+<path d="${tMin}" stroke="${INK}" stroke-width="1.2"/><path d="${tMid}" stroke="${INK}" stroke-width="1.8"/><path d="${tMaj}" stroke="${INK}" stroke-width="3.2"/>
+<g class="osw" font-weight="500" font-size="22" fill="${INK}" text-anchor="middle">${nums}</g>
+${maxK > 0 ? `<path d="${lineA(180, 180, 158, 166, angOf(maxK, max))}" stroke="${RED}" stroke-width="4"/>` : ""}
+<text x="180" y="226" class="osw" text-anchor="middle" font-weight="600" font-size="40" fill="${INK}">${speed}</text>
+<rect x="122" y="232" width="98" height="32" rx="4" fill="#2B2620"/>
+<g class="osw" font-size="17" text-anchor="middle">${odoSvg}</g>
+<text x="226" y="254" class="serif" font-size="10" fill="${INK}" fill-opacity=".7">km</text>
+<text x="180" y="290" class="serif" text-anchor="middle" font-weight="700" font-size="13" letter-spacing="4" fill="${INK}" fill-opacity=".7">KM/H</text>
+<g filter="url(#grtSh)"><path class="needle" d="M${f1(bx)} ${f1(by)}L${f1(l1x)} ${f1(l1y)}L${f1(tx)} ${f1(ty)}L${f1(l2x)} ${f1(l2y)}Z" fill="${on ? RED : "#7A6A5A"}"/>
+<circle cx="180" cy="180" r="15" fill="#1C1C1C"/><circle cx="176" cy="176" r="5" fill="#fff" fill-opacity=".25"/></g>
+<circle cx="180" cy="180" r="166" fill="url(#grtGlass)"/>
+</svg>` + paceDiv(M, speed);
+}
+
+const SEG7 = { 0: "abcdef", 1: "bc", 2: "abged", 3: "abgcd", 4: "fgbc", 5: "afgcd", 6: "afgedc", 7: "abc", 8: "abcdefg", 9: "abcdfg" };
+function seven(ch, ox, oy, w, h, t) {
+  const g = 3;
+  const hs = (x1, x2, yc) => `${f1(x1)},${f1(yc)} ${f1(x1 + t / 2)},${f1(yc - t / 2)} ${f1(x2 - t / 2)},${f1(yc - t / 2)} ${f1(x2)},${f1(yc)} ${f1(x2 - t / 2)},${f1(yc + t / 2)} ${f1(x1 + t / 2)},${f1(yc + t / 2)}`;
+  const vs = (xc, y1, y2) => `${f1(xc)},${f1(y1)} ${f1(xc + t / 2)},${f1(y1 + t / 2)} ${f1(xc + t / 2)},${f1(y2 - t / 2)} ${f1(xc)},${f1(y2)} ${f1(xc - t / 2)},${f1(y2 - t / 2)} ${f1(xc - t / 2)},${f1(y1 + t / 2)}`;
+  const xl = ox + t / 2, xr = ox + w - t / 2, yt = oy + t / 2, ym = oy + h / 2, yb = oy + h - t / 2;
+  const segs = { a: hs(xl + g, xr - g, yt), g: hs(xl + g, xr - g, ym), d: hs(xl + g, xr - g, yb), f: vs(xl, yt + g, ym - g), b: vs(xr, yt + g, ym - g), e: vs(xl, ym + g, yb - g), c: vs(xr, ym + g, yb - g) };
+  const lit = SEG7[ch] || "";
+  let on = "", off = "";
+  for (const [k, p] of Object.entries(segs)) { if (lit.includes(k)) on += `<polygon points="${p}"/>`; else off += `<polygon points="${p}"/>`; }
+  return [on, off];
+}
+function gaugeVfd(speed, M, r, maxK, on) {
+  const G = "#5CF2C2", AMB = "#FFB547", max = M.max, NB = 30, lit = Math.round(NB * Math.min(1, speed / max));
+  let bars = "", ghost = "";
+  for (let i = 0; i < NB; i++) {
+    const hh = 14 + i * 2.6, x = 8 + i * 11.4, f = i / NB;
+    const rect = `<rect x="${f1(x)}" y="${f1(110 - hh)}" width="8.4" height="${f1(hh)}"`;
+    if (i < lit) bars += `${rect} fill="${f < 0.6 ? G : f < 0.8 ? AMB : "#FF5A4E"}"/>`;
+    else ghost += `${rect}/>`;
+  }
+  let scale = "";
+  for (let k = 0; k <= 5; k++) {
+    const v = Math.round(max * k / 5), x = Math.min(8 + k / 5 * NB * 11.4, 344);
+    scale += `<text x="${f1(x)}" y="126"${k === 5 ? ' text-anchor="end"' : ""}>${v}</text>`;
+  }
+  const txt = String(speed).padStart(3, " ");
+  let dOn = "", dOff = "";
+  for (let i = 0; i < 3; i++) { const [a, b] = seven(txt[i], 16 + i * 108, 150, 92, 176, 17); dOn += a; dOff += b; }
+  const mk = maxK > 0 ? Math.min(NB - 1, Math.round(NB * Math.min(1, maxK / max)) - 1) : -1;
+  return `<svg class="gx gvf${on ? " on" : ""}" viewBox="0 0 352 380" width="290" height="313" role="img" aria-label="現在 ${speed} km/h">
+<defs><filter id="gvfGlow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="2.4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+<text x="8" y="22" class="mono" font-size="12" letter-spacing="2" fill="${AMB}">SPEED</text>
+<g fill="rgba(92,242,194,.08)">${ghost}</g>
+<g class="hl" filter="url(#gvfGlow)">${bars}</g>
+${mk >= 0 ? `<rect x="${f1(8 + mk * 11.4)}" y="0" width="8.4" height="3" fill="#FFFFFF" opacity=".8"/>` : ""}
+<g class="mono" font-size="11" fill="${AMB}" fill-opacity=".8">${scale}</g>
+<g transform="skewX(-6) translate(18 0)"><g fill="rgba(92,242,194,.07)">${dOff}</g><g class="hl" fill="${G}" filter="url(#gvfGlow)">${dOn}</g></g>
+<text x="336" y="356" class="mono hl" text-anchor="end" font-size="20" letter-spacing="3" fill="${G}" filter="url(#gvfGlow)">km/h</text>
+<text x="8" y="356" class="mono" font-size="12" letter-spacing="2" fill="${AMB}" fill-opacity=".85">TRIP ${tripKm(r).toFixed(1).padStart(5, "0")}</text>
+</svg>` + paceDiv(M, speed);
+}
+
+function gaugeSynth(speed, M, r, maxK, on) {
+  const PINK = "#FF2E88";
+  let grid = "";
+  for (let i = -12; i <= 12; i++) grid += `M${f1(180 + i * 14)} 250L${f1(180 + i * 70)} 400`;
+  [2, 8, 18, 32, 52, 80, 114, 150].forEach((y) => { grid += `M0 ${250 + y}H360`; });
+  const bands = [[55, 172], [177, 190], [196, 208], [214, 223], [229, 237], [242, 250]];
+  return `<svg class="gx gsy${on ? " on" : ""}" viewBox="0 0 360 400" width="300" height="333" role="img" aria-label="現在 ${speed} km/h">
+<defs>
+<linearGradient id="gsySky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0A0220"/><stop offset=".55" stop-color="#1E0838"/><stop offset="1" stop-color="#3B0A55"/></linearGradient>
+<linearGradient id="gsySun" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFE14D"/><stop offset=".45" stop-color="#FF8A3D"/><stop offset=".85" stop-color="${PINK}"/></linearGradient>
+<linearGradient id="gsyTxt" gradientUnits="userSpaceOnUse" x1="0" y1="112" x2="0" y2="250"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".46" stop-color="#3DF2FF"/><stop offset=".5" stop-color="#1B2B8F"/><stop offset=".54" stop-color="#FF8AD0"/><stop offset="1" stop-color="#FFFFFF"/></linearGradient>
+<linearGradient id="gsyFade" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".14" stop-color="#fff"/><stop offset=".86" stop-color="#fff"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+<mask id="gsyMask"><rect width="360" height="400" fill="url(#gsyFade)"/></mask>
+<clipPath id="gsyBands">${bands.map(([a, b]) => `<rect x="0" y="${a}" width="360" height="${b - a}"/>`).join("")}</clipPath>
+<filter id="gsyGlow" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="0" stdDeviation="7" flood-color="${PINK}" flood-opacity=".9"/></filter>
+</defs>
+<g mask="url(#gsyMask)">
+<rect width="360" height="250" fill="url(#gsySky)"/><rect y="250" width="360" height="150" fill="#0A0220"/>
+<circle cx="180" cy="170" r="115" fill="url(#gsySun)" clip-path="url(#gsyBands)" class="hl"/>
+<path d="${grid}" stroke="${PINK}" stroke-width="1.4" stroke-opacity=".75" fill="none"/>
+<path d="M0 250H360" stroke="${PINK}" stroke-width="2.5" filter="url(#gsyGlow)"/>
+</g>
+<text x="180" y="248" class="bci hl" text-anchor="middle" font-size="190" fill="url(#gsyTxt)" stroke="rgba(255,255,255,.55)" stroke-width="2" filter="url(#gsyGlow)">${speed}</text>
+<text x="292" y="306" class="script" font-size="34" fill="${PINK}" transform="rotate(-8 292 306)" filter="url(#gsyGlow)">km/h</text>
+</svg>` + paceDiv(M, speed);
+}
+
+function gaugeNixie(speed, M, r, maxK, on) {
+  const txt = String(speed).padStart(3, " ");
+  const ghosts = ["0", "3", "6"];
+  let tubes = "";
+  for (let i = 0; i < 3; i++) {
+    const x = 18 + i * 112, y = 18, d = txt[i] !== " " ? txt[i] : "";
+    const shape = `M${x} ${y + 50}A50 50 0 0 1 ${x + 100} ${y + 50}V${y + 228}a12 12 0 0 1 -12 12H${x + 12}a12 12 0 0 1 -12 -12Z`;
+    tubes += `<path d="${shape}" fill="#120B07"/>` + (d ? `<path d="${shape}" fill="url(#gnxTube)"/>` : "") +
+      `<path d="${shape}" fill="url(#gnxMesh)"/>` +
+      `<text x="${x + 50}" y="206" fill="rgba(255,160,90,.05)">${ghosts[i]}</text>` +
+      (d ? `<text x="${x + 50}" y="204" fill="#FFD0A0" class="hl" filter="url(#gnxGlow)">${d}</text>` : "") +
+      `<path d="${shape}" fill="none" stroke="rgba(255,220,180,.22)"/>` +
+      `<rect x="${x + 9}" y="${y + 18}" width="12" height="${200}" rx="6" fill="url(#gnxHi)"/>` +
+      `<rect x="${x + 6}" y="${y + 238}" width="88" height="18" rx="6" fill="#1F1812" stroke="#3A2F25"/>`;
+  }
+  return `<svg class="gx gnx${on ? " on" : ""}" viewBox="0 0 360 340" width="300" height="283" role="img" aria-label="現在 ${speed} km/h">
+<defs>
+<filter id="gnxGlow" x="-60%" y="-40%" width="220%" height="180%"><feGaussianBlur in="SourceGraphic" stdDeviation="3" result="a"/><feGaussianBlur in="SourceGraphic" stdDeviation="11" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="a"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<pattern id="gnxMesh" width="7" height="7" patternUnits="userSpaceOnUse"><circle cx="3.5" cy="3.5" r="1" fill="rgba(255,200,150,.10)"/></pattern>
+<radialGradient id="gnxTube" cx="50%" cy="55%" r="60%"><stop offset="0" stop-color="#FF6E28" stop-opacity=".2"/><stop offset="1" stop-color="#120B07" stop-opacity="0"/></radialGradient>
+<linearGradient id="gnxHi" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity=".22"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+<linearGradient id="gnxBrass" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C9A35E"/><stop offset="1" stop-color="#8A6A35"/></linearGradient>
+</defs>
+<rect x="4" y="4" width="352" height="284" rx="18" fill="#1F160F" stroke="#4A3826"/>
+<g class="bcl" font-size="190" text-anchor="middle">${tubes}</g>
+<rect x="130" y="302" width="100" height="28" rx="4" fill="url(#gnxBrass)"/>
+<text x="180" y="322" class="bc" text-anchor="middle" font-weight="700" font-size="16" letter-spacing="5" fill="#2A1C0B">KM/H</text>
+</svg>` + paceDiv(M, speed);
 }
 
 /* ================= 地圖（OpenStreetMap 圖磚） ================= */
@@ -942,6 +1144,14 @@ function paintPanel() {
   if (live && !focus) { paintLiveChart(); paintLiveMap(); }
   else S.tripGauge.innerHTML = gaugeHtml(0, null);
   S.tripGauge.dataset.kind = gauge;
+  S.tripGauge.dataset.shape = SVG_GAUGES.has(gauge) ? "svg" : "";
+  paintTheme();
+}
+// 風格面板：body 標上是哪一種，CSS 在記錄中把底色、數字、按鈕換掉
+function paintTheme() {
+  const st = STYLE_GAUGES.has(gauge);
+  document.body.classList.toggle("tgs", st);
+  if (st) document.body.dataset.gstyle = gauge; else delete document.body.dataset.gstyle;
 }
 
 const PLAY = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.8v14.4a1 1 0 0 0 1.5.9l11.5-7.2a1 1 0 0 0 0-1.8L8.5 3.9A1 1 0 0 0 7 4.8z"/></svg>';
