@@ -91,6 +91,9 @@ carid-pwa/
 記下路線（OpenStreetMap 底圖，要有網路；沒網路只畫線）和速度曲線；結束後每趟存在手機裡（IndexedDB `carid-trip`），
 點進去有路線（越快越橘）、一張表和整趟的速度曲線，手指滑曲線可以看那一刻在哪、多快。全部在 `trip.js`。
 按「結束」會先暫停、從下面跳一張問要「存起來」、「捨棄」還是「還沒完，繼續記」（內容 46 起）；從通知列按結束的那趟會先存起來，回到畫面再問要不要捨棄。
+登入了（跟「紀錄」同一個帳號，內容 47 起）每趟存起來也存到雲端 `users/{uid}/trips/{id}`（欄位 mode、start、end、pausedMs、elapsed、moving、dist、maxV、maxAt、launch，路線點壓成字串 `p`，刪除留 `del` 標記），
+同步在 `account.js`（pushTrips／pullTrips／tripDeleted，進度 phase `tup`／`tdown`），列表上面沒登入一張卡、登入了一行字，每趟右邊一朵雲（綠勾＝存好了，箭頭＝等網路）。
+Firestore 規則只要是 `match /users/{uid}/{document=**}`（本人、email 驗證過）就已經涵蓋，不用再加。
 手機打橫（`@media (orientation: landscape)`，內容 46 起）變兩欄：記錄中左邊面板、右邊數據＋地圖＋曲線，標題列和底部分頁收起來；一筆紀錄左邊地圖、右邊一排數據＋曲線。
 
 位置從哪裡來：新的 App 外殼（APK 14 起，`CaridApp.tripStart`）用前景服務 `TripService` 在背景記，

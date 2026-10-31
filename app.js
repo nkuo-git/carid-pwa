@@ -24,7 +24,7 @@ const FIREBASE_SDK = "https://www.gstatic.com/firebasejs/12.19.0/";
 const OLD_KEY_STORE = "carid.apikey";
 
 // 行車紀錄（底部第二格）在 trip.js；路由在下面的 route() 裡接
-import { tripRoute } from "./trip.js?v=46";
+import { tripRoute, tripStore, tripInit, tripAccount } from "./trip.js?v=47";
 
 /* ================= 外觀：配色與明暗 ================= */
 
@@ -171,7 +171,7 @@ $("prefsBtn").addEventListener("click", () => setPrefs(prefsSheetEl.hidden));
 
 /* 網頁內容的版號，跟 sw.js 的 CACHE、index.html 和 mc.html 裡的 ?v= 一起加
    （account.js 也用這個版號載入；最上面 import trip.js 的 ?v= 也要一起改） */
-const WEB_BUILD = 46;
+const WEB_BUILD = 47;
 
 function appBuild() {
   const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
@@ -1288,6 +1288,7 @@ function account() {
       m.init({
         firebaseApp,
         hist: { all: histAll, get: histGet, put: histPut, del: histDelete, patch: histPatch },
+        trips: tripStore,
         inApp,
       });
       m.onChange(onAccount);
@@ -1328,7 +1329,15 @@ function onAccount(snap) {
   else if (phase === "down") refreshHistory(true);
   lastPhase = phase;
   paintAccount();
+  tripAccount(snap);
 }
+// 行車紀錄那頁：誰登入了、存一趟要同步、刪一趟雲端也刪、舊 App 要去哪裡更新
+tripInit({
+  who: () => who,
+  sync: acctSync,
+  deleted: (t) => { if (t?.owner) account().then((m) => m.tripDeleted(t)).catch(() => { /* 載不到就算了 */ }); },
+  apkHref,
+});
 
 let histTimer = 0;
 let histPaintAt = 0;

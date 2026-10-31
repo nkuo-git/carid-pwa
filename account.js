@@ -6,6 +6,7 @@
 //   users/{uid}                    { claimed }             第一次登入時建立
 //   users/{uid}/history/{id}       { t, j, n, thumb, del, u }
 //   users/{uid}/photos/{id}_{i}    { b, t }                一張照片一份，點開紀錄才下載
+//   users/{uid}/trips/{id}         { mode, start, end, …, p, del, u }   行車紀錄（內容 47 起），p 是路線點的 JSON 字串
 // j 是辨識結果的 JSON 字串（Firestore 不收巢狀陣列、undefined，存字串最省事）；
 // del 是刪除標記，留著讓別支手機知道要刪；u 是寫進雲端的時間，每次只抓比上次新的。
 
@@ -13,8 +14,10 @@ const PAGE = 20;
 const EMAIL_KEY = "carid.loginEmail";
 const pullKey = (uid) => "carid.pull." + uid;
 const delKey = (uid) => "carid.del." + uid;
+const tpullKey = (uid) => "carid.tpull." + uid;
+const tdelKey = (uid) => "carid.tdel." + uid;
 
-let env = null;        // { firebaseApp, hist: { all, get, put, del, patch }, inApp }
+let env = null;        // { firebaseApp, hist: { all, get, put, del, patch }, trips: { 同上 }, inApp }
 let fb = null;         // 載好的 Firebase：{ auth, db, A, F }
 let ready = null;
 let user = null;       // { uid, email }；沒登入是 null
@@ -179,6 +182,11 @@ export function sync() {
         await pushDeletes(uid);
         await pushRecords(uid);
         await pull(uid);
+        if (env.trips) {
+          await pushTripDeletes(uid);
+          await pushTrips(uid);
+          await pullTrips(uid);
+        }
       } while (again && user);
       setState({ phase: "idle", done: 0, total: 0, error: null, rounds: state.rounds + 1 });
     } catch (err) {
@@ -315,6 +323,120 @@ async function pushDeletes(uid) {
     // 紀錄本身留一個刪除標記，別支手機同步時才知道要刪
     await F.setDoc(F.doc(db, "users", uid, "history", id), { del: true, u: F.serverTimestamp() });
     setLS(delKey(uid), JSON.stringify(readDel(uid).filter((x) => x.id !== id)));
+  }
+}
+
+/* ---------- 行車紀錄（trip.js 的每一趟） ---------- */
+
+// 路線點 [t, lat, lon, v, acc] 存成字串：時間改成從開始算起的毫秒、小數少幾位，一趟 4000 點大約 150 KB
+function packPts(start, pts) {
+  return JSON.stringify((pts || []).map((p) => [p[0] - start, +Number(p[1]).toFixed(6), +Number(p[2]).toFixed(6), +Number(p[3] || 0).toFixed(2), Math.round(p[4] || 0)]));
+}
+function unpackPts(start, j) {
+  const a = parse(j);
+  return Array.isArray(a) ? a.map((p) => [start + p[0], p[1], p[2], p[3], p[4]]) : [];
+}
+// Firestore 一份文件最多 1 MiB；點太多就隔一個丟一個，直到塞得下
+const MAX_DOC = 900000;
+
+/** 這支手機上還沒傳的趟：自己的、標了 dirty；或是沒主人的（登入前記的） */
+async function pushTrips(uid) {
+  const all = await env.trips.all();
+  const todo = all.filter((t) => (t.owner === uid && t.dirty) || !t.owner).sort((a, b) => a.start - b.start);
+  if (!todo.length) return;
+  const { db, F } = await load();
+  setState({ phase: "tup", done: 0, total: todo.length, error: null });
+  for (const t of todo) {
+    if (user?.uid !== uid) return;
+    let pts = t.pts || [];
+    let p = packPts(t.start, pts);
+    while (p.length > MAX_DOC && pts.length > 2) {
+      pts = pts.filter((_, i) => i % 2 === 0 || i === pts.length - 1);
+      p = packPts(t.start, pts);
+    }
+    await F.setDoc(F.doc(db, "users", uid, "trips", t.id), {
+      mode: t.mode, start: t.start, end: t.end, pausedMs: t.pausedMs || 0, elapsed: t.elapsed, moving: t.moving,
+      dist: t.dist, maxV: t.maxV, maxAt: t.maxAt ?? null, launch: t.launch ?? null,
+      p, del: false, u: F.serverTimestamp(),
+    });
+    const still = await env.trips.patch(t.id, (fresh) => {
+      fresh.owner = uid;
+      delete fresh.dirty;
+    });
+    if (!still) queueTripDelete(uid, t.id);        // 傳的時候被刪掉了，雲端也要刪
+    setState({ done: state.done + 1 });
+  }
+}
+
+/** 抓雲端比上次新的趟：新的存進手機，有刪除標記的從手機刪掉 */
+async function pullTrips(uid) {
+  const { db, F } = await load();
+  const since = Number(getLS(tpullKey(uid)) || 0);
+  const col = F.collection(db, "users", uid, "trips");
+  const base = F.query(col, F.where("u", ">", F.Timestamp.fromMillis(since)), F.orderBy("u"));
+  let total = 0;
+  if (!since) {
+    try {
+      const inCloud = (await F.getCount(F.query(col, F.where("del", "==", false)))).data().count;
+      const here = (await env.trips.all()).filter((t) => t.owner === uid).length;
+      total = Math.max(0, inCloud - here);
+    } catch {
+      total = 0;
+    }
+  }
+  if (total) setState({ phase: "tdown", done: 0, total });
+
+  let cursor = null;
+  let newest = since;
+  for (;;) {
+    const page = cursor ? F.query(base, F.startAfter(cursor), F.limit(PAGE)) : F.query(base, F.limit(PAGE));
+    const snap = await F.getDocs(page);
+    for (const d of snap.docs) {
+      if (user?.uid !== uid) return;
+      const v = d.data();
+      const u = v.u?.toMillis?.() ?? 0;
+      if (u > newest) newest = u;
+      const local = await env.trips.get(d.id);
+      if (v.del) {
+        if (local && local.owner === uid) await env.trips.del(d.id);
+        continue;
+      }
+      if (local) continue;
+      await env.trips.put({
+        id: d.id, mode: v.mode, start: v.start, end: v.end, pausedMs: v.pausedMs || 0, elapsed: v.elapsed, moving: v.moving,
+        dist: v.dist, maxV: v.maxV, maxAt: v.maxAt ?? null, launch: v.launch ?? null,
+        pts: unpackPts(v.start, v.p), owner: uid,
+      });
+      if (total) setState({ done: Math.min(total, state.done + 1) });
+    }
+    if (snap.docs.length < PAGE) break;
+    cursor = snap.docs[snap.docs.length - 1];
+  }
+  setLS(tpullKey(uid), String(newest));
+}
+
+function readTripDel(uid) {
+  try { return JSON.parse(getLS(tdelKey(uid)) || "[]"); } catch { return []; }
+}
+function queueTripDelete(uid, id) {
+  const list = readTripDel(uid).filter((x) => x !== id);
+  list.push(id);
+  setLS(tdelKey(uid), JSON.stringify(list));
+}
+/** 畫面上刪了一趟：傳上去過的，雲端也要刪（沒網路就等下次同步） */
+export function tripDeleted(t) {
+  const uid = t?.owner;
+  if (!uid) return;
+  queueTripDelete(uid, t.id);
+  if (user?.uid === uid) syncSoon(0);
+}
+async function pushTripDeletes(uid) {
+  const list = readTripDel(uid);
+  if (!list.length) return;
+  const { db, F } = await load();
+  for (const id of list) {
+    await F.setDoc(F.doc(db, "users", uid, "trips", id), { del: true, u: F.serverTimestamp() });
+    setLS(tdelKey(uid), JSON.stringify(readTripDel(uid).filter((x) => x !== id)));
   }
 }
 

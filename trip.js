@@ -6,7 +6,8 @@
 //     每個點用 window.caridTrip("fix", …) 交給這裡；這裡沒接到的（螢幕關著的時候）回來再用 tripPoints 補齊。
 //   一般瀏覽器：navigator.geolocation，螢幕要亮著才會繼續記（有 wakeLock 的話幫忙撐著不關螢幕）。
 //   舊的 App 外殼：WebView 不給用定位，請他先更新 App。
-// 紀錄只存在這支手機（IndexedDB carid-trip），不上雲端。
+// 紀錄存在這支手機（IndexedDB carid-trip）；登入了的話（跟「紀錄」同一個帳號）每趟也存到雲端，
+// 換手機登入同一個 email 就拿得回來。同步本身在 account.js，這裡只標 owner／dirty、畫登入卡和雲朵。
 // 地圖底圖是 OpenStreetMap 的圖磚，要有網路；沒網路一樣會記，只是只畫路線沒有底圖。
 
 const $ = (id) => document.getElementById(id);
@@ -212,10 +213,59 @@ function tx(mode, fn) {
 const allTrips = () => tx("readonly", (s) => s.getAll()).then((a) => (a || []).sort((x, y) => y.start - x.start));
 const getTrip = (id) => tx("readonly", (s) => s.get(id));
 const delTrip = (id) => tx("readwrite", (s) => s.delete(id));
+/* 讀、改、寫在同一個交易裡（同步時標「傳好了」用）；不在了回 false */
+function patchTrip(id, fn) {
+  return tx("readwrite", (s) => {
+    const out = { result: false };
+    const q = s.get(id);
+    q.onsuccess = () => {
+      if (!q.result) return;
+      fn(q.result);
+      s.put(q.result);
+      out.result = true;
+    };
+    return out;
+  });
+}
 async function saveTrip(t) {
   await tx("readwrite", (s) => s.put(t));
-  const all = await allTrips();
-  for (const old of all.slice(TRIP_MAX)) await delTrip(old.id);
+  // 最多留 TRIP_MAX 趟（只算畫面上看得到的這一份），太舊的連雲端一起刪
+  const all = (await allTrips()).filter(visibleTrip);
+  for (const old of all.slice(TRIP_MAX)) {
+    await delTrip(old.id);
+    hooks.deleted?.(old);
+  }
+}
+/** account.js 同步用的存取函式 */
+export const tripStore = { all: allTrips, get: getTrip, put: (t) => tx("readwrite", (s) => s.put(t)), del: delTrip, patch: patchTrip };
+
+/* ================= 帳號（登入、雲端）：app.js 接進來 ================= */
+
+// hooks：{ who() 現在登入的人 { uid, email } 或 null, sync(delay) 跟雲端對齊, deleted(trip) 刪了一趟, apkHref() 新版 App 的網址 }
+let hooks = {};
+let acctSnap = null;      // account.js 最近一次的狀態 { user, sync }
+let lastPhase = "idle";
+export function tripInit(h) { hooks = h || {}; }
+/** 登入狀態、同步進度有變（app.js 的 onAccount 叫）：重畫列表和登入那塊 */
+export function tripAccount(snap) {
+  acctSnap = snap;
+  const phase = snap?.sync?.phase || "idle";
+  if (view === "trip") {
+    if (phase === "tdown") throttlePaint();
+    else if (phase !== lastPhase || phase === "idle") paintList();
+  }
+  lastPhase = phase;
+}
+let paintTimer = 0, paintAt = 0;
+function throttlePaint() {
+  clearTimeout(paintTimer);
+  paintTimer = setTimeout(() => { paintAt = Date.now(); paintList(); }, Math.max(0, paintAt + 1000 - Date.now()));
+}
+const whoNow = () => (hooks.who ? hooks.who() : null);
+/** 看得到的：沒主人的，和現在登入的人的（別人的藏起來） */
+function visibleTrip(t) {
+  const w = whoNow();
+  return !t.owner || (w && t.owner === w.uid);
 }
 
 /* ================= 外殼（新 App）還是瀏覽器 ================= */
@@ -463,6 +513,7 @@ async function endDrop() {
   if (endSaved) {
     const t = endSaved; endSaved = null;
     try { await delTrip(t.id); } catch { /* 算了 */ }
+    hooks.deleted?.(t);
     setNote("這趟捨棄了，沒有存。"); paintPanel(); paintList();
     return;
   }
@@ -475,7 +526,10 @@ async function keepTrip(t, quiet) {
     if (!quiet) { setNote("太短了，這趟沒有存。"); paintPanel(); paintList(); }
     return null;
   }
+  const w = whoNow();
+  if (w) { t.owner = w.uid; t.dirty = true; }       // 登入中：等一下傳上雲端；沒登入的沒主人，登入時再一起傳
   try { await saveTrip(t); } catch { setNote("存不進手機裡（儲存空間不給用）。"); paintPanel(); return null; }
+  hooks.sync?.(800);
   if (!quiet) location.hash = "#trip/" + encodeURIComponent(t.id);
   else if (view === "trip") paintList();
   return t;
@@ -819,7 +873,7 @@ function xLabelsFor(from, to) {
 
 const S = {};
 function grab() {
-  for (const id of ["tripModes", "tripRecBar", "tripStatus", "tripGauge", "tripGaugeSel", "tripStats", "tripMapBox", "tripMap", "tripChartBox", "tripChart", "tripStart", "tripPause", "tripStop", "tripNote", "tripList", "tripEmpty", "tripDot", "tiMode", "tiTitle", "tiMap", "tiTable", "tiChart", "tiHint", "tiDel", "tiMapBox", "tripEndWrap", "tripEndDim", "tripEndStats", "tripEndNote", "tripEndDrop", "tripEndKeep", "tripEndMore", "tripEndClose"]) S[id] = $(id);
+  for (const id of ["tripModes", "tripRecBar", "tripStatus", "tripGauge", "tripGaugeSel", "tripStats", "tripMapBox", "tripMap", "tripChartBox", "tripChart", "tripStart", "tripPause", "tripStop", "tripNote", "tripList", "tripEmpty", "tripDot", "tiMode", "tiTitle", "tiMap", "tiTable", "tiChart", "tiHint", "tiDel", "tiMapBox", "tripEndWrap", "tripEndDim", "tripEndStats", "tripEndNote", "tripEndDrop", "tripEndKeep", "tripEndMore", "tripEndClose", "tripAcctCard", "tripAcctText", "tripAcctBtn", "tripAcctLine", "tripAcctStatus", "tripAcctStatusIc", "tripAcctStatusText", "tripAcctStatusNum", "tripAcctBar", "tripAcctBarFill", "tripListNote"]) S[id] = $(id);
 }
 let liveMap = null, itemMap = null;
 
@@ -946,6 +1000,9 @@ async function paintList() {
   let all = [];
   try { all = await allTrips(); } catch { /* 不給用 IndexedDB 就當沒有 */ }
   if (view !== "trip") return;
+  all = all.filter(visibleTrip);
+  const w = whoNow();
+  dirtyCount = w ? all.filter((t) => !(t.owner === w.uid && !t.dirty)).length : 0;
   S.tripEmpty.hidden = all.length > 0;
   let html = "", last = "";
   for (const t of all) {
@@ -953,12 +1010,74 @@ async function paintList() {
     if (g !== last) { html += `<div class="hgroup">${esc(g)}</div>`; last = g; }
     const M = MODES[t.mode] || MODES.car;
     const tail = M.pace ? "配速 " + esc(paceText(avgV(t))) : "最快 " + kmh(t.maxV) + " km/h";
+    // 登入了每趟右邊一朵雲：綠的打勾＝存好了，箭頭＝還沒傳（等網路）
+    const cloud = !w ? "" : (t.owner === w.uid && !t.dirty)
+      ? `<span class="tcloud ok" title="已存到雲端">${CLOUD_OK}</span>`
+      : `<span class="tcloud up" title="還沒傳到雲端">${CLOUD_UP}</span>`;
     html += `<a class="hrow trow" href="#trip/${encodeURIComponent(t.id)}"><span class="hthumb tthumb">${thumbSvg(t.pts)}</span>` +
       `<span class="hinfo"><span class="tline1"><b class="tmode">${M.name}</b><span class="tdist">${km(t.dist)} km</span></span>` +
-      `<span class="tsub">${esc(clockText(t.start))}・${durShort(t.elapsed)}・${tail}</span></span>${CHEV}</a>`;
+      `<span class="tsub">${esc(clockText(t.start))}・${durShort(t.elapsed)}・${tail}</span></span>${cloud}${CHEV}</a>`;
   }
   S.tripList.innerHTML = html;
+  // 右上角那行字
+  if (!w) S.tripListNote.textContent = "只存在這支手機";
+  else {
+    const inCloud = all.filter((t) => t.owner === w.uid && !t.dirty).length;
+    const waiting = all.length - inCloud;
+    S.tripListNote.textContent = all.length
+      ? `${all.length} 趟・${inCloud} 趟在雲端${waiting ? `，${waiting} 趟等網路` : ""}`
+      : "會存到雲端";
+  }
+  paintTripAcct();
 }
+
+const CLOUD_PATH = '<path d="M7 18.5h10.3a4.2 4.2 0 0 0 .5-8.4 6 6 0 0 0-11.5-.9A4.7 4.7 0 0 0 7 18.5z"/>';
+const cloudSvg = (more) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${CLOUD_PATH}${more}</svg>`;
+const CLOUD = cloudSvg("");
+const CLOUD_OK = cloudSvg('<path d="M9.4 13.6l1.9 1.9 3.5-3.7"/>');
+const CLOUD_UP = cloudSvg('<path d="M12 16v-5M9.5 13.5 12 11l2.5 2.5"/>');
+const SYNC_IC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 0 1-13.7 5.6"/><path d="M4 12a8 8 0 0 1 13.7-5.6"/><path d="M17.7 3v3.6h-3.6"/><path d="M6.3 21v-3.6h3.6"/></svg>';
+const ALERT_IC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7.4v5.4"/><path d="M12 16.1v.3"/></svg>';
+
+/* 列表上面：沒登入一張卡（用 email 登入），登入了一行字（誰、存好了沒）＋同步進度 */
+function paintTripAcct() {
+  if (view !== "trip" || !S.tripAcctCard) return;
+  const w = whoNow();
+  const s = acctSnap?.sync || {};
+  const old = oldShell();
+  S.tripAcctCard.hidden = !!w;
+  if (!w) {
+    S.tripAcctText.textContent = old
+      ? "要用 email 登入，得先更新到最新版。手機上的紀錄不會不見。"
+      : "用 email 登入，每趟結束存起來就會一起存到雲端。換手機用同一個 email 登入，紀錄就拿得回來。跟「紀錄」用同一個帳號，那邊登入過這邊就不用再登。";
+    S.tripAcctBtn.textContent = old ? "更新" : "用 email 登入";
+    S.tripAcctBtn.href = old ? (hooks.apkHref?.() || "#") : "#login";
+  }
+  S.tripAcctLine.hidden = !w;
+  if (w) {
+    const busy = s.phase && s.phase !== "idle";
+    const synced = !!acctSnap?.user && !busy && !s.error && !dirtyCount;
+    S.tripAcctLine.innerHTML = synced
+      ? `<span class="ok">${CLOUD_OK}</span><span>已存到雲端・${esc(w.email)}</span>`
+      : `${CLOUD}<span>已登入・${esc(w.email)}</span>`;
+  }
+  // 行車紀錄自己的同步進度（tup／tdown）；辨車紀錄那邊的進度在「紀錄」頁顯示
+  let st = null;
+  if (w && s.phase === "tup") st = ["busy", SYNC_IC, "正在把這支手機的行車紀錄存上去…", s.total ? `${Math.min(s.done, s.total)} / ${s.total}` : "", s.total ? Math.min(1, s.done / s.total) : null];
+  else if (w && s.phase === "tdown") st = ["busy", SYNC_IC, "正在把雲端的行車紀錄拿回來…", s.total ? `${Math.min(s.done, s.total)} / ${s.total}` : "", s.total ? Math.min(1, s.done / s.total) : null];
+  else if (w && s.phase === "idle" && s.error) st = ["bad", ALERT_IC, s.error?.code === "permission-denied" ? "雲端還不讓這個帳號存紀錄，紀錄先留在這支手機" : "雲端同步沒成功，有網路時會再試一次"];
+  S.tripAcctStatus.hidden = !st;
+  if (st) {
+    S.tripAcctStatus.className = "acct-status " + st[0];
+    S.tripAcctStatusIc.innerHTML = st[1];
+    S.tripAcctStatusText.textContent = st[2];
+    S.tripAcctStatusNum.textContent = st[3] || "";
+    S.tripAcctStatusNum.hidden = !st[3];
+    S.tripAcctBar.hidden = st[4] == null;
+    S.tripAcctBarFill.style.width = st[4] == null ? "0%" : (st[4] * 100).toFixed(1) + "%";
+  }
+}
+let dirtyCount = 0;   // 自己的、還沒傳的有幾趟（paintList 順便算）
 
 /* ================= 畫面：一筆紀錄 ================= */
 
@@ -968,6 +1087,7 @@ async function paintItem(id) {
   item = null;
   scrubIdx = -1;
   try { item = await getTrip(id); } catch { /* 下面當沒有 */ }
+  if (item && !visibleTrip(item)) item = null;
   if (view !== "item") return;
   if (!item) { S.tiTitle.textContent = "找不到這筆紀錄"; S.tiMode.textContent = ""; S.tiTable.innerHTML = ""; S.tiChart.innerHTML = ""; S.tiMapBox.hidden = true; S.tiDel.hidden = true; return; }
   S.tiMapBox.hidden = false;
@@ -1053,6 +1173,7 @@ function wire() {
   S.tiDel.addEventListener("click", async () => {
     if (!item || !confirm("刪除這筆行車紀錄？刪了就拿不回來。")) return;
     try { await delTrip(item.id); } catch { /* 算了 */ }
+    hooks.deleted?.(item);
     location.hash = "#trip";
   });
   let scrubbing = false;

@@ -1722,6 +1722,16 @@ button.tstart svg { width: 18px; height: 18px; }
 .tchart .scrub text { fill: var(--accent); font-family: "Barlow Condensed", "Noto Sans TC", sans-serif; font-size: 12px; font-weight: 700; }
 .tchart .hint { margin: 4px 14px 0; font-size: 12px; color: var(--ink-soft); line-height: 1.6; min-height: 1.6em; }
 
+/* 登入那塊（沿用紀錄頁的 .acct-card／.acct-line／.acct-status）、每趟右邊的雲 */
+.tacct { display: flex; flex-direction: column; margin-top: 16px; }
+.tacct:not(:has(> :not([hidden]))) { display: none; }
+.tacct .acct-card { margin: 0; }
+.tacct .acct-line { margin: 0; }
+.tacct .acct-line + .acct-status { margin-top: 10px; }
+.tcloud { flex: none; display: flex; color: var(--ink-faint); margin-right: -2px; }
+.tcloud svg { width: 18px; height: 18px; }
+.tcloud.ok { color: var(--glow); }
+
 /* 之前的紀錄 */
 .tlisthead { display: flex; justify-content: space-between; align-items: baseline; margin: 22px 0 6px; font-size: 12px; }
 .tlisthead span:first-child { font-weight: 700; color: var(--ink-soft); letter-spacing: .08em; }
@@ -1774,8 +1784,9 @@ table.spec td .tsmall { font-size: 12px; color: var(--ink-soft); margin-left: 8p
   #screenTrip .tmodes button { height: 32px; font-size: 13px; }
   #screenTrip .tpanel { grid-column: 1; grid-row: 2 / span 2; padding: 10px 12px; min-height: 0; overflow: hidden; }
   #screenTrip .tlisthead { grid-column: 2 / -1; grid-row: 1; margin: 0; align-self: center; }
-  #screenTrip #tripList { grid-column: 2 / -1; grid-row: 2 / span 2; align-self: start; }
-  #screenTrip #tripEmpty { grid-column: 2 / -1; grid-row: 2 / span 2; margin: 24px 16px; }
+  #screenTrip .tacct { grid-column: 2 / -1; grid-row: 2; margin: 0; align-self: start; }
+  #screenTrip #tripList { grid-column: 2 / -1; grid-row: 3; align-self: start; }
+  #screenTrip #tripEmpty { grid-column: 2 / -1; grid-row: 3; margin: 24px 16px; }
   #screenTrip .tnote { grid-column: 1 / -1; grid-row: 4; margin: 0; }
   /* 面板裡的錶縮到放得進去 */
   #screenTrip .tstatus { margin: 0 0 4px; font-size: 10px; line-height: 1.35; }
@@ -1808,6 +1819,7 @@ table.spec td .tsmall { font-size: 12px; color: var(--ink-soft); margin-left: 8p
   body.triplive[data-view="trip"] .tmodes { display: none; }
   body.triplive[data-view="trip"] #screenTrip { height: 100vh; height: 100dvh; overflow: hidden; }
   body.triplive[data-view="trip"] .tlisthead,
+  body.triplive[data-view="trip"] .tacct,
   body.triplive[data-view="trip"] #tripList,
   body.triplive[data-view="trip"] #tripEmpty { display: none; }
   #screenTrip .trecbar { grid-column: 1; grid-row: 1; margin: 0; height: 40px; padding: 0 12px; font-size: 13px; }

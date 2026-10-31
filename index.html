@@ -17,7 +17,7 @@
 
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap">
-<link rel="stylesheet" href="./styles.css?v=46">
+<link rel="stylesheet" href="./styles.css?v=47">
 </head>
 <body data-view="car">
 
@@ -312,7 +312,25 @@
       <button type="button" class="primary" id="tripStop" hidden><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="4.5" y="4.5" width="15" height="15" rx="2.5"/></svg>結束</button>
     </div>
     <p class="tnote" id="tripNote" hidden></p>
-    <div class="tlisthead"><span>之前的紀錄</span><span>只存在這支手機</span></div>
+    <!-- 帳號：沒登入一張卡；登入了一行字＋同步進度（跟「紀錄」同一個帳號） -->
+    <div class="tacct" id="tripAcct">
+      <section class="acct-card" id="tripAcctCard" aria-label="登入" hidden>
+        <div class="acct-top">
+          <span class="acct-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18.5h10.3a4.2 4.2 0 0 0 .5-8.4 6 6 0 0 0-11.5-.9A4.7 4.7 0 0 0 7 18.5z"/></svg></span>
+          <div class="acct-txt">
+            <b>行車紀錄現在只存在這支手機</b>
+            <span id="tripAcctText"></span>
+          </div>
+        </div>
+        <a class="btnlike acct-cta" id="tripAcctBtn" href="#login">用 email 登入</a>
+      </section>
+      <p class="acct-line" id="tripAcctLine" hidden></p>
+      <div class="acct-status" id="tripAcctStatus" role="status" hidden>
+        <div class="acct-status-row"><span class="ic" id="tripAcctStatusIc"></span><span class="txt" id="tripAcctStatusText"></span><b id="tripAcctStatusNum"></b></div>
+        <div class="acct-bar" id="tripAcctBar" hidden><i id="tripAcctBarFill"></i></div>
+      </div>
+    </div>
+    <div class="tlisthead"><span>之前的紀錄</span><span id="tripListNote">只存在這支手機</span></div>
     <div id="tripList"></div>
     <p class="empty" id="tripEmpty" hidden>還沒有紀錄。選好腳踏車、開車還是跑步，按「開始記錄」就會開始記。</p>
 
@@ -371,6 +389,6 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=46"></script>
+<script type="module" src="./app.js?v=47"></script>
 </body>
 </html>
