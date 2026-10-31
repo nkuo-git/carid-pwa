@@ -1620,6 +1620,18 @@ body[data-view="tripitem"] .tabbar { display: none !important; }
 .tgauge .pace b { font-family: "Barlow Condensed", "Noto Sans TC", sans-serif; font-size: 24px; color: var(--ink); margin: 0 2px; }
 .tgauge svg { display: block; max-width: 100%; height: auto; }
 
+/* 簡潔：大時速＋旁邊三格 */
+.simple { width: 100%; display: flex; align-items: center; gap: 10px; padding: 2px 0 0 0; }
+.simple .sbig { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; }
+.simple .big { font-size: 118px; margin-top: 0; letter-spacing: -.02em; }
+.simple .unit { margin-top: 4px; }
+.simple .stiles { width: 124px; flex: none; display: flex; flex-direction: column; gap: 6px; }
+.simple .stiles div { padding: 8px 12px; border-radius: 12px; background: var(--ground); border: 1px solid var(--line); min-width: 0; }
+.simple .stiles span { display: block; font-size: 11px; color: var(--ink-soft); white-space: nowrap; }
+.simple .stiles b { display: block; font-family: "Barlow Condensed", "Noto Sans TC", sans-serif; font-size: 26px; font-weight: 700; line-height: 1.05; white-space: nowrap; }
+.simple .stiles b small { font-size: 13px; color: var(--ink-soft); margin-left: 3px; font-weight: 600; }
+.tgsel button { font-size: 12px; }
+
 /* 圓錶 */
 .dial .face { fill: var(--ground); stroke: var(--line-mid); stroke-width: 2; }
 .dial .redarc { fill: none; stroke: var(--accent); stroke-width: 6; opacity: .35; }
@@ -1797,6 +1809,16 @@ table.spec td .tsmall { font-size: 12px; color: var(--ink-soft); margin-left: 8p
   body:not(.triplive) #screenTrip .race .rtiles { display: none; }
   body:not(.triplive) #screenTrip .race .rnum { font-size: 60px; }
   #screenTrip .tgauge .big { font-size: 72px; margin-top: 0; }
+  body.triplive #screenTrip .tgauge[data-kind="simple"] { flex: 1 1 0; min-height: 0; justify-content: center; }
+  #screenTrip .simple { gap: 6px; }
+  #screenTrip .simple .big { font-size: 96px; }
+  #screenTrip .simple .stiles { width: 104px; gap: 5px; }
+  #screenTrip .simple .stiles div { padding: 5px 10px; }
+  #screenTrip .simple .stiles span { font-size: 10px; }
+  #screenTrip .simple .stiles b { font-size: 21px; }
+  body:not(.triplive) #screenTrip .simple .big { font-size: 64px; }
+  body:not(.triplive) #screenTrip .simple .stiles div { padding: 3px 10px; }
+  body:not(.triplive) #screenTrip .simple .stiles b { font-size: 18px; }
   #screenTrip .tgauge .unit { font-size: 15px; }
   #screenTrip .race { padding: 8px 10px 8px; }
   #screenTrip .race .lights i { height: 14px; }
@@ -1811,7 +1833,7 @@ table.spec td .tsmall { font-size: 12px; color: var(--ink-soft); margin-left: 8p
   #screenTrip .race .rtiles b { font-size: 18px; white-space: nowrap; }
   #screenTrip .race .rtiles small { font-size: 11px; margin-left: 2px; }
   #screenTrip .tgsel { margin-top: 6px; }
-  #screenTrip .tgsel button { height: 30px; font-size: 12px; }
+  #screenTrip .tgsel button { height: 30px; font-size: 11px; }
   #screenTrip button.tstart { margin-top: 8px; height: 42px; font-size: 15px; }
 
   /* 記錄中：藏標題列、底部分頁，整個螢幕都給它 */

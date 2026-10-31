@@ -31,7 +31,7 @@ const MODES = {
   car: { name: "開車", max: 200, step: 20, launch: 60 },
   run: { name: "跑步", max: 25, step: 5, pace: true },
 };
-const GAUGES = { num: "數字", dial: "圓錶", arc: "弧形", race: "賽車" };
+const GAUGES = { num: "數字", dial: "圓錶", arc: "弧形", race: "賽車", simple: "簡潔" };
 const MODE_KEY = "carid.trip.mode";
 const GAUGE_KEY = "carid.trip.gauge";
 
@@ -582,8 +582,20 @@ function gaugeHtml(v, r) {
   if (gauge === "dial") return gaugeDial(speed, M, maxV * 3.6, on);
   if (gauge === "arc") return gaugeArc(speed, M, maxV * 3.6, on);
   if (gauge === "race") return gaugeRace(speed, M, r, on);
+  if (gauge === "simple") return gaugeSimple(speed, M, r, on);
   return `<div class="big${on ? " on" : ""}">${speed}</div><div class="unit">KM/H</div>` +
     (M.pace ? `<div class="pace">配速 <b>${esc(paceText(v))}</b> /km</div>` : "");
+}
+
+/* 簡潔：時速超大在左，右邊三格 距離／平均（跑步是配速）／最快；下面那排數字就不重複了 */
+function gaugeSimple(speed, M, r, on) {
+  const avg = r ? avgV(r) : 0;
+  const tile = (k, v, unit) => `<div><span>${k}</span><b>${v}${unit ? `<small>${unit}</small>` : ""}</b></div>`;
+  return `<div class="simple"><div class="sbig"><div class="big${on ? " on" : ""}">${speed}</div><div class="unit">KM/H</div></div><div class="stiles">` +
+    tile("距離", km(r ? r.dist : 0), "km") +
+    (M.pace ? tile("配速 /km", esc(paceText(avg))) : tile("平均 km/h", avg ? kmh1(avg) : "0")) +
+    tile("最快 km/h", kmh(r ? r.maxV : 0)) +
+    `</div></div>`;
 }
 
 function gaugeDial(speed, M, maxK, on) {
@@ -895,7 +907,7 @@ function paintPanel() {
   const M = MODES[mode];
   const live = !!rec;
   S.tripRecBar.hidden = !live;
-  S.tripStats.hidden = !live;
+  S.tripStats.hidden = !live || gauge === "simple";   // 簡潔面板把這三個數字放在旁邊了
   S.tripMapBox.hidden = !live;
   S.tripChartBox.hidden = !live;
   S.tripStart.hidden = live;

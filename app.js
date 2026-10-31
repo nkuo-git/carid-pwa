@@ -24,7 +24,7 @@ const FIREBASE_SDK = "https://www.gstatic.com/firebasejs/12.19.0/";
 const OLD_KEY_STORE = "carid.apikey";
 
 // 行車紀錄（底部第二格）在 trip.js；路由在下面的 route() 裡接
-import { tripRoute, tripStore, tripInit, tripAccount } from "./trip.js?v=47";
+import { tripRoute, tripStore, tripInit, tripAccount } from "./trip.js?v=48";
 
 /* ================= 外觀：配色與明暗 ================= */
 
@@ -171,7 +171,7 @@ $("prefsBtn").addEventListener("click", () => setPrefs(prefsSheetEl.hidden));
 
 /* 網頁內容的版號，跟 sw.js 的 CACHE、index.html 和 mc.html 裡的 ?v= 一起加
    （account.js 也用這個版號載入；最上面 import trip.js 的 ?v= 也要一起改） */
-const WEB_BUILD = 47;
+const WEB_BUILD = 48;
 
 function appBuild() {
   const m = /CaridApp\/(\d+)/.exec(navigator.userAgent || "");
