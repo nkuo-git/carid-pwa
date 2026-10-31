@@ -85,13 +85,15 @@ carid-pwa/
 模型依序試 `gemini-flash-lite-latest` → `gemini-flash-latest`，前一個失敗（例如額度用完）就自動換下一個，兩個都失敗才顯示錯誤。使用者不用選。「深入」才帶 `generation_config.thinking_level: "high"`，「標準」不帶，讓每個模型用自己的預設值（有些模型不收這個欄位會回 400）。
 回應的文字在 `steps` 裡 `type: "model_output"` 那一段，取出來解析成 JSON 後畫成表格；解析失敗會提示再試一次。照片不會被存到任何地方。
 
-### 行車紀錄（內容 45 起，APK 13 起）
+### 行車紀錄（內容 45 起，APK 14 起）
 
 底部第二格。騎腳踏車、開車、跑步選一個，按「開始記錄」就用 GPS 看現在多快（數字／圓錶／弧形／賽車四種面板可以換），
 記下路線（OpenStreetMap 底圖，要有網路；沒網路只畫線）和速度曲線；結束後每趟存在手機裡（IndexedDB `carid-trip`），
 點進去有路線（越快越橘）、一張表和整趟的速度曲線，手指滑曲線可以看那一刻在哪、多快。全部在 `trip.js`。
+按「結束」會先暫停、從下面跳一張問要「存起來」、「捨棄」還是「還沒完，繼續記」（內容 46 起）；從通知列按結束的那趟會先存起來，回到畫面再問要不要捨棄。
+手機打橫（`@media (orientation: landscape)`，內容 46 起）變兩欄：記錄中左邊面板、右邊數據＋地圖＋曲線，標題列和底部分頁收起來；一筆紀錄左邊地圖、右邊一排數據＋曲線。
 
-位置從哪裡來：新的 App 外殼（APK 13 起，`CaridApp.tripStart`）用前景服務 `TripService` 在背景記，
+位置從哪裡來：新的 App 外殼（APK 14 起，`CaridApp.tripStart`）用前景服務 `TripService` 在背景記，
 螢幕關掉也會繼續，通知列會一直有一條「行車紀錄中」（上面可以暫停、結束）；點一個一個用
 `window.caridTrip("fix", …)` 交給網頁，沒接到的回來再用 `tripPoints` 補。一般瀏覽器用 `navigator.geolocation`，
 螢幕要亮著（有 wakeLock 就撐著）。舊的外殼（APK 12 以前）WebView 不給用定位，畫面會請使用者先更新 App。

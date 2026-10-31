@@ -265,12 +265,16 @@ window.caridTrip = (evt, data) => {
     return;
   }
   if (evt === "stopped") {
-    // 從通知那邊按了「結束」
+    // 從通知那邊按了「結束」：GPS 已經停了，先存起來才不會丟，再問要留還是捨棄
     if (!rec) return;
     const r = rec;
     stopTick();
     rec = null;
-    keepTrip(fromShell(data) || finishTrip(r.mode, r.start, r.pausedMs, r.pts, Date.now()));
+    const t = fromShell(data) || finishTrip(r.mode, r.start, r.pausedMs, r.pts, Date.now());
+    keepTrip(t, true).then((saved) => {
+      if (!saved) { setNote("太短了，這趟沒有存。"); paintPanel(); paintList(); return; }
+      if (view === "trip") openEnd(saved);
+    });
   }
 };
 
@@ -389,7 +393,7 @@ function resumeRec() {
   paintPanel();
 }
 
-function stopRec() {
+function stopRec(discard) {
   if (!rec) return;
   const r = rec;
   let fromApp = null;
@@ -402,17 +406,79 @@ function stopRec() {
   stopTick();
   rec = null;
   if (r.paused) { r.pausedMs += Date.now() - r.pausedAt; r.paused = false; }
+  if (discard) { setNote("這趟捨棄了，沒有存。"); paintPanel(); paintList(); return; }
   keepTrip(fromApp || finishTrip(r.mode, r.start, r.pausedMs, r.pts, Date.now()));
 }
 
+/* 按「結束」：先暫停，問要存起來、捨棄，還是繼續記 */
+let endWasPaused = false;   // 按結束前就暫停著，按「繼續記」就不要自動恢復
+let endSaved = null;        // 從通知結束的那趟（已經存了），等著選留或捨棄
+function askEnd() {
+  if (!rec) return;
+  endWasPaused = rec.paused;
+  if (!rec.paused) pauseRec();
+  openEnd(null);
+}
+function openEnd(saved) {
+  endSaved = saved;
+  const r = rec;
+  const src = saved || r;
+  if (!src) return;
+  const M = MODES[src.mode] || MODES.car;
+  const dist = src.dist, el = saved ? saved.elapsed : elapsed(r);
+  const avg = saved ? avgV(saved) : avgV(r);
+  const short = !saved && ((r.pts.length < 2) || dist < 20);
+  $("tripEndTitle").textContent = saved ? "這趟結束了" : "結束這趟？";
+  S.tripEndStats.innerHTML =
+    `<div class="stat"><b>${km(dist)}<small>km</small></b><span>距離</span></div>` +
+    `<div class="stat"><b>${esc(durText(el))}</b><span>花了多久</span></div>` +
+    (M.pace
+      ? `<div class="stat"><b>${esc(paceText(avg))}</b><span>平均配速 /km</span></div>`
+      : `<div class="stat"><b>${kmh(src.maxV)}</b><span>最快 km/h</span></div>`);
+  S.tripEndNote.textContent = short ? "太短了，存不起來。" : "";
+  S.tripEndNote.hidden = !short;
+  S.tripEndKeep.disabled = short;
+  S.tripEndKeep.textContent = saved ? "留著" : "存起來";
+  S.tripEndMore.hidden = !!saved;
+  S.tripEndClose.hidden = !!saved;
+  S.tripEndWrap.hidden = false;
+  document.body.classList.add("sharing");
+}
+function closeEnd() {
+  S.tripEndWrap.hidden = true;
+  document.body.classList.remove("sharing");
+}
+function endContinue() {
+  closeEnd();
+  if (endSaved) { endSaved = null; paintList(); return; }
+  if (rec?.paused && !endWasPaused) resumeRec();
+}
+function endKeep() {
+  closeEnd();
+  if (endSaved) { const t = endSaved; endSaved = null; location.hash = "#trip/" + encodeURIComponent(t.id); return; }
+  stopRec(false);
+}
+async function endDrop() {
+  closeEnd();
+  if (endSaved) {
+    const t = endSaved; endSaved = null;
+    try { await delTrip(t.id); } catch { /* 算了 */ }
+    setNote("這趟捨棄了，沒有存。"); paintPanel(); paintList();
+    return;
+  }
+  stopRec(true);
+}
+
+/** 存一筆；太短不存。回傳存進去的那筆，沒存回傳 null */
 async function keepTrip(t, quiet) {
   if (t.pts.length < 2 || t.dist < 20) {
     if (!quiet) { setNote("太短了，這趟沒有存。"); paintPanel(); paintList(); }
-    return;
+    return null;
   }
-  try { await saveTrip(t); } catch { setNote("存不進手機裡（儲存空間不給用）。"); paintPanel(); return; }
+  try { await saveTrip(t); } catch { setNote("存不進手機裡（儲存空間不給用）。"); paintPanel(); return null; }
   if (!quiet) location.hash = "#trip/" + encodeURIComponent(t.id);
   else if (view === "trip") paintList();
+  return t;
 }
 
 function startTick() {
@@ -753,7 +819,7 @@ function xLabelsFor(from, to) {
 
 const S = {};
 function grab() {
-  for (const id of ["tripModes", "tripRecBar", "tripStatus", "tripGauge", "tripGaugeSel", "tripStats", "tripMapBox", "tripMap", "tripChartBox", "tripChart", "tripStart", "tripPause", "tripStop", "tripNote", "tripList", "tripEmpty", "tripDot", "tiMode", "tiTitle", "tiMap", "tiTable", "tiChart", "tiHint", "tiDel", "tiMapBox"]) S[id] = $(id);
+  for (const id of ["tripModes", "tripRecBar", "tripStatus", "tripGauge", "tripGaugeSel", "tripStats", "tripMapBox", "tripMap", "tripChartBox", "tripChart", "tripStart", "tripPause", "tripStop", "tripNote", "tripList", "tripEmpty", "tripDot", "tiMode", "tiTitle", "tiMap", "tiTable", "tiChart", "tiHint", "tiDel", "tiMapBox", "tripEndWrap", "tripEndDim", "tripEndStats", "tripEndNote", "tripEndDrop", "tripEndKeep", "tripEndMore", "tripEndClose"]) S[id] = $(id);
 }
 let liveMap = null, itemMap = null;
 
@@ -833,11 +899,20 @@ function paintLiveNumbers() {
     `<div class="stat"><b>${kmh(r.maxV)}</b><span>最快 km/h</span></div>`;
 }
 
+/* 手機打橫：CSS 會把曲線框變寬變矮，SVG 就照框的大小畫 */
+const isLand = () => matchMedia("(orientation: landscape) and (max-height: 600px)").matches;
+function chartSize(box, h) {
+  if (!isLand()) return { w: 358, h };
+  return { w: box.clientWidth || 358, h: box.clientHeight || h };
+}
+let itemChartW = 358;
+
 function paintLiveChart() {
   if (view !== "trip" || !rec) return;
   const now = rec.paused ? rec.pausedAt : Date.now();
   const from = Math.max(rec.start, now - 10 * 60000);
-  S.tripChart.innerHTML = chartSvg(rec.pts, { h: 100, from, to: Math.max(now, from + 60000), live: true, ymax: niceMax(Math.max(10, rec.maxV * 3.6, MODES[rec.mode].max * 0.3)) });
+  const sz = chartSize(S.tripChart, 100);
+  S.tripChart.innerHTML = chartSvg(rec.pts, { ...sz, from, to: Math.max(now, from + 60000), live: true, ymax: niceMax(Math.max(10, rec.maxV * 3.6, MODES[rec.mode].max * 0.3)) });
 }
 function paintLiveMap() {
   if (view !== "trip" || !rec) return;
@@ -846,6 +921,7 @@ function paintLiveMap() {
 }
 function paintTripDot() {
   if (S.tripDot) S.tripDot.hidden = !rec;
+  document.body.classList.toggle("triplive", !!rec);
 }
 
 /* 之前的紀錄 */
@@ -916,9 +992,11 @@ async function paintItem(id) {
 }
 function paintItemChart() {
   const t = item;
-  if (!t) return;
+  if (!t || view !== "item") return;
   const from = t.start, to = Math.max(t.end, t.start + 60000);
-  S.tiChart.innerHTML = chartSvg(t.pts, { from, to, xLabels: xLabelsFor(from, to), scrub: scrubIdx });
+  const sz = chartSize(S.tiChart, 190);
+  itemChartW = sz.w;
+  S.tiChart.innerHTML = chartSvg(t.pts, { ...sz, from, to, xLabels: xLabelsFor(from, to), scrub: scrubIdx });
   S.tiHint.textContent = scrubIdx >= 0 && t.pts[scrubIdx]
     ? `${hhmm(t.pts[scrubIdx][0])}　${kmh(t.pts[scrubIdx][3])} km/h${MODES[t.mode]?.pace ? "　配速 " + paceText(t.pts[scrubIdx][3]) : ""}`
     : "手指在曲線上左右滑，看那一刻多快、在地圖哪裡。";
@@ -929,7 +1007,7 @@ function scrubAt(clientX) {
   const svg = S.tiChart.querySelector("svg");
   if (!svg) return;
   const box = svg.getBoundingClientRect();
-  const L = 36 / 358 * box.width, R = 12 / 358 * box.width;
+  const L = 36 / itemChartW * box.width, R = 12 / itemChartW * box.width;
   const f = Math.min(1, Math.max(0, (clientX - box.left - L) / (box.width - L - R)));
   const want = t.start + f * (Math.max(t.end, t.start + 60000) - t.start);
   // 二分找最接近的點
@@ -966,7 +1044,12 @@ function wire() {
   });
   S.tripStart.addEventListener("click", startRec);
   S.tripPause.addEventListener("click", () => (rec?.paused ? resumeRec() : pauseRec()));
-  S.tripStop.addEventListener("click", stopRec);
+  S.tripStop.addEventListener("click", askEnd);
+  S.tripEndKeep.addEventListener("click", endKeep);
+  S.tripEndDrop.addEventListener("click", endDrop);
+  S.tripEndMore.addEventListener("click", endContinue);
+  S.tripEndClose.addEventListener("click", endContinue);
+  S.tripEndDim.addEventListener("click", endContinue);
   S.tiDel.addEventListener("click", async () => {
     if (!item || !confirm("刪除這筆行車紀錄？刪了就拿不回來。")) return;
     try { await delTrip(item.id); } catch { /* 算了 */ }
@@ -978,7 +1061,8 @@ function wire() {
   const end = () => { scrubbing = false; };
   S.tiChart.addEventListener("pointerup", end);
   S.tiChart.addEventListener("pointercancel", end);
-  window.addEventListener("resize", () => { liveMap?.paint(); itemMap?.paint(); });
+  // 轉成橫的：地圖重畫、曲線照新的框重算（曲線是拉伸的 SVG，不重算字會變形）
+  window.addEventListener("resize", () => { liveMap?.paint(); itemMap?.paint(); paintLiveChart(); paintItemChart(); });
   // 離開這一頁、關掉：瀏覽器模式沒辦法在背景記，至少把 wakeLock 放掉
   window.addEventListener("pagehide", () => { if (wake) { wake.release?.().catch?.(() => {}); wake = null; } });
   recover();

@@ -17,7 +17,7 @@
 
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap">
-<link rel="stylesheet" href="./styles.css?v=45">
+<link rel="stylesheet" href="./styles.css?v=46">
 </head>
 <body data-view="car">
 
@@ -309,12 +309,31 @@
     </div>
     <div class="tbtns">
       <button type="button" id="tripPause" hidden>暫停</button>
-      <button type="button" class="primary" id="tripStop" hidden><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="4.5" y="4.5" width="15" height="15" rx="2.5"/></svg>結束並存起來</button>
+      <button type="button" class="primary" id="tripStop" hidden><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="4.5" y="4.5" width="15" height="15" rx="2.5"/></svg>結束</button>
     </div>
     <p class="tnote" id="tripNote" hidden></p>
     <div class="tlisthead"><span>之前的紀錄</span><span>只存在這支手機</span></div>
     <div id="tripList"></div>
     <p class="empty" id="tripEmpty" hidden>還沒有紀錄。選好腳踏車、開車還是跑步，按「開始記錄」就會開始記。</p>
+
+    <!-- 按「結束」之後：存起來還是捨棄 -->
+    <div class="sharewrap" id="tripEndWrap" hidden>
+      <div class="sharedim" id="tripEndDim"></div>
+      <div class="sharesheet tend" role="dialog" aria-modal="true" aria-labelledby="tripEndTitle">
+        <div class="grab"></div>
+        <div class="sharehead">
+          <h2 id="tripEndTitle">結束這趟？</h2>
+          <button type="button" class="icon-btn" id="tripEndClose" aria-label="繼續記錄"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        </div>
+        <div class="stats" id="tripEndStats"></div>
+        <p class="tendnote" id="tripEndNote" hidden></p>
+        <div class="btnrow">
+          <button type="button" class="danger" id="tripEndDrop">捨棄</button>
+          <button type="button" class="primary" id="tripEndKeep">存起來</button>
+        </div>
+        <button type="button" class="tendmore" id="tripEndMore">還沒完，繼續記</button>
+      </div>
+    </div>
   </section>
 
   <!-- 行車紀錄：點進一筆 -->
@@ -352,6 +371,6 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=45"></script>
+<script type="module" src="./app.js?v=46"></script>
 </body>
 </html>

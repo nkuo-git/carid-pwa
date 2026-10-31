@@ -1740,3 +1740,120 @@ button.tstart svg { width: 18px; height: 18px; }
 .screen.detail .card { margin-top: 14px; }
 table.spec td b.n { font-family: "Barlow Condensed", "Noto Sans TC", sans-serif; font-size: 19px; font-weight: 700; }
 table.spec td .tsmall { font-size: 12px; color: var(--ink-soft); margin-left: 8px; }
+
+/* 結束這趟？存起來／捨棄／繼續記（從下面滑上來那張） */
+.tend .stats { margin: 0; }
+.tend .stat b { font-size: 24px; }
+.tend .stat b small { font-size: 14px; color: var(--ink-soft); margin-left: 3px; font-weight: 600; }
+.tend .btnrow { margin: 0; }
+.tend .btnrow button { height: 52px; font-size: 16px; font-weight: 700; }
+.tendnote { margin: -8px 0 0; text-align: center; font-size: 13px; color: var(--danger); }
+.tendmore { height: 40px; margin: -8px 0 0; border: 0; background: transparent; color: var(--ink-soft); font-size: 14px; }
+.tendmore:hover:not(:disabled) { background: transparent; color: var(--ink); }
+
+/* ---------- 行車紀錄：手機打橫 ---------- */
+@media (orientation: landscape) and (max-height: 600px) {
+  body[data-view="trip"] .app,
+  body[data-view="tripitem"] .app { max-width: none; border: 0; box-shadow: none; }
+  /* 橫著拿時標題列（名字、版本、齒輪）先收起來，高度不夠 */
+  body[data-view="trip"] .appbar { display: none !important; }
+  /* 地圖、曲線照格子的大小，不要反過來撐大格子 */
+  #screenTrip .tmap canvas, #screenTripItem .tmap canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+  /* 兩欄：左邊面板（300px），右邊其他 */
+  body[data-view="trip"] #screenTrip {
+    display: grid;
+    grid-template-columns: 300px minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
+    gap: 8px 12px;
+    align-content: start;
+    padding: 10px 16px 12px;
+  }
+  /* 沒在記：左邊選模式＋面板，右邊之前的紀錄 */
+  #screenTrip .tmodes { grid-column: 1; grid-row: 1; margin: 0; }
+  #screenTrip .tmodes button { height: 32px; font-size: 13px; }
+  #screenTrip .tpanel { grid-column: 1; grid-row: 2 / span 2; padding: 10px 12px; min-height: 0; overflow: hidden; }
+  #screenTrip .tlisthead { grid-column: 2 / -1; grid-row: 1; margin: 0; align-self: center; }
+  #screenTrip #tripList { grid-column: 2 / -1; grid-row: 2 / span 2; align-self: start; }
+  #screenTrip #tripEmpty { grid-column: 2 / -1; grid-row: 2 / span 2; margin: 24px 16px; }
+  #screenTrip .tnote { grid-column: 1 / -1; grid-row: 4; margin: 0; }
+  /* 面板裡的錶縮到放得進去 */
+  #screenTrip .tstatus { margin: 0 0 4px; font-size: 10px; line-height: 1.35; }
+  /* 圓錶、弧形（SVG）：用絕對定位塞滿剩下的高度，不會反過來把面板撐高；沒在記時固定 120px */
+  #screenTrip .tgauge[data-kind="dial"], #screenTrip .tgauge[data-kind="arc"] { position: relative; flex: 1 1 0; min-height: 0; width: 100%; }
+  body:not(.triplive) #screenTrip .tgauge[data-kind="dial"], body:not(.triplive) #screenTrip .tgauge[data-kind="arc"] { flex: none; height: 100px; }
+  #screenTrip .tgauge[data-kind="dial"] svg, #screenTrip .tgauge[data-kind="arc"] svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  body:not(.triplive) #screenTrip .race .rtiles { display: none; }
+  body:not(.triplive) #screenTrip .race .rnum { font-size: 60px; }
+  #screenTrip .tgauge .big { font-size: 72px; margin-top: 0; }
+  #screenTrip .tgauge .unit { font-size: 15px; }
+  #screenTrip .race { padding: 8px 10px 8px; }
+  #screenTrip .race .lights i { height: 14px; }
+  #screenTrip .race .scale { font-size: 11px; margin-top: 2px; }
+  #screenTrip .race .rnum { font-size: 70px; }
+  #screenTrip .race .rbig { margin: 0 0 4px; }
+  #screenTrip .race .runit { font-size: 16px; }
+  #screenTrip .race .rdiff { height: 20px; font-size: 14px; }
+  #screenTrip .race .rtiles { gap: 4px; }
+  #screenTrip .race .rtiles div { padding: 3px 8px 4px; min-width: 0; }
+  #screenTrip .race .rtiles .k { font-size: 10px; white-space: nowrap; }
+  #screenTrip .race .rtiles b { font-size: 18px; white-space: nowrap; }
+  #screenTrip .race .rtiles small { font-size: 11px; margin-left: 2px; }
+  #screenTrip .tgsel { margin-top: 6px; }
+  #screenTrip .tgsel button { height: 30px; font-size: 12px; }
+  #screenTrip button.tstart { margin-top: 8px; height: 42px; font-size: 15px; }
+
+  /* 記錄中：藏標題列、底部分頁，整個螢幕都給它 */
+  body.triplive[data-view="trip"] .dock { display: none !important; }
+  body.triplive[data-view="trip"] .tmodes { display: none; }
+  body.triplive[data-view="trip"] #screenTrip { height: 100vh; height: 100dvh; overflow: hidden; }
+  body.triplive[data-view="trip"] .tlisthead,
+  body.triplive[data-view="trip"] #tripList,
+  body.triplive[data-view="trip"] #tripEmpty { display: none; }
+  #screenTrip .trecbar { grid-column: 1; grid-row: 1; margin: 0; height: 40px; padding: 0 12px; font-size: 13px; }
+  #screenTrip .trecbar time { font-size: 20px; }
+  #screenTrip .tstats { grid-column: 2 / -1; grid-row: 1; margin: 0; }
+  #screenTrip .tstats .stat { padding: 8px 12px; }
+  #screenTrip .tstats .stat b { font-size: 24px; line-height: 1; }
+  #screenTrip .tstats .stat span { margin-top: 3px; font-size: 11px; }
+  #screenTrip .tmap { grid-column: 2 / -1; grid-row: 2; margin: 0; height: auto; min-height: 0; }
+  #screenTrip .tchart { grid-column: 2; grid-row: 3; margin: 0; padding: 6px 0 4px; }
+  #screenTrip .tchart header { padding: 0 10px 2px; font-size: 11px; }
+  #tripChart { position: relative; height: 56px; }
+  #tripChart svg { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; }
+  #screenTrip .tbtns { grid-column: 3; grid-row: 3; margin: 0; }
+  #screenTrip .tbtns button { flex: none; width: 80px; height: auto; padding: 0 6px; font-size: 14px; }
+  #screenTrip .tbtns button.primary { width: 96px; }
+
+  /* 一筆紀錄：地圖左邊，數據一排＋曲線右邊 */
+  body[data-view="tripitem"] #screenTripItem {
+    display: grid;
+    grid-template-columns: 380px minmax(0, 1fr);
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+    gap: 8px 12px;
+    align-content: start;
+    height: 100vh;
+    height: 100dvh;
+    padding: 0 16px 10px;
+  }
+  #screenTripItem .backhead { grid-column: 1 / -1; grid-row: 1; position: static; margin: 0 -16px; padding: 4px 8px 4px 4px; }
+  #screenTripItem .tihead { grid-column: 1; grid-row: 2; padding: 0; display: flex; align-items: baseline; gap: 10px; }
+  #screenTripItem .tihead h2 { font-size: 18px; }
+  #screenTripItem .btnrow { grid-column: 2; grid-row: 2; margin: 0; justify-self: end; }
+  #screenTripItem .btnrow button { flex: none; height: 32px; padding: 0 12px; border-radius: 9px; font-size: 13px; }
+  #screenTripItem .tmap.tall { grid-column: 1; grid-row: 3 / span 2; margin: 0; height: auto; min-height: 0; }
+  #screenTripItem .card { grid-column: 2; grid-row: 3; margin: 0; }
+  #tiTable { display: grid; grid-template-columns: repeat(3, 1fr); border-radius: 12px; overflow: hidden; background: var(--surface); border: 1px solid var(--line); }
+  #tiTable tbody { display: contents; }
+  #tiTable tr { display: flex; flex-direction: column; padding: 6px 10px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  #tiTable tr:nth-child(3n) { border-right: 0; }
+  #tiTable th, #tiTable td { padding: 0; border: 0; width: auto; text-align: start; }
+  #tiTable th { font-size: 11px; }
+  table.spec td b.n { font-size: 16px; }
+  #tiTable td .tsmall { display: block; margin: 0; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #screenTripItem .tchart { grid-column: 2; grid-row: 4; margin: 0; padding: 6px 0 4px; display: flex; flex-direction: column; min-height: 0; }
+  #screenTripItem .tchart header { padding: 0 12px 2px; }
+  #tiChart { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+  #tiChart svg { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; }
+  #screenTripItem .tchart .hint { margin: 2px 12px 0; font-size: 11px; min-height: 0; }
+}
