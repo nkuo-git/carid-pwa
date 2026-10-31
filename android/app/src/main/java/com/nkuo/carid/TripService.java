@@ -203,11 +203,15 @@ public class TripService extends Service implements LocationListener {
     double v = loc.hasSpeed() ? loc.getSpeed() : -1;
     double acc = loc.hasAccuracy() ? loc.getAccuracy() : -1;
     JSONArray p = new JSONArray();
-    p.put(t);
-    p.put(Math.round(loc.getLatitude() * 1e6) / 1e6);
-    p.put(Math.round(loc.getLongitude() * 1e6) / 1e6);
-    p.put(v < 0 ? -1 : Math.round(v * 10) / 10.0);
-    p.put(acc < 0 ? -1 : Math.round(acc));
+    try {
+      p.put(t);
+      p.put(Math.round(loc.getLatitude() * 1e6) / 1e6);
+      p.put(Math.round(loc.getLongitude() * 1e6) / 1e6);
+      p.put(v < 0 ? -1 : Math.round(v * 10) / 10.0);
+      p.put(acc < 0 ? -1 : Math.round(acc));
+    } catch (Exception e) {
+      return;   // NaN 之類的怪值（JSONArray.put(double) 會丟），這個點不要
+    }
     points.put(p);
     appendPoint(p);
     if (lastLoc != null && (acc < 0 || acc <= 60)) {
