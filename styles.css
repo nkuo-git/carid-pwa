@@ -2116,3 +2116,103 @@ body.triplive.tgs[data-view="trip"] #screenTrip .tgsel .k, body.triplive.tgs[dat
   body.triplive:not(.tripfocus) #screenTrip .race .rdiff { height: 18px; }
 }
 body.triplive.tgs[data-gstyle="vfd"]:not(.tripfocus)[data-view="trip"] #screenTrip .tstats .stat b { font-size: 23px; letter-spacing: -.04em; }
+
+/* ---------- 行車紀錄：錄影＋記錄 ---------- */
+
+button.tcamgo {
+  width: 100%; margin-top: 10px; height: 52px; border-radius: 16px;
+  border: 1.5px solid var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--accent);
+  font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+button.tcamgo:hover:not(:disabled) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); }
+button.tcamgo svg { width: 20px; height: 20px; }
+.tcamnote { margin: 10px 4px 0; color: var(--ink-soft); font-size: 12.5px; line-height: 1.6; text-align: center; }
+@media (orientation: landscape) and (max-height: 600px) {
+  /* 沒在記：「開始記錄」和「錄影＋記錄」並排，左欄才放得下 */
+  body:not(.triplive) #screenTrip .tpanel { flex-flow: row wrap; align-content: flex-start; column-gap: 8px; }
+  body:not(.triplive) #screenTrip .tpanel > * { flex: 0 0 100%; }
+  body:not(.triplive) #screenTrip .tpanel > button.tstart,
+  body:not(.triplive) #screenTrip .tpanel > button.tcamgo { flex: 1 1 0; min-width: 0; width: auto; margin-top: 8px; height: 42px; font-size: 15px; padding: 0 8px; }
+  #screenTrip .tcamnote { display: none; }
+}
+
+body.tcamopen { overflow: hidden; }
+#tripGaugeWrap { z-index: 60; }
+.tcam {
+  position: fixed; inset: 0; z-index: 45; background: #000; color: #fff;
+  display: flex; flex-direction: column;
+}
+.tcam-stage { position: relative; flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.tcam-stage canvas { display: block; width: 100%; height: 100%; object-fit: contain; }
+.tcam-stage video { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.tcam-bar {
+  flex: none; height: 118px; padding: 0 30px calc(8px + env(safe-area-inset-bottom, 0px)); background: #050506;
+  display: flex; align-items: center; justify-content: space-around;
+}
+.tcam-side { display: flex; flex-direction: column; align-items: center; gap: 5px; color: #C9CDD3; font-size: 11px; }
+.tcam button.tcam-b {
+  width: 52px; height: 52px; padding: 0; border-radius: 50%; border: 0; background: rgba(255, 255, 255, .14); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+}
+.tcam button.tcam-b:hover:not(:disabled) { background: rgba(255, 255, 255, .22); }
+.tcam-b svg { width: 22px; height: 22px; }
+.tcam button.tcam-stop {
+  width: 76px; height: 76px; padding: 0; border-radius: 50%; border: 4px solid #fff; background: transparent;
+  display: flex; align-items: center; justify-content: center;
+}
+.tcam button.tcam-stop:hover:not(:disabled) { background: rgba(255, 255, 255, .08); border-color: #fff; }
+.tcam-stop span { width: 30px; height: 30px; border-radius: 7px; background: #FF3B2F; }
+.tcam-msg {
+  position: absolute; left: 20px; right: 20px; top: 50%; transform: translateY(-50%); max-width: 420px; margin: 0 auto;
+  padding: 20px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line-mid); color: var(--ink);
+}
+.tcam-msg p { margin: 0; font-size: 15px; line-height: 1.6; }
+.tcam-msg .btnrow { margin: 16px 0 0; }
+.tcam .tcam-sheet { z-index: 2; }
+@media (orientation: landscape) {
+  .tcam { flex-direction: row; }
+  .tcam-bar { width: 100px; height: auto; flex-direction: column; padding: 18px 0; padding-right: env(safe-area-inset-right, 0px); }
+  .tcam-side span { display: none; }
+}
+
+/* 影片上要放什麼 */
+.tco { display: flex; flex-direction: column; }
+.tco-row { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.tco-row:last-child { border-bottom: 0; }
+.tco-t { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tco-t b { font-size: 16px; font-weight: 700; }
+.tco-t span { color: var(--ink-soft); font-size: 12.5px; }
+.tco button.tco-g { height: 34px; padding: 0 11px; border-radius: 9px; font-size: 13px; background: var(--surface-2); flex: none; }
+.tco button.tco-sw {
+  flex: none; position: relative; width: 52px; height: 30px; padding: 0; border-radius: 15px; border: 0; background: var(--line-strong);
+}
+.tco button.tco-sw[aria-checked="true"] { background: var(--accent); }
+.tco button.tco-sw:hover:not(:disabled) { border: 0; filter: brightness(1.08); }
+.tco-sw i { position: absolute; left: 3px; top: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.tco-sw[aria-checked="true"] i { transform: translateX(22px); }
+.tco-q { flex: none; display: flex; padding: 3px; gap: 3px; border-radius: 11px; border: 1px solid var(--line-strong); }
+.tco-q button { height: 32px; padding: 0 10px; border: 0; border-radius: 8px; font-size: 13px; color: var(--ink-soft); }
+.tco-q button[aria-pressed="true"] { background: var(--surface-2); color: var(--ink); font-weight: 700; }
+.tco-note { margin: 0; color: var(--ink-soft); font-size: 12.5px; line-height: 1.6; }
+
+/* 影片存好了 */
+.tcs { display: flex; gap: 16px; align-items: center; }
+.tcs-thumb { position: relative; flex: none; width: 120px; height: 213px; border-radius: 12px; overflow: hidden; background: #000; border: 1px solid var(--line-mid); }
+.tcs-thumb.land { width: 200px; height: 113px; }
+.tcs-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.tcs-thumb span { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 40px; height: 40px; border-radius: 50%; background: rgba(0, 0, 0, .55); display: flex; align-items: center; justify-content: center; }
+.tcs-thumb span svg { width: 18px; height: 18px; color: #fff; margin-left: 2px; }
+.tcs-info { min-width: 0; display: flex; flex-direction: column; gap: 6px; color: var(--ink-mid); font-size: 14px; }
+.tcs-info b { color: var(--ink); font-size: 16px; }
+.tcs-info em { font-style: normal; font-weight: 700; color: var(--ink); }
+.tcs-btns { margin: 0; }
+.tcs-btns > * { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.tcs-btns svg { width: 18px; height: 18px; }
+.tcs-btns .btnlike { height: 54px; border-radius: 15px; font-size: 16px; }
+.tcs-btns .btnlike.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.tcs-note { text-align: center; }
+@media (orientation: landscape) and (max-height: 600px) {
+  .tcam .sharesheet { max-width: 560px; gap: 12px; }
+  .tco-row { padding: 7px 0; }
+  .tcs-thumb { width: 90px; height: 160px; }
+}

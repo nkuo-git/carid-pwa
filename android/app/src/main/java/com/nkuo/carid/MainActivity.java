@@ -12,7 +12,9 @@ import android.os.Bundle;
 import android.provider.Settings;
 import android.provider.MediaStore;
 import android.webkit.GeolocationPermissions;
+import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
+import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -48,6 +50,8 @@ public class MainActivity extends Activity {
   private static final int REQ_FILE = 1001;
   private static final int REQ_NOTIFY = 1002;
   private static final int REQ_LOCATION = 1003;
+  private static final int REQ_CAM = 1004;
+  private static final int REQ_FILE_CAM = 1005;
 
   /** 行車紀錄：問完位置權限要開始記的模式（腳踏車／開車／跑步）；null＝沒有在等。 */
   private String tripModeWanted;
@@ -61,8 +65,13 @@ public class MainActivity extends Activity {
   private boolean notifyFromToggle;
 
   private WebView web;
+  /** 行車錄影：網頁要相機／麥克風，手機還沒准的時候先收著，問完再回它。 */
+  private PermissionRequest pendingPerm;
+  private CamSaver cam;
   private ValueCallback<Uri[]> pendingCallback;
   private Uri cameraOutputUri;
+  /** 選照片時先去問相機權限，問完再用這個打開。 */
+  private WebChromeClient.FileChooserParams chooserParams;
 
   /** 從瀏覽器跳回來的登入連結，先收著，等網頁準備好再交給它。 */
   private volatile String pendingLink;
@@ -120,6 +129,17 @@ public class MainActivity extends Activity {
     });
 
     web.setWebChromeClient(new WebChromeClient() {
+      /** 行車錄影：網頁要用相機（和麥克風）。是我們的網站才給；手機還沒准就先問。 */
+      @Override
+      public void onPermissionRequest(PermissionRequest request) {
+        runOnUiThread(() -> camPermission(request));
+      }
+
+      @Override
+      public void onPermissionRequestCanceled(PermissionRequest request) {
+        if (pendingPerm == request) pendingPerm = null;
+      }
+
       @Override
       public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
         // 網頁自己用 navigator.geolocation 的時候（備用路徑）：是我們的網站、手機也准了就放行
@@ -133,36 +153,13 @@ public class MainActivity extends Activity {
         // 上一次沒收掉的 callback 要先結束，不然網頁的選檔會卡住
         if (pendingCallback != null) pendingCallback.onReceiveValue(null);
         pendingCallback = callback;
-        cameraOutputUri = null;
-
-        Intent camera = cameraIntent();
-        Intent launch;
-        if (params.isCaptureEnabled() && camera != null) {
-          // 網頁上的「拍照」（capture）直接開相機，連拍好幾張時不用每次都先選 App
-          launch = camera;
-        } else {
-          Intent pick = params.createIntent();
-          // 網頁的相簿可以一次選好幾張（最多 5 張由網頁自己管）
-          if (params.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE) {
-            pick.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-          }
-          List<Intent> extras = new ArrayList<>();
-          if (camera != null) extras.add(camera);
-          launch = Intent.createChooser(pick, "選車的照片");
-          if (!extras.isEmpty()) {
-            launch.putExtra(Intent.EXTRA_INITIAL_INTENTS, extras.toArray(new Intent[0]));
-          }
+        // 有寫 CAMERA 權限的 App，手機沒准就不能叫相機 App 拍照（會被擋）：先問，問完再打開
+        if (!has(Manifest.permission.CAMERA)) {
+          chooserParams = params;
+          requestPermissions(new String[]{Manifest.permission.CAMERA}, REQ_FILE_CAM);
+          return true;
         }
-
-        try {
-          startActivityForResult(launch, REQ_FILE);
-        } catch (Exception e) {
-          pendingCallback = null;
-          Toast.makeText(MainActivity.this, "打不開相簿", Toast.LENGTH_SHORT).show();
-          callback.onReceiveValue(null);
-          return false;
-        }
-        return true;
+        return launchChooser(params, true);
       }
     });
 
@@ -233,6 +230,8 @@ public class MainActivity extends Activity {
   public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
     super.onRequestPermissionsResult(requestCode, permissions, results);
     if (requestCode == REQ_LOCATION) { tripPermissionDone(); return; }
+    if (requestCode == REQ_CAM) { camPermissionDone(); return; }
+    if (requestCode == REQ_FILE_CAM) { chooserPermissionDone(); return; }
     if (requestCode != REQ_NOTIFY) return;
     boolean fromToggle = notifyFromToggle;
     notifyFromToggle = false;
@@ -333,6 +332,113 @@ public class MainActivity extends Activity {
         result -> {
           if (!"\"ok\"".equals(result) && pendingLink == null) pendingLink = link;
         });
+  }
+
+  /** 打開選照片（和拍照）；withCamera＝false 是手機不准用相機，只給相簿。 */
+  private boolean launchChooser(WebChromeClient.FileChooserParams params, boolean withCamera) {
+    cameraOutputUri = null;
+
+    Intent camera = withCamera ? cameraIntent() : null;
+    Intent launch;
+    if (params.isCaptureEnabled() && camera != null) {
+      // 網頁上的「拍照」（capture）直接開相機，連拍好幾張時不用每次都先選 App
+      launch = camera;
+    } else {
+      Intent pick = params.createIntent();
+      // 網頁的相簿可以一次選好幾張（最多 5 張由網頁自己管）
+      if (params.getMode() == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) {
+        pick.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+      }
+      List<Intent> extras = new ArrayList<>();
+      if (camera != null) extras.add(camera);
+      launch = Intent.createChooser(pick, "選車的照片");
+      if (!extras.isEmpty()) {
+        launch.putExtra(Intent.EXTRA_INITIAL_INTENTS, extras.toArray(new Intent[0]));
+      }
+    }
+
+    try {
+      startActivityForResult(launch, REQ_FILE);
+    } catch (Exception e) {
+      ValueCallback<Uri[]> cb = pendingCallback;
+      pendingCallback = null;
+      Toast.makeText(MainActivity.this, "打不開相簿", Toast.LENGTH_SHORT).show();
+      if (cb != null) cb.onReceiveValue(null);
+      return false;
+    }
+    return true;
+  }
+
+  private void chooserPermissionDone() {
+    WebChromeClient.FileChooserParams params = chooserParams;
+    chooserParams = null;
+    if (params == null || pendingCallback == null) return;
+    launchChooser(params, has(Manifest.permission.CAMERA));
+  }
+
+  /* ---------- 行車錄影：相機權限 ---------- */
+
+  private boolean has(String perm) {
+    return checkSelfPermission(perm) == PackageManager.PERMISSION_GRANTED;
+  }
+
+  private void camPermission(PermissionRequest req) {
+    Uri o = req.getOrigin();
+    if (o == null || !Uri.parse(START_URL).getHost().equals(o.getHost())) {
+      req.deny();
+      return;
+    }
+    List<String> need = new ArrayList<>();
+    for (String r : req.getResources()) {
+      if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r) && !has(Manifest.permission.CAMERA)) need.add(Manifest.permission.CAMERA);
+      if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r) && !has(Manifest.permission.RECORD_AUDIO)) need.add(Manifest.permission.RECORD_AUDIO);
+    }
+    if (need.isEmpty()) {
+      grantCam(req);
+      return;
+    }
+    if (pendingPerm != null) pendingPerm.deny();
+    pendingPerm = req;
+    requestPermissions(need.toArray(new String[0]), REQ_CAM);
+  }
+
+  private void camPermissionDone() {
+    PermissionRequest req = pendingPerm;
+    pendingPerm = null;
+    if (req != null) grantCam(req);
+  }
+
+  /** 手機准了哪些就給哪些；連相機都不准就整個拒絕（網頁會說要去設定打開）。 */
+  private void grantCam(PermissionRequest req) {
+    List<String> ok = new ArrayList<>();
+    for (String r : req.getResources()) {
+      if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r) && has(Manifest.permission.CAMERA)) ok.add(r);
+      if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r) && has(Manifest.permission.RECORD_AUDIO)) ok.add(r);
+    }
+    if (ok.isEmpty()) req.deny();
+    else req.grant(ok.toArray(new String[0]));
+  }
+
+  private void openVideo(String u, boolean share) {
+    try {
+      Uri uri = Uri.parse(u);
+      Intent i;
+      if (share) {
+        i = new Intent(Intent.ACTION_SEND);
+        i.setType("video/*");
+        i.putExtra(Intent.EXTRA_STREAM, uri);
+        i.setClipData(ClipData.newRawUri("", uri));
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        i = Intent.createChooser(i, "分享影片");
+      } else {
+        i = new Intent(Intent.ACTION_VIEW);
+        i.setDataAndType(uri, "video/*");
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+      }
+      startActivity(i);
+    } catch (Exception e) {
+      Toast.makeText(this, share ? "沒辦法分享" : "找不到可以播影片的 App", Toast.LENGTH_SHORT).show();
+    }
   }
 
   /** 網頁可以呼叫的小功能，在網頁裡叫 window.CaridApp。 */
@@ -470,6 +576,43 @@ public class MainActivity extends Activity {
 
     @JavascriptInterface
     public void tripPendingClear() { TripService.clearPending(MainActivity.this); }
+
+    /* ---------- 行車錄影（trip.js 的 cam）----------
+       舊版 APK 沒有這些，網頁看到沒有 videoBegin 就請使用者更新 App。 */
+
+    /** 開一個新的影片檔（mime：video/mp4 或 video/webm）。 */
+    @JavascriptInterface
+    public boolean videoBegin(String mime) {
+      if (cam == null) cam = new CamSaver(MainActivity.this);
+      return cam.begin(mime);
+    }
+
+    /** 錄影中一段一段丟過來（base64）。 */
+    @JavascriptInterface
+    public boolean videoChunk(String b64) {
+      return cam != null && cam.chunk(b64);
+    }
+
+    /** 錄完：keep 就收進相簿，回傳影片網址；不要就刪掉。 */
+    @JavascriptInterface
+    public String videoEnd(boolean keep) {
+      return cam == null ? "" : cam.end(keep);
+    }
+
+    @JavascriptInterface
+    public void videoOpen(String uri) { runOnUiThread(() -> openVideo(uri, false)); }
+
+    @JavascriptInterface
+    public void videoShare(String uri) { runOnUiThread(() -> openVideo(uri, true)); }
+
+    /** 錄影的時候螢幕不要自己暗掉。 */
+    @JavascriptInterface
+    public void keepScreenOn(boolean on) {
+      runOnUiThread(() -> {
+        if (on) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+      });
+    }
 
     /** 帶去手機設定裡這個 App 的頁面（開位置權限）。 */
     @JavascriptInterface

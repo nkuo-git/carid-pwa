@@ -3,4 +3,6 @@
   <cache-path name="shots" path="shots/" />
   <!-- App 裡直接更新：下載下來的新版 APK -->
   <cache-path name="updates" path="updates/" />
+  <!-- 行車錄影：Android 9 以下存在 App 自己的影片資料夾 -->
+  <external-files-path name="movies" path="Movies/" />
 </paths>

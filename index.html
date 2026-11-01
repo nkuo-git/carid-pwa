@@ -17,7 +17,7 @@
 
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,300;0,500;0,600;0,700;0,800;1,700;1,800&family=Noto+Sans+TC:wght@400;500;700&family=Orbitron:wght@500;700&family=Oswald:wght@500;600&family=Share+Tech+Mono&family=Kaushan+Script&display=swap">
-<link rel="stylesheet" href="./styles.css?v=53">
+<link rel="stylesheet" href="./styles.css?v=54">
 </head>
 <body data-view="car">
 
@@ -300,6 +300,8 @@
       <div class="tgauge" id="tripGauge"></div>
       <button type="button" class="tgsel" id="tripGaugeSel" aria-haspopup="dialog"></button>
       <button type="button" class="primary tstart" id="tripStart"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.8v14.4a1 1 0 0 0 1.5.9l11.5-7.2a1 1 0 0 0 0-1.8L8.5 3.9A1 1 0 0 0 7 4.8z"/></svg>開始記錄</button>
+      <button type="button" class="tcamgo" id="tripCamGo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6.5" width="13" height="11" rx="2.5"/><path d="M16 10.5l5-3v9l-5-3"/></svg>錄影＋記錄</button>
+      <p class="tcamnote" id="tripCamNote">用後鏡頭錄影，時速、路線會一起錄進影片，影片存到手機相簿。</p>
     </section>
     <div class="stats tstats" id="tripStats" hidden></div>
     <div class="tmap" id="tripMapBox" hidden><canvas id="tripMap"></canvas><span class="osm">© OpenStreetMap</span></div>
@@ -403,6 +405,6 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=53"></script>
+<script type="module" src="./app.js?v=54"></script>
 </body>
 </html>

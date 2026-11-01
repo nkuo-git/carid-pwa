@@ -73,6 +73,7 @@ carid-pwa/
 ├── manifest.webmanifest        App 名稱、圖示、啟動方式
 ├── sw.js                       Service Worker，快取 App 本體
 ├── trip.js                     行車紀錄（底部「行車紀錄」分頁）
+├── tripcam.js                  行車錄影（「錄影＋記錄」，用到才載入）
 ├── mc.html / mc.css / mc.js    麥塊建築（底部「麥塊」分頁）
 ├── firebase.json               Firebase Hosting 設定
 └── icons/                      主畫面圖示
@@ -101,6 +102,17 @@ Firestore 規則只要是 `match /users/{uid}/{document=**}`（本人、email �
 `window.caridTrip("fix", …)` 交給網頁，沒接到的回來再用 `tripPoints` 補。一般瀏覽器用 `navigator.geolocation`，
 螢幕要亮著（有 wakeLock 就撐著）。舊的外殼（APK 12 以前）WebView 不給用定位，畫面會請使用者先更新 App。
 第一次按開始時手機會問一次位置權限，選「精確」＋「使用應用程式時」就夠了，不用「一律允許」。
+
+「錄影＋記錄」（內容 54 起，APK 15 起）：開始記錄下面那顆。開後鏡頭錄影，同時開始記（已經在記就接著記），
+時速（用選的面板）、右上角路線小地圖、速度曲線、距離／平均／最快、日期時間、REC 和浮水印畫在影片上一起錄進去。
+做法在 `tripcam.js`：相機的 `<video>` 和疊圖每一格畫在一張 canvas 上（1080×1920，橫拿 1920×1080，可選 720p），
+`canvas.captureStream(30)`（要錄聲音再加麥克風）給 MediaRecorder，能錄 mp4 就 mp4，不然 webm。SVG 面板轉成圖再疊上去；
+地圖只畫路線不放 OSM 圖磚（canvas 才不會被汙染）。App 裡每秒一段 base64 交給外殼
+`CaridApp.videoBegin / videoChunk / videoEnd`（`CamSaver` 直接寫進相簿 Movies/大便龍行車，Android 9 以下存在 App 自己的
+Movies 資料夾），存好可以「在相簿看」（`videoOpen`）、「分享」（`videoShare`）；錄影時 `keepScreenOn` 撐著螢幕、
+`setFullscreen` 藏狀態列。瀏覽器裡錄完給下載連結。按停止＝影片和這趟行車紀錄一起存；螢幕關掉或切走，影片先存、
+行車紀錄繼續記。「放什麼」設定記在 localStorage `carid.cam.opts`。外殼用 `onPermissionRequest` 給網頁相機／麥克風
+（只給我們的網站，手機沒准就先問）。因為 manifest 多了 CAMERA 權限，辨車選照片要開相機前也會先問一次相機權限。
 
 ### 改車（內容 43 起拿掉了）
 

@@ -448,8 +448,8 @@ function resumeRec() {
   paintPanel();
 }
 
-function stopRec(discard) {
-  if (!rec) return;
+function stopRec(discard, quiet) {
+  if (!rec) return Promise.resolve(null);
   const r = rec;
   let fromApp = null;
   const sh = shellApp();
@@ -461,8 +461,45 @@ function stopRec(discard) {
   stopTick();
   rec = null;
   if (r.paused) { r.pausedMs += Date.now() - r.pausedAt; r.paused = false; }
-  if (discard) { setNote("這趟捨棄了，沒有存。"); paintPanel(); paintList(); return; }
-  keepTrip(fromApp || finishTrip(r.mode, r.start, r.pausedMs, r.pts, Date.now()));
+  if (discard) { setNote("這趟捨棄了，沒有存。"); paintPanel(); paintList(); return Promise.resolve(null); }
+  return keepTrip(fromApp || finishTrip(r.mode, r.start, r.pausedMs, r.pts, Date.now()), quiet);
+}
+
+/* ================= 錄影＋記錄（tripcam.js，要用時才載入） ================= */
+
+const camApi = {
+  get rec() { return rec; },
+  get gauge() { return gauge; },
+  gaugeName: () => GAUGES[gauge] || "",
+  isSvgGauge: () => SVG_GAUGES.has(gauge),
+  gaugeSvg: (v, r) => gaugeHtml(v, r),
+  mode: () => MODES[rec ? rec.mode : mode] || MODES.car,
+  avgV, km, kmh, kmh1,
+  openGaugePick: () => openGaugePick(),
+  shell: () => {
+    const a = window.CaridApp;
+    return a && typeof a.videoBegin === "function" ? a : null;
+  },
+  endTrip: () => stopRec(false, true),
+  closed: (id) => {
+    if (id) location.hash = "#trip/" + encodeURIComponent(id);
+    else { paintPanel(); paintList(); }
+  },
+};
+
+function camReady() {
+  const a = window.CaridApp;
+  if (a && typeof a.videoBegin !== "function") return "錄影要新版的 App，請先把 App 更新到最新版（最上面會跳「更新」）。";
+  if (oldShell()) return "錄影要新版的 App，請先把 App 更新到最新版（最上面會跳「更新」）。";
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) return "這個瀏覽器不能錄影。";
+  return "";
+}
+
+function openCamera() {
+  const why = camReady();
+  if (why) { setNote(why); paintPanel(); return; }
+  if (!rec) startRec();
+  import("./tripcam.js?v=54").then((m) => m.openCam(camApi)).catch(() => { setNote("錄影畫面打不開，等一下再試。"); paintPanel(); });
 }
 
 /* 按「結束」：先暫停，問要存起來、捨棄，還是繼續記 */
@@ -1089,7 +1126,7 @@ function xLabelsFor(from, to) {
 
 const S = {};
 function grab() {
-  for (const id of ["tripModes", "tripRecBar", "tripStatus", "tripGauge", "tripGaugeSel", "tripStats", "tripMapBox", "tripMap", "tripChartBox", "tripChart", "tripStart", "tripPause", "tripStop", "tripNote", "tripList", "tripEmpty", "tripDot", "tiMode", "tiTitle", "tiMap", "tiTable", "tiChart", "tiHint", "tiDel", "tiMapBox", "tripFocus", "tripEndWrap", "tripEndDim", "tripEndStats", "tripEndNote", "tripEndDrop", "tripEndKeep", "tripEndMore", "tripEndClose", "tripAcctCard", "tripAcctText", "tripAcctBtn", "tripAcctLine", "tripAcctStatus", "tripAcctStatusIc", "tripAcctStatusText", "tripAcctStatusNum", "tripAcctBar", "tripAcctBarFill", "tripListNote", "tripGaugeWrap", "tripGaugeDim", "tripGaugeList", "tripGaugeClose"]) S[id] = $(id);
+  for (const id of ["tripModes", "tripRecBar", "tripStatus", "tripGauge", "tripGaugeSel", "tripStats", "tripMapBox", "tripMap", "tripChartBox", "tripChart", "tripStart", "tripPause", "tripStop", "tripNote", "tripList", "tripEmpty", "tripDot", "tiMode", "tiTitle", "tiMap", "tiTable", "tiChart", "tiHint", "tiDel", "tiMapBox", "tripFocus", "tripEndWrap", "tripEndDim", "tripEndStats", "tripEndNote", "tripEndDrop", "tripEndKeep", "tripEndMore", "tripEndClose", "tripAcctCard", "tripAcctText", "tripAcctBtn", "tripAcctLine", "tripAcctStatus", "tripAcctStatusIc", "tripAcctStatusText", "tripAcctStatusNum", "tripAcctBar", "tripAcctBarFill", "tripListNote", "tripGaugeWrap", "tripGaugeDim", "tripGaugeList", "tripGaugeClose", "tripCamGo", "tripCamNote"]) S[id] = $(id);
 }
 let liveMap = null, itemMap = null;
 
@@ -1140,6 +1177,8 @@ function paintPanel() {
   S.tripStatus.hidden = live;
   const old = oldShell();
   S.tripStart.disabled = old;
+  S.tripCamGo.hidden = live;
+  S.tripCamNote.hidden = live;
 
   if (!live) {
     let txt, cls = "";
@@ -1414,6 +1453,7 @@ function wire() {
   S.tripGaugeDim.addEventListener("click", closeGaugePick);
   S.tripGaugeClose.addEventListener("click", closeGaugePick);
   S.tripStart.addEventListener("click", startRec);
+  S.tripCamGo.addEventListener("click", openCamera);
   S.tripPause.addEventListener("click", () => (rec?.paused ? resumeRec() : pauseRec()));
   S.tripStop.addEventListener("click", askEnd);
   S.tripFocus.addEventListener("click", () => {
