@@ -2216,3 +2216,15 @@ body.tcamopen { overflow: hidden; }
   .tco-row { padding: 7px 0; }
   .tcs-thumb { width: 90px; height: 160px; }
 }
+/* 轉過手機、分成好幾段 */
+.tcs-list { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.tcs-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.tcs-rt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tcs-rt b { font-size: 15px; }
+.tcs-rt span { color: var(--ink-soft); font-size: 12.5px; }
+.tcs-rb { flex: none; display: flex; gap: 6px; }
+.tcs-rb > * { display: inline-flex; align-items: center; gap: 5px; }
+.tcs-rb svg { width: 15px; height: 15px; }
+.tcs-rb .btnlike.small { height: 36px; border-radius: 10px; font-size: 13px; }
+.tcs-rb .btnlike.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.tcs-rb button.small { height: 36px; border-radius: 10px; }

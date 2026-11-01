@@ -65,7 +65,7 @@ export async function openCam(api) {
     api, el, canvas, video, ctx: canvas.getContext("2d"), W, H, land, opts,
     facing: "environment", stream: null, mic: null, rec: null, mime: "", chunks: [], bytes: 0, queue: Promise.resolve(),
     startAt: 0, raf: 0, timer: 0, overlay: document.createElement("canvas"), gaugeImg: null, gaugeKey: "", stopping: false,
-    shell: api.shell(), failed: false, savedUri: "", blobUrl: "", tripId: null, endedTrip: false, thumb: "",
+    shell: api.shell(), failed: false, tripId: null, endedTrip: false, parts: [], firstStart: 0, rotP: null, rotT: 0,
   };
   cam.overlay.width = W;
   cam.overlay.height = H;
@@ -75,6 +75,7 @@ export async function openCam(api) {
 
   el.addEventListener("click", onClick);
   document.addEventListener("visibilitychange", onVis);
+  addEventListener("resize", onResize);
 
   const ok = await startCamera();
   if (!ok || !cam) return;
@@ -204,7 +205,7 @@ function paintOverlay(c) {
   const shadow = (on) => { o.shadowColor = on ? "rgba(0,0,0,.75)" : "transparent"; o.shadowBlur = on ? 6 * u : 0; o.shadowOffsetY = on ? 1 * u : 0; };
 
   // 左上：REC 和錄了多久
-  const recMs = c.startAt ? Date.now() - c.startAt : 0;
+  const recMs = c.firstStart ? Date.now() - c.firstStart : 0;
   o.font = `700 ${17 * u}px ${FONT}`;
   const recTxt = (c.rec ? "REC " : "") + mmss(recMs);
   const pillW = o.measureText(recTxt).width + 38 * u, pillH = 30 * u;
@@ -439,6 +440,9 @@ async function startRecording() {
     return;
   }
   c.mime = mr.mimeType || mime || "video/webm";
+  c.bytes = 0;
+  c.chunks = [];
+  c.queue = Promise.resolve();
   if (c.shell) {
     let ok = false;
     try { ok = !!c.shell.videoBegin(c.mime); } catch { ok = false; }
@@ -452,6 +456,7 @@ async function startRecording() {
   };
   c.rec = mr;
   c.startAt = Date.now();
+  if (!c.firstStart) c.firstStart = c.startAt;
   mr.start(1000);
   paintOverlay(c);
 }
@@ -482,24 +487,54 @@ async function stopVideo() {
   if (!c || !c.rec) return null;
   const mr = c.rec;
   c.rec = null;
-  try { c.thumb = c.canvas.toDataURL("image/jpeg", 0.6); } catch { c.thumb = ""; }
+  let thumb = "";
+  try { thumb = c.canvas.toDataURL("image/jpeg", 0.6); } catch { thumb = ""; }
   const done = new Promise((res) => { mr.onstop = res; });
   try { mr.stop(); } catch { /* 已經停了 */ }
   await Promise.race([done, new Promise((r) => setTimeout(r, 4000))]);
   await c.queue;
-  const ms = Date.now() - c.startAt;
-  let uri = "";
+  const part = { ms: Date.now() - c.startAt, bytes: c.bytes, start: c.startAt, land: c.land, mime: c.mime, thumb, uri: "", blob: null, blobUrl: "" };
   if (c.shell) {
-    try { uri = String(c.shell.videoEnd(c.bytes > 0) || ""); } catch { uri = ""; }
-    c.savedUri = uri;
+    try { part.uri = String(c.shell.videoEnd(c.bytes > 0) || ""); } catch { part.uri = ""; }
   } else if (c.chunks.length) {
-    const blob = new Blob(c.chunks, { type: c.mime.split(";")[0] });
-    c.blob = blob;
-    c.blobUrl = URL.createObjectURL(blob);
+    part.blob = new Blob(c.chunks, { type: c.mime.split(";")[0] });
+    part.blobUrl = URL.createObjectURL(part.blob);
   }
+  c.chunks = [];
   c.mic?.getTracks().forEach((t) => t.stop());
   c.mic = null;
-  return { ms, bytes: c.bytes, uri };
+  if (part.uri || part.blobUrl) c.parts.push(part);
+  return part;
+}
+
+/* ================= 轉手機：直的變橫的（或反過來） =================
+   一支影片中途不能換成另一個方向（會被拉長或裁掉），所以轉的時候這一段先存起來，
+   換成新方向的畫面再接著錄下一段；按停止時一起列出來。 */
+
+function onResize() {
+  const c = cam;
+  if (!c) return;
+  clearTimeout(c.rotT);
+  c.rotT = setTimeout(() => { if (cam === c && !c.rotP) c.rotP = relayout(c).finally(() => { c.rotP = null; }); }, 350);
+}
+
+async function relayout(c) {
+  const land = innerWidth > innerHeight;
+  if (land === c.land || c.stopping || c.failed) return;
+  const wasRec = !!c.rec;
+  if (wasRec) await stopVideo();
+  if (cam !== c || c.stopping) return;
+  const long = c.opts.q === "720" ? 1280 : 1920, short = c.opts.q === "720" ? 720 : 1080;
+  c.land = land;
+  c.W = land ? long : short;
+  c.H = land ? short : long;
+  c.canvas.width = c.overlay.width = c.W;
+  c.canvas.height = c.overlay.height = c.H;
+  c.gaugeKey = "";
+  refreshGauge(c);
+  paintOverlay(c);
+  drawFrame(c);
+  if (wasRec) await startRecording();
 }
 
 async function stopAll({ reason } = {}) {
@@ -507,7 +542,9 @@ async function stopAll({ reason } = {}) {
   if (!c || c.stopping) return;
   c.stopping = true;
   el$(c, ".tcam-stop").disabled = true;
-  const info = await stopVideo();
+  clearTimeout(c.rotT);
+  if (c.rotP) await c.rotP;
+  await stopVideo();
   // 按停止：行車紀錄也一起結束、存起來；螢幕關掉或空間滿了：行車紀錄繼續記
   let trip = null, tripNote = "";
   if (reason === "stop") {
@@ -519,7 +556,7 @@ async function stopAll({ reason } = {}) {
     tripNote = reason === "full" ? "手機空間不夠，影片先停了，已經錄的有存。行車紀錄還在繼續記。" : "螢幕關掉了，影片先存起來。行車紀錄還在繼續記。";
   }
   stopCamera(c);
-  showSaved(c, info, tripNote);
+  showSaved(c, tripNote);
 }
 
 function stopCamera(c) {
@@ -548,8 +585,8 @@ function onClick(e) {
   else if (act === "toggle") toggleOpt(b.dataset.k);
   else if (act === "q") { c.opts.q = b.dataset.q; saveOpts(c.opts); openOpts(); }
   else if (act === "gauge") c.api.openGaugePick();
-  else if (act === "view") { try { c.shell?.videoOpen(c.savedUri); } catch { /* 算了 */ } }
-  else if (act === "share") share();
+  else if (act === "view") { try { c.shell?.videoOpen(c.parts[+b.dataset.i || 0]?.uri || ""); } catch { /* 算了 */ } }
+  else if (act === "share") share(+b.dataset.i || 0);
 }
 
 async function flip() {
@@ -616,40 +653,56 @@ function showMsg(text, btns) {
   box.hidden = false;
 }
 
-function showSaved(c, info, tripNote) {
+const fileName = (p) => {
+  const d = new Date(p.start);
+  return `大便龍行車_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.${p.mime.startsWith("video/mp4") ? "mp4" : "webm"}`;
+};
+const sizeText = (b) => { const mb = b / 1048576; return mb >= 1 ? mb.toFixed(0) + " MB" : Math.max(1, Math.round(mb * 1024)) + " KB"; };
+const lenText = (ms) => { const s = Math.round(ms / 1000); return `${Math.floor(s / 60)} 分 ${s % 60} 秒`; };
+
+// 這一段的按鈕：App 裡「分享／在相簿看」，瀏覽器裡「分享／下載」
+function partBtns(c, p, i, small) {
+  const cls = small ? "small" : "";
+  if (c.shell) return `<button type="button" class="${cls}" data-act="share" data-i="${i}">${IC.share}分享</button><button type="button" class="primary ${cls}" data-act="view" data-i="${i}">${IC.play}${small ? "看" : "在相簿看"}</button>`;
+  return `${navigator.canShare ? `<button type="button" class="${cls}" data-act="share" data-i="${i}">${IC.share}分享</button>` : ""}<a class="btnlike primary ${cls}" href="${p.blobUrl}" download="${fileName(p)}">${IC.down}下載</a>`;
+}
+
+function showSaved(c, tripNote) {
   const sheet = c.el.querySelector('[data-sheet="saved"] .sharesheet');
   const M = c.api.mode();
-  const d = new Date(c.startAt || Date.now());
-  const sec = Math.round((info?.ms || 0) / 1000);
-  const mb = (info?.bytes || 0) / 1048576;
-  const ok = c.shell ? !!c.savedUri : !!c.blobUrl;
-  const ext = c.mime.startsWith("video/mp4") ? "mp4" : "webm";
-  const where = c.shell ? "相簿 › Movies › 大便龍行車" : "還沒下載，按下面「下載」";
-  const btns = !ok ? `<button type="button" class="primary" data-act="done">好</button>`
-    : c.shell
-      ? `<button type="button" data-act="share">${IC.share}分享</button><button type="button" class="primary" data-act="view">${IC.play}在相簿看</button>`
-      : `${navigator.canShare ? `<button type="button" data-act="share">${IC.share}分享</button>` : ""}<a class="btnlike primary" href="${c.blobUrl}" download="大便龍行車_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}.${ext}">${IC.down}下載</a>`;
-  sheet.innerHTML = `<div class="grab"></div>
-<div class="sharehead"><h2>${ok ? "影片存好了" : "影片沒存到"}</h2><button type="button" class="icon-btn" data-act="savedClose" aria-label="關掉">${IC.x}</button></div>
-${ok ? `<div class="tcs">
-  <div class="tcs-thumb${c.land ? " land" : ""}">${c.thumb ? `<img src="${c.thumb}" alt="">` : ""}<span>${IC.play}</span></div>
+  const parts = c.parts;
+  const n = parts.length;
+  const d = new Date(c.firstStart || Date.now());
+  const ms = parts.reduce((a, p) => a + p.ms, 0), bytes = parts.reduce((a, p) => a + p.bytes, 0);
+  const last = parts[n - 1];
+  const where = c.shell ? "存在 相簿 › Movies › 大便龍行車" : "還沒下載，按下面「下載」";
+  let body;
+  if (!n) body = `<p class="tco-note">影片太短或存不進去，這次沒有存到。</p><div class="btnrow tcs-btns"><button type="button" class="primary" data-act="done">好</button></div>`;
+  else {
+    const list = n > 1 ? `<p class="tco-note">中途轉了手機，所以分成 ${n} 段（每段一個方向）。</p><div class="tcs-list">${parts.map((p, i) => `<div class="tcs-row"><div class="tcs-rt"><b>第 ${i + 1} 段・${p.land ? "橫的" : "直的"}</b><span>${lenText(p.ms)}・${sizeText(p.bytes)}</span></div><div class="tcs-rb">${partBtns(c, p, i, true)}</div></div>`).join("")}</div>` : "";
+    body = `<div class="tcs">
+  <div class="tcs-thumb${last.land ? " land" : ""}">${last.thumb ? `<img src="${last.thumb}" alt="">` : ""}<span>${IC.play}</span></div>
   <div class="tcs-info"><b>今天 ${pad(d.getHours())}:${pad(d.getMinutes())} ${esc(M.name)}</b>
-    <div>長度 <em>${Math.floor(sec / 60)} 分 ${sec % 60} 秒</em></div>
-    <div>大小 <em>${mb >= 1 ? mb.toFixed(0) + " MB" : Math.max(1, Math.round(mb * 1024)) + " KB"}</em>（${c.opts.q === "720" ? "720p" : "1080p"}）</div>
-    <div>${c.shell ? "存在 " : ""}${where}</div></div>
-</div>` : `<p class="tco-note">影片太短或存不進去，這次沒有存到。</p>`}
-<div class="btnrow tcs-btns">${btns}</div>
+    <div>長度 <em>${lenText(ms)}</em></div>
+    <div>大小 <em>${sizeText(bytes)}</em>（${c.opts.q === "720" ? "720p" : "1080p"}）</div>
+    <div>${where}</div></div>
+</div>${list}
+${n === 1 ? `<div class="btnrow tcs-btns">${partBtns(c, last, 0, false)}</div>` : ""}`;
+  }
+  sheet.innerHTML = `<div class="grab"></div>
+<div class="sharehead"><h2>${n ? "影片存好了" : "影片沒存到"}</h2><button type="button" class="icon-btn" data-act="savedClose" aria-label="關掉">${IC.x}</button></div>
+${body}
 <p class="tco-note tcs-note">${esc(tripNote)}</p>`;
   c.el.querySelector('[data-sheet="saved"]').hidden = false;
 }
 
-async function share() {
+async function share(i) {
   const c = cam;
-  if (!c) return;
-  if (c.shell) { try { c.shell.videoShare(c.savedUri); } catch { /* 算了 */ } return; }
-  if (!c.blob) return;
-  const ext = c.mime.startsWith("video/mp4") ? "mp4" : "webm";
-  const f = new File([c.blob], "大便龍行車." + ext, { type: c.blob.type });
+  const p = c?.parts[i];
+  if (!p) return;
+  if (c.shell) { try { c.shell.videoShare(p.uri); } catch { /* 算了 */ } return; }
+  if (!p.blob) return;
+  const f = new File([p.blob], fileName(p), { type: p.blob.type });
   try { if (navigator.canShare?.({ files: [f] })) await navigator.share({ files: [f] }); } catch { /* 取消就算了 */ }
 }
 
@@ -668,9 +721,11 @@ export function closeCam() {
   stopCamera(c);
   cam = null;
   document.removeEventListener("visibilitychange", onVis);
+  removeEventListener("resize", onResize);
+  clearTimeout(c.rotT);
   try { c.shell?.keepScreenOn?.(false); } catch { /* 算了 */ }
   try { window.CaridApp?.setFullscreen?.(false); } catch { /* 算了 */ }
-  if (c.blobUrl) setTimeout(() => URL.revokeObjectURL(c.blobUrl), 60000);
+  c.parts.forEach((p) => { if (p.blobUrl) setTimeout(() => URL.revokeObjectURL(p.blobUrl), 60000); });
   c.el.remove();
   document.body.classList.remove("tcamopen");
   c.api.closed?.(c.tripId);

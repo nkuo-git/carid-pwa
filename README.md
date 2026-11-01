@@ -111,7 +111,7 @@ Firestore 規則只要是 `match /users/{uid}/{document=**}`（本人、email �
 `CaridApp.videoBegin / videoChunk / videoEnd`（`CamSaver` 直接寫進相簿 Movies/大便龍行車，Android 9 以下存在 App 自己的
 Movies 資料夾），存好可以「在相簿看」（`videoOpen`）、「分享」（`videoShare`）；錄影時 `keepScreenOn` 撐著螢幕、
 `setFullscreen` 藏狀態列。瀏覽器裡錄完給下載連結。按停止＝影片和這趟行車紀錄一起存；螢幕關掉或切走，影片先存、
-行車紀錄繼續記。「放什麼」設定記在 localStorage `carid.cam.opts`。外殼用 `onPermissionRequest` 給網頁相機／麥克風
+行車紀錄繼續記。「放什麼」設定記在 localStorage `carid.cam.opts`。錄到一半轉手機（內容 55 起）：這一段先存起來，canvas 換成新方向再錄下一段（一支影片中途不能換方向），存好的畫面列出每一段。外殼用 `onPermissionRequest` 給網頁相機／麥克風
 （只給我們的網站，手機沒准就先問）。因為 manifest 多了 CAMERA 權限，辨車選照片要開相機前也會先問一次相機權限。
 
 ### 改車（內容 43 起拿掉了）
