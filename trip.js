@@ -481,9 +481,11 @@ const camApi = {
     return a && typeof a.videoBegin === "function" ? a : null;
   },
   endTrip: () => stopRec(false, true),
-  closed: (id) => {
-    if (id) location.hash = "#trip/" + encodeURIComponent(id);
-    else { paintPanel(); paintList(); }
+  // 關掉錄影：回到行車紀錄主頁（剛存的那趟在下面列表最上面）
+  closed: () => {
+    if (location.hash !== "#trip") { location.hash = "#trip"; return; }
+    paintPanel(); paintList(); paintTripDot();
+    try { scrollTo(0, 0); } catch { /* 算了 */ }
   },
 };
 
@@ -499,7 +501,7 @@ function openCamera() {
   const why = camReady();
   if (why) { setNote(why); paintPanel(); return; }
   if (!rec) startRec();
-  import("./tripcam.js?v=56").then((m) => m.openCam(camApi)).catch(() => { setNote("錄影畫面打不開，等一下再試。"); paintPanel(); });
+  import("./tripcam.js?v=57").then((m) => m.openCam(camApi)).catch(() => { setNote("錄影畫面打不開，等一下再試。"); paintPanel(); });
 }
 
 /* 按「結束」：先暫停，問要存起來、捨棄，還是繼續記 */
