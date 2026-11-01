@@ -579,20 +579,20 @@ function arcPath(cx, cy, r, v0, v1, max) {
   return `M${f1(x0)} ${f1(y0)}A${r} ${r} 0 ${large} 1 ${f1(x1)} ${f1(y1)}`;
 }
 
-function gaugeHtml(v, r) {
+function gaugeHtml(v, r, g = gauge, lit = false) {
   const M = MODES[mode];
-  const on = !!r && !r.paused;
+  const on = lit || (!!r && !r.paused);
   const speed = kmh(v);
   const maxV = r ? r.maxV : 0;
-  if (gauge === "dial") return gaugeDial(speed, M, maxV * 3.6, on);
-  if (gauge === "arc") return gaugeArc(speed, M, maxV * 3.6, on);
-  if (gauge === "race") return gaugeRace(speed, M, r, on);
-  if (gauge === "simple") return gaugeSimple(speed, M, r, on);
-  if (gauge === "scifi") return gaugeScifi(speed, M, r, maxV * 3.6, on);
-  if (gauge === "retro") return gaugeRetro(speed, M, r, maxV * 3.6, on);
-  if (gauge === "vfd") return gaugeVfd(speed, M, r, maxV * 3.6, on);
-  if (gauge === "synth") return gaugeSynth(speed, M, r, maxV * 3.6, on);
-  if (gauge === "nixie") return gaugeNixie(speed, M, r, maxV * 3.6, on);
+  if (g === "dial") return gaugeDial(speed, M, maxV * 3.6, on);
+  if (g === "arc") return gaugeArc(speed, M, maxV * 3.6, on);
+  if (g === "race") return gaugeRace(speed, M, r, on);
+  if (g === "simple") return gaugeSimple(speed, M, r, on);
+  if (g === "scifi") return gaugeScifi(speed, M, r, maxV * 3.6, on);
+  if (g === "retro") return gaugeRetro(speed, M, r, maxV * 3.6, on);
+  if (g === "vfd") return gaugeVfd(speed, M, r, maxV * 3.6, on);
+  if (g === "synth") return gaugeSynth(speed, M, r, maxV * 3.6, on);
+  if (g === "nixie") return gaugeNixie(speed, M, r, maxV * 3.6, on);
   return `<div class="big${on ? " on" : ""}">${speed}</div><div class="unit">KM/H</div>` +
     (M.pace ? `<div class="pace">配速 <b>${esc(paceText(v))}</b> /km</div>` : "");
 }
@@ -1089,7 +1089,7 @@ function xLabelsFor(from, to) {
 
 const S = {};
 function grab() {
-  for (const id of ["tripModes", "tripRecBar", "tripStatus", "tripGauge", "tripGaugeSel", "tripStats", "tripMapBox", "tripMap", "tripChartBox", "tripChart", "tripStart", "tripPause", "tripStop", "tripNote", "tripList", "tripEmpty", "tripDot", "tiMode", "tiTitle", "tiMap", "tiTable", "tiChart", "tiHint", "tiDel", "tiMapBox", "tripFocus", "tripEndWrap", "tripEndDim", "tripEndStats", "tripEndNote", "tripEndDrop", "tripEndKeep", "tripEndMore", "tripEndClose", "tripAcctCard", "tripAcctText", "tripAcctBtn", "tripAcctLine", "tripAcctStatus", "tripAcctStatusIc", "tripAcctStatusText", "tripAcctStatusNum", "tripAcctBar", "tripAcctBarFill", "tripListNote"]) S[id] = $(id);
+  for (const id of ["tripModes", "tripRecBar", "tripStatus", "tripGauge", "tripGaugeSel", "tripStats", "tripMapBox", "tripMap", "tripChartBox", "tripChart", "tripStart", "tripPause", "tripStop", "tripNote", "tripList", "tripEmpty", "tripDot", "tiMode", "tiTitle", "tiMap", "tiTable", "tiChart", "tiHint", "tiDel", "tiMapBox", "tripFocus", "tripEndWrap", "tripEndDim", "tripEndStats", "tripEndNote", "tripEndDrop", "tripEndKeep", "tripEndMore", "tripEndClose", "tripAcctCard", "tripAcctText", "tripAcctBtn", "tripAcctLine", "tripAcctStatus", "tripAcctStatusIc", "tripAcctStatusText", "tripAcctStatusNum", "tripAcctBar", "tripAcctBarFill", "tripListNote", "tripGaugeWrap", "tripGaugeDim", "tripGaugeList", "tripGaugeClose"]) S[id] = $(id);
 }
 let liveMap = null, itemMap = null;
 
@@ -1099,9 +1099,25 @@ function paintModes() {
   box.innerHTML = Object.entries(MODES).map(([k, m]) =>
     `<button type="button" data-mode="${k}" aria-pressed="${k === mode}">${ICONS[k]}${m.name}</button>`).join("");
 }
+// 面板只放一顆按鈕寫現在用哪個，點下去從下面跳出來選（每個附小預覽）
+const CHEV_DN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 10l5 5 5-5"/></svg>';
 function paintGaugeSel() {
-  S.tripGaugeSel.innerHTML = Object.entries(GAUGES).map(([k, n]) =>
-    `<button type="button" data-gauge="${k}" aria-pressed="${k === gauge}">${n}</button>`).join("");
+  S.tripGaugeSel.innerHTML = `<span class="k">面板</span><b>${GAUGES[gauge]}</b>${CHEV_DN}`;
+  S.tripGaugeSel.setAttribute("aria-label", `時速面板：${GAUGES[gauge]}，點一下換`);
+}
+function openGaugePick() {
+  const M = MODES[mode];
+  const v = Math.round(M.max * 0.44) / 3.6;
+  S.tripGaugeList.innerHTML = Object.entries(GAUGES).map(([k, n]) =>
+    `<button type="button" data-gauge="${k}" aria-pressed="${k === gauge}"><span class="gprev" aria-hidden="true"><span class="gpv" data-kind="${k}" data-shape="${SVG_GAUGES.has(k) ? "svg" : ""}">${gaugeHtml(v, null, k, true)}</span></span><span class="gname">${n}</span></button>`).join("");
+  S.tripGaugeWrap.hidden = false;
+  document.body.classList.add("sharing");
+  S.tripGaugeList.querySelector('[aria-pressed="true"]')?.focus({ preventScroll: true });
+}
+function closeGaugePick() {
+  S.tripGaugeWrap.hidden = true;
+  S.tripGaugeList.innerHTML = "";   // 預覽裡的 SVG 跟現在的面板同名，關掉就清掉
+  document.body.classList.remove("sharing");
 }
 
 function paintPanel() {
@@ -1386,13 +1402,17 @@ function wire() {
     setNote("");
     paintPanel();
   });
-  S.tripGaugeSel.addEventListener("click", (e) => {
+  S.tripGaugeSel.addEventListener("click", openGaugePick);
+  S.tripGaugeList.addEventListener("click", (e) => {
     const b = e.target.closest("button[data-gauge]");
     if (!b) return;
     gauge = b.dataset.gauge;
     store(GAUGE_KEY, gauge);
+    closeGaugePick();
     paintPanel();
   });
+  S.tripGaugeDim.addEventListener("click", closeGaugePick);
+  S.tripGaugeClose.addEventListener("click", closeGaugePick);
   S.tripStart.addEventListener("click", startRec);
   S.tripPause.addEventListener("click", () => (rec?.paused ? resumeRec() : pauseRec()));
   S.tripStop.addEventListener("click", askEnd);

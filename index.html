@@ -17,7 +17,7 @@
 
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,300;0,500;0,600;0,700;0,800;1,700;1,800&family=Noto+Sans+TC:wght@400;500;700&family=Orbitron:wght@500;700&family=Oswald:wght@500;600&family=Share+Tech+Mono&family=Kaushan+Script&display=swap">
-<link rel="stylesheet" href="./styles.css?v=52">
+<link rel="stylesheet" href="./styles.css?v=53">
 </head>
 <body data-view="car">
 
@@ -298,7 +298,7 @@
     <section class="tpanel" aria-label="現在的時速">
       <p class="tstatus" id="tripStatus"></p>
       <div class="tgauge" id="tripGauge"></div>
-      <nav class="tgsel" id="tripGaugeSel" aria-label="時速面板"></nav>
+      <button type="button" class="tgsel" id="tripGaugeSel" aria-haspopup="dialog"></button>
       <button type="button" class="primary tstart" id="tripStart"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.8v14.4a1 1 0 0 0 1.5.9l11.5-7.2a1 1 0 0 0 0-1.8L8.5 3.9A1 1 0 0 0 7 4.8z"/></svg>開始記錄</button>
     </section>
     <div class="stats tstats" id="tripStats" hidden></div>
@@ -355,6 +355,19 @@
     </div>
   </section>
 
+  <!-- 行車紀錄：選時速面板（放在 screenTrip 外面，預覽才不會被記錄中的版面規則撐大） -->
+  <div class="sharewrap" id="tripGaugeWrap" hidden>
+    <div class="sharedim" id="tripGaugeDim"></div>
+    <div class="sharesheet tgsheet" role="dialog" aria-modal="true" aria-labelledby="tripGaugeTitle">
+      <div class="grab"></div>
+      <div class="sharehead">
+        <h2 id="tripGaugeTitle">選時速面板</h2>
+        <button type="button" class="icon-btn" id="tripGaugeClose" aria-label="關掉"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <div class="tgpick" id="tripGaugeList"></div>
+    </div>
+  </div>
+
   <!-- 行車紀錄：點進一筆 -->
   <section class="screen detail" id="screenTripItem" hidden>
     <header class="backhead">
@@ -390,6 +403,6 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=52"></script>
+<script type="module" src="./app.js?v=53"></script>
 </body>
 </html>
