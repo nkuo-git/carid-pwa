@@ -31,10 +31,10 @@ const MODES = {
   car: { name: "開車", max: 200, step: 20, launch: 60 },
   run: { name: "跑步", max: 25, step: 5, pace: true },
 };
-const GAUGES = { num: "數字", dial: "圓錶", arc: "弧形", race: "賽車", simple: "簡潔", scifi: "科幻", retro: "復古", vfd: "數位", synth: "霓虹", nixie: "真空管" };
+const GAUGES = { num: "數字", dial: "圓錶", arc: "弧形", race: "賽車", simple: "簡潔", scifi: "科幻", retro: "復古", vfd: "數位", synth: "霓虹", nixie: "真空管", legacy: "夜光" };
 // 用 SVG 畫、要跟著格子縮放的面板；後面五種是「風格面板」，記錄中整個畫面換成同一個風格
-const SVG_GAUGES = new Set(["dial", "arc", "scifi", "retro", "vfd", "synth", "nixie"]);
-const STYLE_GAUGES = new Set(["scifi", "retro", "vfd", "synth", "nixie"]);
+const SVG_GAUGES = new Set(["dial", "arc", "scifi", "retro", "vfd", "synth", "nixie", "legacy"]);
+const STYLE_GAUGES = new Set(["scifi", "retro", "vfd", "synth", "nixie", "legacy"]);
 const MODE_KEY = "carid.trip.mode";
 const GAUGE_KEY = "carid.trip.gauge";
 const FOCUS_KEY = "carid.trip.focus";   // 記錄中「只看時速」：藏地圖和曲線，時速放最大
@@ -501,7 +501,7 @@ function openCamera() {
   const why = camReady();
   if (why) { setNote(why); paintPanel(); return; }
   if (!rec) startRec();
-  import("./tripcam.js?v=58").then((m) => m.openCam(camApi)).catch(() => { setNote("錄影畫面打不開，等一下再試。"); paintPanel(); });
+  import("./tripcam.js?v=59").then((m) => m.openCam(camApi)).catch(() => { setNote("錄影畫面打不開，等一下再試。"); paintPanel(); });
 }
 
 /* 按「結束」：先暫停，問要存起來、捨棄，還是繼續記 */
@@ -632,6 +632,7 @@ function gaugeHtml(v, r, g = gauge, lit = false) {
   if (g === "vfd") return gaugeVfd(speed, M, r, maxV * 3.6, on);
   if (g === "synth") return gaugeSynth(speed, M, r, maxV * 3.6, on);
   if (g === "nixie") return gaugeNixie(speed, M, r, maxV * 3.6, on);
+  if (g === "legacy") return gaugeLegacy(speed, M, r, maxV * 3.6, on);
   return `<div class="big${on ? " on" : ""}">${speed}</div><div class="unit">KM/H</div>` +
     (M.pace ? `<div class="pace">配速 <b>${esc(paceText(v))}</b> /km</div>` : "");
 }
@@ -734,6 +735,57 @@ const lineA = (cx, cy, r1, r2, a) => { const [x1, y1] = ptA(cx, cy, r1, a), [x2,
 const labStep = (M) => (M.max / M.step > 6 ? M.step * 2 : M.step);
 const paceDiv = (M, speed) => (M.pace ? `<div class="pace">配速 <b>${esc(paceText(speed / 3.6))}</b> /km</div>` : "");
 const tripKm = (r) => ((r ? r.dist : 0) / 1000);
+
+/* 夜光：照 Nick 拍的旅行車儀表（2026-11-01）——黑底、白色粗字和刻度、外圈銀邊透紅光、
+   長長的紅色發光指針、中間大黑軸心一圈紅暈；下面一格藍色小螢幕放數字時速和這趟的里程（A）。
+   開車刻度到 240（像原車），腳踏車、跑步照模式。 */
+function gaugeLegacy(speed, M, r, maxK, on) {
+  const car = M.max >= 100, max = car ? 240 : M.max, step = car ? 20 : M.step;
+  const A0 = 142, SW = 256, ang = (v) => A0 + SW * Math.min(1, Math.max(0, v / max));
+  const RED = "#FF2A1F";
+  let tMaj = "", tMid = "", tMin = "", nums = "";
+  const n = Math.round(max / (step / 4));
+  for (let i = 0; i <= n; i++) {
+    const v = i * max / n, a = ang(v);
+    if (i % 4 === 0) {
+      tMaj += lineA(180, 180, 144, 164, a);
+      const [x, y] = ptA(180, 180, car ? 124 : 121, a);
+      nums += `<text x="${f1(x)}" y="${f1(y + (car ? 8 : 10))}">${Math.round(v)}</text>`;
+    } else if (i % 2 === 0) tMid += lineA(180, 180, 151, 164, a);
+    else tMin += lineA(180, 180, 157, 164, a);
+  }
+  const na = ang(speed);
+  const [tx, ty] = ptA(180, 180, 162, na), [bx, by] = ptA(180, 180, 30, na + 180);
+  const [l1x, l1y] = ptA(180, 180, 4.5, na + 90), [l2x, l2y] = ptA(180, 180, 4.5, na - 90);
+  const trip = tripKm(r);
+  return `<svg class="gx glg${on ? " on" : ""}" viewBox="0 0 360 360" width="300" height="300" role="img" aria-label="現在 ${speed} km/h">
+<defs>
+<radialGradient id="glgFace" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#121214"/><stop offset=".8" stop-color="#050506"/><stop offset="1" stop-color="#000"/></radialGradient>
+<linearGradient id="glgRim" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".45" stop-color="#E6E9EE"/><stop offset=".62" stop-color="#FF8A80"/><stop offset="1" stop-color="${RED}"/></linearGradient>
+<radialGradient id="glgHub" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#000"/><stop offset=".72" stop-color="#050505"/><stop offset=".86" stop-color="#5A0A06"/><stop offset="1" stop-color="${RED}" stop-opacity="0"/></radialGradient>
+<linearGradient id="glgHalo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${RED}" stop-opacity=".08"/><stop offset=".5" stop-color="${RED}" stop-opacity=".3"/><stop offset="1" stop-color="${RED}" stop-opacity=".85"/></linearGradient>
+<linearGradient id="glgLcd" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0B1E5C"/><stop offset=".55" stop-color="#1640B8"/><stop offset="1" stop-color="#0B1E5C"/></linearGradient>
+<filter id="glgGlow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<filter id="glgSoft" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="1.1" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs>
+<circle cx="180" cy="180" r="176" fill="#000"/>
+<circle cx="180" cy="180" r="170" fill="url(#glgFace)"/>
+<circle cx="180" cy="180" r="171" fill="none" stroke="url(#glgHalo)" stroke-width="7" filter="url(#glgGlow)"/>
+<circle cx="180" cy="180" r="170" fill="none" stroke="url(#glgRim)" stroke-width="3.5"/>
+<g filter="url(#glgSoft)" stroke="#F4F6F8" stroke-linecap="butt"><path d="${tMin}" stroke-width="1.6"/><path d="${tMid}" stroke-width="2.6"/><path d="${tMaj}" stroke-width="4.2"/></g>
+<g class="bc hl" font-weight="700" font-size="${car ? 22 : 30}" fill="#FFFFFF" text-anchor="middle" letter-spacing="-.5" filter="url(#glgSoft)">${nums}</g>
+${maxK > 0 ? `<path d="${lineA(180, 180, 165, 172, ang(maxK))}" stroke="${RED}" stroke-width="4"/>` : ""}
+<text x="180" y="112" class="bc" text-anchor="middle" font-weight="600" font-size="18" fill="#FFFFFF" fill-opacity=".9">km/h</text>
+<rect x="124" y="232" width="112" height="58" rx="6" fill="url(#glgLcd)" stroke="#2C3E78" stroke-width="1.5"/>
+<text x="232" y="267" class="bc lgnum" text-anchor="end" font-weight="700" font-size="34" fill="#FFFFFF">${speed}</text>
+<text x="132" y="254" class="bc" font-weight="600" font-size="11" fill="#BFD0FF">km/h</text>
+<rect x="131" y="270" width="11" height="12" rx="1.5" fill="none" stroke="#FFFFFF" stroke-width="1.2"/><text x="136.5" y="280" class="bc" text-anchor="middle" font-weight="700" font-size="10" fill="#FFFFFF">A</text>
+<text x="232" y="283" class="bc" text-anchor="end" font-weight="600" font-size="13" fill="#FFFFFF">${trip.toFixed(1)} km</text>
+<circle cx="180" cy="180" r="50" fill="url(#glgHub)"/>
+<path class="needle" d="M${f1(bx)} ${f1(by)}L${f1(l1x)} ${f1(l1y)}L${f1(tx)} ${f1(ty)}L${f1(l2x)} ${f1(l2y)}Z" fill="${on ? RED : "#8A2A24"}" filter="url(#glgGlow)"/>
+<circle cx="180" cy="180" r="34" fill="#030303"/>
+</svg>` + paceDiv(M, speed);
+}
 
 function gaugeScifi(speed, M, r, maxK, on) {
   const C = "#3DF2FF", max = M.max, N = 45, lit = Math.round(N * Math.min(1, speed / max));

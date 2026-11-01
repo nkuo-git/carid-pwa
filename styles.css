@@ -2083,6 +2083,12 @@ body.tgs[data-gstyle="nixie"] {
   --tg-acc: linear-gradient(#D9B46A, #8F6C33); --tg-acc-line: #E8C984; --tg-acc-ink: #24170A; --tg-rec: #1A110B;
   --tg-font: "Barlow Condensed", sans-serif; --tg-glow: 0 0 6px #FF7A1F, 0 0 16px rgba(255,90,0,.6); --tg-radius: 12px;
 }
+body.tgs[data-gstyle="legacy"] {
+  --tg-bg: radial-gradient(120% 60% at 50% 45%, #120A0A, #030303);
+  --tg-panel: #0B0B0D; --tg-line: rgba(255,60,50,.35); --tg-ink: #FFFFFF; --tg-soft: #FF7A70;
+  --tg-acc: linear-gradient(#FF2A1F, #C2160E); --tg-acc-line: #FF4A40; --tg-acc-ink: #FFFFFF; --tg-rec: #120808;
+  --tg-font: "Barlow Condensed", sans-serif; --tg-glow: 0 0 6px rgba(255,255,255,.35); --tg-radius: 12px;
+}
 body.triplive.tgs[data-view="trip"] .app { background: var(--tg-bg); }
 body.triplive.tgs[data-view="trip"] #screenTrip .trecbar { background: var(--tg-rec); border-color: var(--tg-line); color: var(--tg-ink); border-radius: var(--tg-radius); }
 body.triplive.tgs[data-view="trip"] #screenTrip .trecbar .gps { color: var(--tg-soft); }
@@ -2107,7 +2113,7 @@ body.triplive.tgs[data-view="trip"] #screenTrip .tgsel .k, body.triplive.tgs[dat
 @media (orientation: landscape) and (max-height: 600px) {
   #screenTrip .tgsel { height: 32px; font-size: 12px; }
   .tgsheet { max-width: 760px; gap: 10px; padding-top: 6px; }
-  .tgsheet .tgpick { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .tgsheet .tgpick { grid-template-columns: repeat(6, minmax(0, 1fr)); }
   .tgsheet .gprev { height: 84px; }
   .tgsheet .gprev .gpv { transform: scale(.26); }
 }
@@ -2257,3 +2263,4 @@ body.tripfocus[data-view="trip"] #screenTrip .tgauge .gsf text.orb.hl { font-siz
   body.tripfocus[data-view="trip"] #screenTrip .tpanel { overflow: hidden; }
   body.tripfocus[data-view="trip"] #screenTrip .tgauge[data-kind="scifi"] svg { transform: scale(1.16); }
 }
+body.tripfocus[data-view="trip"] #screenTrip .tgauge .glg text.lgnum { font-size: 40px; }
