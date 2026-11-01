@@ -501,7 +501,7 @@ function openCamera() {
   const why = camReady();
   if (why) { setNote(why); paintPanel(); return; }
   if (!rec) startRec();
-  import("./tripcam.js?v=57").then((m) => m.openCam(camApi)).catch(() => { setNote("錄影畫面打不開，等一下再試。"); paintPanel(); });
+  import("./tripcam.js?v=58").then((m) => m.openCam(camApi)).catch(() => { setNote("錄影畫面打不開，等一下再試。"); paintPanel(); });
 }
 
 /* 按「結束」：先暫停，問要存起來、捨棄，還是繼續記 */
@@ -1229,6 +1229,7 @@ function paintLiveNumbers() {
   const M = MODES[r.mode];
   S.tripRecBar.innerHTML = `<span class="d${r.paused ? "" : " rec"}"></span><span class="t">${r.paused ? "暫停了" : "記錄中"}・${M.name}</span><span class="gps">${esc(gpsText(r))}</span><time>${hms(elapsed(r))}</time>`;
   S.tripGauge.innerHTML = gaugeHtml(r.paused ? 0 : r.vShow, r);
+  S.tripGauge.dataset.n = M.max >= 100 ? "3" : "2";   // 腳踏車、跑步最多兩位數：只看時速時字可以放更大
   const avg = avgV(r);
   S.tripStats.innerHTML =
     `<div class="stat"><b>${km(r.dist)}<small>km</small></b><span>距離</span></div>` +

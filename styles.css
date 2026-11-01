@@ -2232,3 +2232,28 @@ body.tcamopen { position: fixed; inset: 0; width: 100%; }
 .tcs-rb .btnlike.small { height: 36px; border-radius: 10px; font-size: 13px; }
 .tcs-rb .btnlike.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
 .tcs-rb button.small { height: 36px; border-radius: 10px; }
+
+/* 只看時速：再放大（內容 58 起）。腳踏車、跑步只有兩位數（data-n="2"），數字可以撐到快滿版；
+   SVG 面板裡的時速數字也放大 */
+@media (orientation: portrait), (min-height: 601px) {
+  body.tripfocus[data-view="trip"] #screenTrip .tgauge[data-n="2"] .big { font-size: min(86vw, 46vh); }
+  body.tripfocus[data-view="trip"] #screenTrip .tgauge[data-n="3"] .big { font-size: min(60vw, 42vh); }
+  body.tripfocus[data-view="trip"] #screenTrip .tgauge[data-n="2"] .simple .big { font-size: min(54vw, 36vh); }
+  body.tripfocus[data-view="trip"] #screenTrip .tgauge[data-n="3"] .simple .big { font-size: min(36vw, 34vh); }
+  body.tripfocus[data-view="trip"] #screenTrip .tgauge[data-n="2"] .race .rnum { font-size: min(64vw, 34vh); }
+  body.tripfocus[data-view="trip"] #screenTrip .tgauge[data-n="3"] .race .rnum { font-size: min(44vw, 28vh); }
+}
+@media (orientation: landscape) and (max-height: 600px) {
+  body.tripfocus[data-view="trip"] #screenTrip .tgauge[data-n="2"] .big { font-size: min(80vh, 40vw); }
+  body.tripfocus[data-view="trip"] #screenTrip .tgauge[data-n="2"] .simple .big { font-size: min(80vh, 34vw); }
+  body.tripfocus[data-view="trip"] #screenTrip .tgauge[data-n="3"] .simple .big { font-size: min(70vh, 28vw); }
+  body.tripfocus[data-view="trip"] #screenTrip .tgauge[data-n="2"] .race .rnum { font-size: min(60vh, 30vw); }
+}
+body.tripfocus[data-view="trip"] #screenTrip .tgauge .dial .num { font-size: 66px; }
+body.tripfocus[data-view="trip"] #screenTrip .tgauge .arcg .num { font-size: 138px; }
+body.tripfocus[data-view="trip"] #screenTrip .tgauge .gsf text.orb.hl { font-size: 106px; transform: translateY(12px); }
+/* 直的：科幻錶寬度不夠撐高度，放大一點，最外圈的細線切掉一點沒關係 */
+@media (orientation: portrait) {
+  body.tripfocus[data-view="trip"] #screenTrip .tpanel { overflow: hidden; }
+  body.tripfocus[data-view="trip"] #screenTrip .tgauge[data-kind="scifi"] svg { transform: scale(1.16); }
+}
