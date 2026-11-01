@@ -499,7 +499,7 @@ function openCamera() {
   const why = camReady();
   if (why) { setNote(why); paintPanel(); return; }
   if (!rec) startRec();
-  import("./tripcam.js?v=55").then((m) => m.openCam(camApi)).catch(() => { setNote("錄影畫面打不開，等一下再試。"); paintPanel(); });
+  import("./tripcam.js?v=56").then((m) => m.openCam(camApi)).catch(() => { setNote("錄影畫面打不開，等一下再試。"); paintPanel(); });
 }
 
 /* 按「結束」：先暫停，問要存起來、捨棄，還是繼續記 */

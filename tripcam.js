@@ -58,6 +58,10 @@ export async function openCam(api) {
 <div class="sharewrap tcam-sheet" data-sheet="saved" hidden><div class="sharedim" data-act="savedClose"></div><div class="sharesheet" role="dialog" aria-modal="true" aria-label="影片存好了"></div></div>`;
   document.body.appendChild(el);
   document.body.classList.add("tcamopen");
+  document.documentElement.classList.add("tcamopen");
+  // 錄影畫面不能滑：除了「放什麼」那張可以上下捲，其他地方的拖動都擋掉
+  el.addEventListener("touchmove", (e) => { if (!e.target.closest(".sharesheet")) e.preventDefault(); }, { passive: false });
+  el.addEventListener("wheel", (e) => { if (!e.target.closest(".sharesheet")) e.preventDefault(); }, { passive: false });
 
   const canvas = el.querySelector("canvas");
   const video = el.querySelector("video");
@@ -728,5 +732,6 @@ export function closeCam() {
   c.parts.forEach((p) => { if (p.blobUrl) setTimeout(() => URL.revokeObjectURL(p.blobUrl), 60000); });
   c.el.remove();
   document.body.classList.remove("tcamopen");
+  document.documentElement.classList.remove("tcamopen");
   c.api.closed?.(c.tripId);
 }
