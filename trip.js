@@ -294,6 +294,7 @@ function onFix(p) {
   if (!rec || rec.paused) return;
   gpsErr = 0;
   addPoint(rec, p);
+  kickAnim();
 }
 
 /* 外殼送過來的事：started / denied / fix / paused / resumed / stopped */
@@ -380,6 +381,7 @@ function setNote(msg, btn) { noteMsg = msg || ""; noteBtn = btn || null; }
 
 function beginRec(m, start) {
   rec = newRec(m, start);
+  vDisp = 0;
   mode = m;
   store(MODE_KEY, m);
   setNote("");
@@ -472,7 +474,8 @@ const camApi = {
   get gauge() { return gauge; },
   gaugeName: () => GAUGES[gauge] || "",
   isSvgGauge: () => SVG_GAUGES.has(gauge),
-  gaugeSvg: (v, r) => gaugeHtml(v, r),
+  gaugeSvg: (v, r) => { needleK = v * 3.6; try { return gaugeHtml(v, r); } finally { needleK = null; } },
+  vNow: () => (rec && !rec.paused ? vDisp : 0),
   mode: () => MODES[rec ? rec.mode : mode] || MODES.car,
   avgV, km, kmh, kmh1,
   openGaugePick: () => openGaugePick(),
@@ -501,7 +504,7 @@ function openCamera() {
   const why = camReady();
   if (why) { setNote(why); paintPanel(); return; }
   if (!rec) startRec();
-  import("./tripcam.js?v=59").then((m) => m.openCam(camApi)).catch(() => { setNote("錄影畫面打不開，等一下再試。"); paintPanel(); });
+  import("./tripcam.js?v=60").then((m) => m.openCam(camApi)).catch(() => { setNote("錄影畫面打不開，等一下再試。"); paintPanel(); });
 }
 
 /* 按「結束」：先暫停，問要存起來、捨棄，還是繼續記 */
@@ -579,6 +582,32 @@ async function keepTrip(t, quiet) {
   return t;
 }
 
+let vDisp = 0;          // 畫面上的時速（m/s），慢慢追 rec.vShow
+let animId = 0, animLast = 0, animDrawn = "", animPaint = 0;
+function drawGauge() {
+  const r = rec;
+  if (!r) return;
+  needleK = vDisp * 3.6;
+  try { S.tripGauge.innerHTML = gaugeHtml(vDisp, r); } finally { needleK = null; }
+  animDrawn = (vDisp * 3.6).toFixed(1);
+  animPaint = performance.now();
+}
+function animStep(t) {
+  animId = 0;
+  if (!rec || document.hidden) { animLast = 0; return; }
+  const dt = animLast ? Math.min(0.25, (t - animLast) / 1000) : 1 / 60;
+  animLast = t;
+  const target = rec.paused ? 0 : rec.vShow;
+  vDisp += (target - vDisp) * (1 - Math.exp(-dt / 0.45));
+  if (Math.abs(target - vDisp) < 0.005) vDisp = target;
+  const k = (vDisp * 3.6).toFixed(1);
+  const drawHere = view === "trip" && !document.body.classList.contains("tcamopen");
+  if (drawHere && k !== animDrawn && t - animPaint >= 30) drawGauge();
+  if (vDisp !== target || (drawHere && k !== animDrawn)) animId = requestAnimationFrame(animStep);
+  else animLast = 0;
+}
+function kickAnim() { if (!animId && rec) animId = requestAnimationFrame(animStep); }
+
 function startTick() {
   stopTick();
   tick = setInterval(onTick, 1000);
@@ -589,6 +618,7 @@ let frame = 0;
 function onTick() {
   frame++;
   if (rec && !rec.paused && Date.now() - rec.lastFixAt > 5000) rec.vShow *= 0.6;   // 一陣子沒訊號，數字慢慢歸零
+  kickAnim();
   paintTripDot();
   if (view !== "trip") return;
   paintLiveNumbers();
@@ -617,6 +647,11 @@ function arcPath(cx, cy, r, v0, v1, max) {
   const large = 270 * (v1 - v0) / max > 180 ? 1 : 0;
   return `M${f1(x0)} ${f1(y0)}A${r} ${r} 0 ${large} 1 ${f1(x1)} ${f1(y1)}`;
 }
+
+/* 指針順順地走：畫面上的時速每一格（約 30 張／秒）往 GPS 的時速靠過去，指針用帶小數的時速畫，
+   數字還是整數。needleK 是這一次要畫的帶小數時速（km/h），不在畫的時候是 null。 */
+let needleK = null;
+const sv = (s) => (needleK != null && Math.abs(needleK - s) <= 0.6 ? needleK : s);
 
 function gaugeHtml(v, r, g = gauge, lit = false) {
   const M = MODES[mode];
@@ -663,8 +698,8 @@ function gaugeDial(speed, M, maxK, on) {
       labels += `<text x="${f1(lx)}" y="${f1(ly + 6)}"${v >= redFrom ? ' class="hot"' : ""}>${v}</text>`;
     }
   }
-  const [nx, ny] = polar(cx, cy, 118, speed, max);
-  const [tx, ty] = polar(cx, cy, -18, speed, max);
+  const [nx, ny] = polar(cx, cy, 118, sv(speed), max);
+  const [tx, ty] = polar(cx, cy, -18, sv(speed), max);
   const [m1x, m1y] = polar(cx, cy, 148, maxK, max);
   const [m2x, m2y] = polar(cx, cy, 112, maxK, max);
   return `<svg class="dial" viewBox="0 0 320 320" width="300" height="300" role="img" aria-label="現在 ${speed} km/h">
@@ -692,7 +727,7 @@ function gaugeArc(speed, M, maxK, on) {
   return `<svg class="arcg" viewBox="0 0 320 300" width="300" height="281" role="img" aria-label="現在 ${speed} km/h">
 <path d="${ticks}" class="tick"/>
 <path d="${arcPath(160, 160, 130, 0, max, max)}" class="track"/>
-${speed > 0 ? `<path d="${arcPath(160, 160, 130, 0, Math.min(speed, max), max)}" class="fill${on ? " on" : ""}"/>` : ""}
+${sv(speed) > 0.05 ? `<path d="${arcPath(160, 160, 130, 0, Math.min(sv(speed), max), max)}" class="fill${on ? " on" : ""}"/>` : ""}
 ${maxK > 0 ? `<path d="M${f1(mx1)} ${f1(my1)}L${f1(mx2)} ${f1(my2)}" class="maxmark"/>` : ""}
 <text x="90" y="232" class="lab">0</text><text x="230" y="232" class="lab">${max}</text>
 <text x="160" y="186" class="num">${speed}</text><text x="160" y="214" class="unit">KM/H</text>
@@ -754,7 +789,7 @@ function gaugeLegacy(speed, M, r, maxK, on) {
     } else if (i % 2 === 0) tMid += lineA(180, 180, 151, 164, a);
     else tMin += lineA(180, 180, 157, 164, a);
   }
-  const na = ang(speed);
+  const na = ang(sv(speed));
   const [tx, ty] = ptA(180, 180, 162, na), [bx, by] = ptA(180, 180, 30, na + 180);
   const [l1x, l1y] = ptA(180, 180, 4.5, na + 90), [l2x, l2y] = ptA(180, 180, 4.5, na - 90);
   const trip = tripKm(r);
@@ -835,7 +870,7 @@ function gaugeRetro(speed, M, r, maxK, on) {
     } else if (i % 2 === 0) tMid += lineA(180, 180, 146, 158, a);
     else tMin += lineA(180, 180, 151, 158, a);
   }
-  const na = angOf(speed, max);
+  const na = angOf(sv(speed), max);
   const [tx, ty] = ptA(180, 180, 152, na), [bx, by] = ptA(180, 180, 16, na + 180);
   const [l1x, l1y] = ptA(180, 180, 5, na + 90), [l2x, l2y] = ptA(180, 180, 5, na - 90);
   const odo = String(Math.min(99999, Math.floor(tripKm(r) * 10))).padStart(5, "0");
@@ -1280,7 +1315,8 @@ function paintLiveNumbers() {
   if (!r) return;
   const M = MODES[r.mode];
   S.tripRecBar.innerHTML = `<span class="d${r.paused ? "" : " rec"}"></span><span class="t">${r.paused ? "暫停了" : "記錄中"}・${M.name}</span><span class="gps">${esc(gpsText(r))}</span><time>${hms(elapsed(r))}</time>`;
-  S.tripGauge.innerHTML = gaugeHtml(r.paused ? 0 : r.vShow, r);
+  drawGauge();
+  kickAnim();
   S.tripGauge.dataset.n = M.max >= 100 ? "3" : "2";   // 腳踏車、跑步最多兩位數：只看時速時字可以放更大
   const avg = avgV(r);
   S.tripStats.innerHTML =

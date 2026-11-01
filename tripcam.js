@@ -130,7 +130,13 @@ function startDraw() {
   };
   c.raf = requestAnimationFrame(frame);
   paintOverlay(c);
-  c.timer = setInterval(() => { if (cam === c) { paintOverlay(c); refreshGauge(c); syncOptsLabel(c); } }, 500);
+  c.timer = setInterval(() => { if (cam === c) { paintOverlay(c); syncOptsLabel(c); } }, 500);
+  // 時速（指針）一秒更新約 12 次，影片裡的指針才會順順地走
+  c.gTimer = setInterval(() => {
+    if (cam !== c) return;
+    if (c.api.isSvgGauge()) refreshGauge(c);
+    else if (c.opts.speed) { const k = speedNow(c); if (k !== c.lastK) { c.lastK = k; paintOverlay(c); } }
+  }, 80);
   refreshGauge(c);
 }
 
@@ -149,15 +155,16 @@ function drawFrame(c) {
 
 function speedNow(c) {
   const r = c.api.rec;
-  return r && !r.paused ? Math.round(r.vShow * 3.6) : 0;
+  const v = c.api.vNow ? c.api.vNow() : (r && !r.paused ? r.vShow : 0);
+  return Math.round(v * 3.6);
 }
 
 // 選的面板是 SVG 的（圓錶、弧形、科幻…）：把那張 SVG 轉成圖，疊在影片上
 function refreshGauge(c) {
   const api = c.api;
   if (!c.opts.speed || !api.isSvgGauge()) { c.gaugeImg = null; c.gaugeKey = ""; return; }
-  const r = api.rec, v = r && !r.paused ? r.vShow : 0;
-  const key = api.gauge + "|" + Math.round(v * 3.6) + "|" + Math.round((r?.maxV || 0) * 3.6) + "|" + Math.round((r?.dist || 0) / 100);
+ const r = api.rec, v = api.vNow ? api.vNow() : (r && !r.paused ? r.vShow : 0);
+  const key = api.gauge + "|" + (v * 3.6).toFixed(1) + "|" + Math.round((r?.maxV || 0) * 3.6) + "|" + Math.round((r?.dist || 0) / 100);
   if (key === c.gaugeKey) return;
   c.gaugeKey = key;
   let svg = api.gaugeSvg(v, r);
@@ -167,7 +174,9 @@ function refreshGauge(c) {
   svg = svg.replace(/(<svg[^>]*>)/, "$1<style>" + gaugeCss() + "</style>");
   const img = new Image();
   const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
-  img.onload = () => { URL.revokeObjectURL(url); if (cam === c && c.gaugeKey === key) { c.gaugeImg = img; paintOverlay(c); } };
+  const seq = (c.gSeq = (c.gSeq || 0) + 1);
+  // 轉圖要一點時間：比現在顯示的新就換上去（不用等最新那張，不然一直在變的時候會卡住）
+  img.onload = () => { URL.revokeObjectURL(url); if (cam === c && seq > (c.gShown || 0)) { c.gShown = seq; c.gaugeImg = img; paintOverlay(c); } };
   img.onerror = () => URL.revokeObjectURL(url);
   img.src = url;
 }
@@ -566,6 +575,7 @@ async function stopAll({ reason } = {}) {
 function stopCamera(c) {
   cancelAnimationFrame(c.raf);
   clearInterval(c.timer);
+  clearInterval(c.gTimer);
   c.stream?.getTracks().forEach((t) => t.stop());
   c.stream = null;
   try { c.video.srcObject = null; } catch { /* 算了 */ }
