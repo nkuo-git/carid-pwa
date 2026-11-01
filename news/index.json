@@ -2,6 +2,46 @@
  "v": 1,
  "items": [
   {
+   "id": "2026-11-01-how",
+   "date": "2026-11-01",
+   "kind": "how",
+   "title": "無段變速箱：沒有固定檔位怎麼換檔",
+   "lede": "無段變速箱是一種能連續改變傳動比的自排系統，讓引擎隨時維持在最有效率的轉速運轉。",
+   "sections": [
+    {
+     "h": "它在做什麼",
+     "p": [
+      "傳統自排或手排變速箱只有固定數量的齒輪檔位，換檔時齒比是一階階跳躍。無段變速箱（CVT）則不同，它能在連續範圍內自由調節傳動比。在良好控制下，無論車子開快開慢，引擎都可以保持在恆定的轉速運轉，讓車輛持續維持在最省油或動力輸出最大的轉速區間。"
+     ]
+    },
+    {
+     "h": "兩組滑輪怎麼變速",
+     "p": [
+      "最常見的設計是用皮帶或鋼帶連接兩組滑輪。每個滑輪都由兩個錐形盤面組成，當兩側盤面靠攏時，帶子會被往外推，運轉半徑就變大；盤面分開時，帶子往內陷，半徑就變小。",
+      "因為帶子長度固定，兩組滑輪必須同時一邊變大、一邊變小，在維持張力的同時平順改變齒比。這種設計理論上結構更簡單，內部零件壽命也可能更長。"
+     ]
+    },
+    {
+     "h": "開起來有什麼差別",
+     "p": [
+      "因為沒有傳統齒輪切換的過程，開起來不會有傳統自排換檔太快造成的震動，加速非常平順，也能達到更好的燃油經濟性。但由於傳動時不能打滑，滑輪與鋼帶之間必須承受極大壓力。現代無段變速箱也能透過電子液壓控制滾輪，模擬出幾個固定檔位來換檔。"
+     ]
+    }
+   ],
+   "sources": [
+    {
+     "name": "維基百科：Continuously variable transmission",
+     "url": "https://en.wikipedia.org/wiki/Continuously_variable_transmission"
+    },
+    {
+     "name": "中文維基百科",
+     "url": "https://zh.wikipedia.org/zh-tw/%E7%84%A1%E6%AE%B5%E8%87%AA%E5%8B%95%E8%AE%8A%E9%80%9F%E5%99%A8"
+    }
+   ],
+   "img": "https://upload.wikimedia.org/wikipedia/commons/d/d7/GearBoxRotRotVar.gif?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+   "imgCredit": "W.Rebel／CC BY 3.0，Wikimedia Commons"
+  },
+  {
    "id": "2026-10-31-new",
    "date": "2026-10-31",
    "kind": "new",
@@ -674,5 +714,5 @@
    "imgCredit": "Mr.choppers／CC BY-SA 3.0，Wikimedia Commons"
   }
  ],
- "updated": "2026-10-31T01:36:27.483Z"
+ "updated": "2026-11-01T01:08:47.775Z"
 }
