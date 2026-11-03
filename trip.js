@@ -504,7 +504,7 @@ function openCamera() {
   const why = camReady();
   if (why) { setNote(why); paintPanel(); return; }
   if (!rec) startRec();
-  import("./tripcam.js?v=60").then((m) => m.openCam(camApi)).catch(() => { setNote("錄影畫面打不開，等一下再試。"); paintPanel(); });
+  import("./tripcam.js?v=61").then((m) => m.openCam(camApi)).catch(() => { setNote("錄影畫面打不開，等一下再試。"); paintPanel(); });
 }
 
 /* 按「結束」：先暫停，問要存起來、捨棄，還是繼續記 */
@@ -793,7 +793,28 @@ function gaugeLegacy(speed, M, r, maxK, on) {
   const [tx, ty] = ptA(180, 180, 162, na), [bx, by] = ptA(180, 180, 30, na + 180);
   const [l1x, l1y] = ptA(180, 180, 4.5, na + 90), [l2x, l2y] = ptA(180, 180, 4.5, na - 90);
   const trip = tripKm(r);
-  return `<svg class="gx glg${on ? " on" : ""}" viewBox="0 0 360 360" width="300" height="300" role="img" aria-label="現在 ${speed} km/h">
+  // 下面兩個小圈指針錶（像原車的水溫、油量）：左邊這趟平均時速，右邊 GPS 訊號強弱
+  const avgK = r ? avgV(r) * 3.6 : 0;
+  const gpsF = !r || !r.last ? 0 : Date.now() - r.lastFixAt > 8000 ? 0.08 : Math.min(1, Math.max(0.05, (60 - (r.acc ?? 60)) / 52));
+  const sub = (cx, cy, f, lo, hi, name, hot) => {
+    const a0 = 200, a1 = 340, a = a0 + (a1 - a0) * Math.min(1, Math.max(0, f));
+    let tk = "";
+    for (let i = 0; i <= 8; i++) tk += lineA(cx, cy, i % 4 === 0 ? 31 : 35, 41, a0 + (a1 - a0) * i / 8);
+    const [lx, ly] = ptA(cx, cy, 26, a0 - 4), [hx, hy] = ptA(cx, cy, 26, a1 + 4);
+    const [nx, ny] = ptA(cx, cy, 36, a), [qx, qy] = ptA(cx, cy, 7, a + 180);
+    return `<circle cx="${cx}" cy="${cy}" r="52" fill="#000"/>
+<circle cx="${cx}" cy="${cy}" r="48" fill="url(#glgFace)"/>
+<circle cx="${cx}" cy="${cy}" r="49" fill="none" stroke="url(#glgHalo)" stroke-width="5" filter="url(#glgGlow)"/>
+<circle cx="${cx}" cy="${cy}" r="48" fill="none" stroke="url(#glgRim)" stroke-width="2.5"/>
+<path d="${tk}" stroke="#F4F6F8" stroke-width="2.2" filter="url(#glgSoft)"/>
+<path d="${lineA(cx, cy, 33, 41, hot)}" stroke="${RED}" stroke-width="3"/>
+<g class="bc" font-weight="700" font-size="12" fill="#FFFFFF" text-anchor="middle"><text x="${f1(lx)}" y="${f1(ly + 13)}">${lo}</text><text x="${f1(hx)}" y="${f1(hy + 13)}">${hi}</text></g>
+<text x="${cx}" y="${cy + 24}" class="bc" text-anchor="middle" font-weight="600" font-size="12" fill="#FFFFFF" fill-opacity=".85">${name}</text>
+<path d="M${f1(qx)} ${f1(qy)}L${f1(nx)} ${f1(ny)}" stroke="${on ? RED : "#8A2A24"}" stroke-width="3.2" stroke-linecap="round" filter="url(#glgGlow)"/>
+<circle cx="${cx}" cy="${cy}" r="6" fill="#050505" stroke="#2A2A2A"/>`;
+  };
+  const subs = sub(84, 350, avgK / max, 0, max, `平均 ${avgK ? Math.round(avgK) : 0}`, 340) + sub(276, 350, gpsF, "弱", "強", "GPS", 200);
+  return `<svg class="gx glg${on ? " on" : ""}" viewBox="0 0 360 404" width="300" height="337" role="img" aria-label="現在 ${speed} km/h">
 <defs>
 <radialGradient id="glgFace" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#121214"/><stop offset=".8" stop-color="#050506"/><stop offset="1" stop-color="#000"/></radialGradient>
 <linearGradient id="glgRim" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".45" stop-color="#E6E9EE"/><stop offset=".62" stop-color="#FF8A80"/><stop offset="1" stop-color="${RED}"/></linearGradient>
@@ -819,6 +840,7 @@ ${maxK > 0 ? `<path d="${lineA(180, 180, 165, 172, ang(maxK))}" stroke="${RED}" 
 <circle cx="180" cy="180" r="50" fill="url(#glgHub)"/>
 <path class="needle" d="M${f1(bx)} ${f1(by)}L${f1(l1x)} ${f1(l1y)}L${f1(tx)} ${f1(ty)}L${f1(l2x)} ${f1(l2y)}Z" fill="${on ? RED : "#8A2A24"}" filter="url(#glgGlow)"/>
 <circle cx="180" cy="180" r="34" fill="#030303"/>
+${subs}
 </svg>` + paceDiv(M, speed);
 }
 
