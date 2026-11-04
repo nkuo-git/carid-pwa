@@ -2,6 +2,59 @@
  "v": 1,
  "items": [
   {
+   "id": "2026-11-04-lux",
+   "date": "2026-11-04",
+   "kind": "lux",
+   "title": "Pagani Zonda",
+   "lede": "義大利跑車製造商 Pagani 推出的中置引擎跑車，自 1999 年發表以來，生產數量相當稀少。",
+   "sections": [
+    {
+     "h": "為什麼值得認識",
+     "p": [
+      "Pagani Zonda 最初原本要以一級方程式冠軍 Juan Manuel Fangio 為名命名為 Fangio F1，但在他於 1995 年去世後，改以吹拂阿根廷上空的熱氣流 Zonda 風來命名。這台車在 1999 年日內瓦車展首次亮相，車體結構主要採用碳纖維製造，後續也陸續推出雙門硬頂跑車、敞篷車型以及 barchetta 等多種版本。",
+      "在漫長的生產週期中，車型不斷進行改良與進化，例如 Zonda F 進行了廣泛的重新設計，而後續的 Cinque 更採用了結合鈦纖維的 carbo-titanium 材質來增加強度與剛性。許多特殊版本如 Zonda Tricolore 則是為了向義大利特技飛行隊致敬而打造，而 Zonda HP Barchetta 則是作為創辦人 Horacio Pagani 六十歲生日禮物與紀念 Zonda 屆滿十八週年而發表。"
+     ]
+    },
+    {
+     "h": "在路上怎麼認出它",
+     "p": [
+      "Zonda 在不同車型上擁有各自獨特的外部特徵，例如 Zonda F 配備了額外的頭燈、下進氣壩的新霧燈組、全新車身空氣力學設計與不同側後視鏡。Zonda Cinque 擁有更長的前分流器、側裙、後分流器、保險桿風翼、較平坦的車底以及車頂進氣口。Zonda Tricolore 則擁有未上漆的透明藍色漆面，並帶有紅、白、綠三色條紋，且駕駛座後方配有小型側翼。Zonda HP Barchetta 則具備 barchetta 車身風格、源自 C 組賽車靈感的後輪蓋，以及取自 760 系列車型的後擾流板、進氣口與尾燈。"
+     ]
+    }
+   ],
+   "make": "Pagani",
+   "specs": [
+    [
+     "生產年份",
+     "1999 年至今（截至 2019 年總共建造 140 台）"
+    ],
+    [
+     "車身材質",
+     "主要為碳纖維"
+    ],
+    [
+     "引擎",
+     "Mercedes-Benz / Mercedes-AMG V12 引擎"
+    ],
+    [
+     "變速箱",
+     "五速手排 / CIMA 六速手排 / 六速自手排"
+    ],
+    [
+     "極速",
+     "最高可達 208 mph 或 355 km/h"
+    ]
+   ],
+   "sources": [
+    {
+     "name": "維基百科：Pagani Zonda",
+     "url": "https://en.wikipedia.org/wiki/Pagani_Zonda"
+    }
+   ],
+   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/42/Pagani_Zonda_C12_%27chassis_001%27_Genf_2019_1Y7A5539.jpg/1280px-Pagani_Zonda_C12_%27chassis_001%27_Genf_2019_1Y7A5539.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "imgCredit": "Alexander Migl／CC BY-SA 4.0，Wikimedia Commons"
+  },
+  {
    "id": "2026-11-01-how",
    "date": "2026-11-01",
    "kind": "how",
@@ -714,5 +767,5 @@
    "imgCredit": "Mr.choppers／CC BY-SA 3.0，Wikimedia Commons"
   }
  ],
- "updated": "2026-11-01T01:08:47.775Z"
+ "updated": "2026-11-04T02:20:56.697Z"
 }
