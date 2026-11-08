@@ -2,6 +2,46 @@
  "v": 1,
  "items": [
   {
+   "id": "2026-11-08-how",
+   "date": "2026-11-08",
+   "kind": "how",
+   "title": "油電車的原理：引擎跟馬達怎麼聯手省油？",
+   "lede": "把傳統引擎和電動馬達組合在一起，透過兩種動力的分工與電力回收，讓車子開起來更省油且加速更好。",
+   "sections": [
+    {
+     "h": "油電系統到底在做什麼",
+     "p": [
+      "油電複合動力車（HEV）就像是讓兩個運動員一起接力，傳統內燃機引擎擅長穩定輸出，而電動馬達具備天生更好的能量轉換效率。兩者組成聯合驅動系統，主要目的就是為了帶來比傳統燃油車更好的燃油經濟性，或者更強勁的加速性能。除了常見的乘用車，卡車、巴士甚至飛機也都有類似應用。"
+     ]
+    },
+    {
+     "h": "引擎與馬達怎麼分工運作",
+     "p": [
+      "常見的架構主要有三種：並聯式是引擎與馬達同時連到變速箱一起出力驅動車輪；串聯式則是只有馬達負責驅動車輪，引擎單純作為發電機供電；動力分流則是結合兩者優點，低速像串聯、高速像並聯。車內的能量管理系統會隨時計算，自動調配引擎與電池之間的最佳動力分配。",
+      "現代油電車還配備再生煞車技術，能在減速時把動能回收成電能，存進電池或超級電容中備用。當遇到停等紅燈時，怠速熄火系統會暫時關閉引擎，等起步需要時再重新啟動，減少怠速時的浪費與廢氣。"
+     ]
+    },
+    {
+     "h": "實際開起來有什麼差別",
+     "p": [
+      "因為有電動馬達輔助，油電車通常可以搭配排氣量較小的引擎，在市區走走停停的路況下，電動馬達的介入能讓省油效果特別明顯。而且如果引擎不直接驅動車輪，還能固定在最高效率的狀態運轉發電，整體尾氣排放量也比同尺寸的傳統汽油車來得更低。"
+     ]
+    }
+   ],
+   "sources": [
+    {
+     "name": "維基百科：Hybrid electric vehicle",
+     "url": "https://en.wikipedia.org/wiki/Hybrid_electric_vehicle"
+    },
+    {
+     "name": "中文維基百科",
+     "url": "https://zh.wikipedia.org/zh-tw/%E6%B7%B7%E5%90%88%E5%8A%A8%E5%8A%9B%E7%94%B5%E5%8A%A8%E8%BD%BD%E5%85%B7"
+    }
+   ],
+   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/7e/2025_Toyota_Prius_LE%2C_front_right%2C_09-06-2025.jpg/1280px-2025_Toyota_Prius_LE%2C_front_right%2C_09-06-2025.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "imgCredit": "MercurySable99／CC BY-SA 4.0，Wikimedia Commons"
+  },
+  {
    "id": "2026-11-07-new",
    "date": "2026-11-07",
    "kind": "new",
@@ -789,5 +829,5 @@
    "imgCredit": "Mr.choppers／CC BY-SA 3.0，Wikimedia Commons"
   }
  ],
- "updated": "2026-11-07T01:55:14.980Z"
+ "updated": "2026-11-08T01:25:53.347Z"
 }
