@@ -1,6 +1,12 @@
 {
  "used": [
   {
+   "kind": "lux",
+   "k": "Koenigsegg Jesko",
+   "t": "Jesko",
+   "d": "2026-11-11"
+  },
+  {
    "kind": "how",
    "k": "Hybrid electric vehicle",
    "t": "油電車的原理：引擎跟馬達怎麼聯手省油？",

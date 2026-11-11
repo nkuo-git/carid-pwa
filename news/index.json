@@ -2,6 +2,63 @@
  "v": 1,
  "items": [
   {
+   "id": "2026-11-11-lux",
+   "date": "2026-11-11",
+   "kind": "lux",
+   "title": "Jesko",
+   "lede": "Koenigsegg Jesko 是接替 Agera 的限量超跑，使用 E85 燃料可達 1,600 匹馬力，原廠預估極速達 500 km/h。",
+   "sections": [
+    {
+     "h": "為什麼值得認識",
+     "p": [
+      "這款車以創辦人父親之名命名，是接替 Agera 的旗艦之作。車輛搭載 5.1 升雙渦輪 V8 引擎，改採 180 度平面曲軸讓紅線轉速拉高至 8,500 rpm，使用 E85 生質燃料時可輸出 1,600 匹馬力。為解決渦輪遲滯，原廠配置了 20 公升碳纖維儲氣槽與電子壓縮機，主動以 20 bar 壓力供氣。",
+      "另一技術核心是自家研發的 LST 光速變速箱，重量僅 90 公斤且換檔只需 20 至 30 毫秒，還能跳過循序換檔直接切入最適檔位。全車限量 125 輛在展覽結束前就售罄，追求極速的 Jesko Absolut 更在 2024 年以 27.83 秒刷新 0–400–0 km/h 世界紀錄。"
+     ]
+    },
+    {
+     "h": "在路上怎麼認出它",
+     "p": [
+      "它的車門具備向外延伸且離地更高的獨特開法，車頂設有固定螺絲。追求下壓力的 Attack 車型裝有巨大的碳纖維前擾流板與大尾翼；極速導向的 Absolut 車型則取消尾翼與前下擾流，改設雙垂直尾鰭，車長額外延伸 85 mm，後輪更換上可拆卸的空力外蓋。"
+     ]
+    }
+   ],
+   "make": "Koenigsegg",
+   "specs": [
+    [
+     "引擎形式",
+     "5.1 升雙渦輪增壓 V8"
+    ],
+    [
+     "最大馬力",
+     "1,280 hp / 1,600 hp (E85)"
+    ],
+    [
+     "最大扭力",
+     "1,000 N⋅m / 1,500 N⋅m"
+    ],
+    [
+     "變速箱",
+     "10 速 LST 多離合變速箱"
+    ],
+    [
+     "換檔時間",
+     "20 至 30 毫秒"
+    ],
+    [
+     "全球配額",
+     "限量 125 輛"
+    ]
+   ],
+   "sources": [
+    {
+     "name": "維基百科：Koenigsegg Jesko",
+     "url": "https://en.wikipedia.org/wiki/Koenigsegg_Jesko"
+    }
+   ],
+   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/9f/GIMS_2019%2C_Le_Grand-Saconnex_%28GIMS0833%29.jpg/1280px-GIMS_2019%2C_Le_Grand-Saconnex_%28GIMS0833%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "imgCredit": "Matti Blume／CC BY-SA 4.0，Wikimedia Commons"
+  },
+  {
    "id": "2026-11-08-how",
    "date": "2026-11-08",
    "kind": "how",
@@ -829,5 +886,5 @@
    "imgCredit": "Mr.choppers／CC BY-SA 3.0，Wikimedia Commons"
   }
  ],
- "updated": "2026-11-08T01:25:53.347Z"
+ "updated": "2026-11-11T01:55:36.308Z"
 }
