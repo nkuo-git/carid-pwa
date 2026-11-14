@@ -2,6 +2,28 @@
  "v": 1,
  "items": [
   {
+   "id": "2026-11-14-new",
+   "date": "2026-11-14",
+   "kind": "new",
+   "title": "Bentley Flying Spur在台發表",
+   "lede": "全新Bentley Flying Spur在台發表，單圓燈回歸搭配V8油電動力。",
+   "sections": [
+    {
+     "h": "",
+     "p": [
+      "大便龍的萬能軟體週六新車快訊來了！全新Bentley Flying Spur正式在台發表，售價從1380萬元起。這款豪華房車在外型上最受關注的改變，就是經典的單圓燈設計重新回歸，展現出辨識度極高的全新面貌。",
+      "在動力表現方面，這次導入了V8油電動力系統，能夠榨出高達680匹的強悍馬力，兼具環保與性能輸出，提供頂級買家兼具舒適與駕馭樂趣的全新選擇。"
+     ]
+    }
+   ],
+   "sources": [
+    {
+     "name": "UDN",
+     "url": "https://news.google.com/rss/articles/CBMiWkFVX3lxTFBDd2pDcHU4aThHMlFiX3JST2hhcmI0V19zeE53eGNYblRHOUc0UzNmODhqblZGUlE4WVZ0RDZtbmpLR3R5eDRnakNjcFBoLXQ0RGtWZGNqRTVmUdIBX0FVX3lxTFBoUXhSTTRNS1FaUXI4cHpzaWZQLTlsN2hFam9WSW5kRlprUkNBcG5FMV9VaHdRU2xlYjFyRGlqWkpBX2l5d0JJMmI2eG5tYzNVYVJIWmZkbE9ETkpSWWw4?oc=5"
+    }
+   ]
+  },
+  {
    "id": "2026-11-11-lux",
    "date": "2026-11-11",
    "kind": "lux",
@@ -886,5 +908,5 @@
    "imgCredit": "Mr.choppers／CC BY-SA 3.0，Wikimedia Commons"
   }
  ],
- "updated": "2026-11-11T01:55:36.308Z"
+ "updated": "2026-11-14T03:26:50.382Z"
 }
