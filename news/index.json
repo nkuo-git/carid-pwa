@@ -2,6 +2,45 @@
  "v": 1,
  "items": [
   {
+   "id": "2026-11-15-how",
+   "date": "2026-11-15",
+   "kind": "how",
+   "title": "機械增壓：引擎怎麼大口深呼吸",
+   "lede": "機械增壓是透過曲軸帶動空氣壓縮機，把更多空氣強制擠進引擎燃燒室，讓車子更有力。",
+   "sections": [
+    {
+     "h": "它在做什麼",
+     "p": [
+      "想像引擎就像人的肺，吸入愈多空氣就能燃燒更多燃料、爆發更多力量。機械增壓就是一個強迫引擎大口呼吸的裝置。它會把進氣氣體壓縮，強行塞更多空氣進去，讓相同排氣量的引擎能榨出更多馬力和扭力。不過因為它的動力是直接從引擎曲軸抽出來的，所以會消耗一點引擎本身的動力。"
+     ]
+    },
+    {
+     "h": "怎麼運作",
+     "p": [
+      "機械增壓器主要是靠皮帶、鏈條或齒輪連接著發動機曲軸來獲得動力。依據空氣傳輸的方式，主要分成正位移增壓器和動態增壓器兩大類。常見的設計有魯式、雙螺旋式和離心式。魯式和雙螺旋式是用轉子把空氣吸進來並推到進氣歧管；離心式則是靠高速旋轉的葉輪把空氣吸入，再透過擴壓器把高速轉成高壓。這些被壓縮的空氣因為溫度會升高，有時候還需要靠中央冷卻器來降溫。"
+     ]
+    },
+    {
+     "h": "開起來有什麼差別",
+     "p": [
+      "跟靠廢氣推動的渦輪增壓比起來，機械增壓因為是直接由曲軸帶動，所以轉速一上去就立刻有反應，幾乎沒有渦輪遲滯，油門踩下去的動力輸出非常順暢，低轉速時反應很快。但也因為它隨時都在消耗曲軸的動力，油耗表現通常比較差一點，高轉速時的動力也不如渦輪增壓。正因爲它隨傳隨到的油門反應，所以常被用在對反應要求很高的拖曳賽車或超級跑車上。"
+     ]
+    }
+   ],
+   "sources": [
+    {
+     "name": "維基百科：Supercharger",
+     "url": "https://en.wikipedia.org/wiki/Supercharger"
+    },
+    {
+     "name": "中文維基百科",
+     "url": "https://zh.wikipedia.org/zh-tw/%E6%9C%BA%E6%A2%B0%E5%A2%9E%E5%8E%8B%E5%99%A8"
+    }
+   ],
+   "img": "https://upload.wikimedia.org/wikipedia/commons/9/9d/Supercharger_Animation_by_Tyroola.gif?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+   "imgCredit": "PatriciaWrites／CC BY-SA 4.0，Wikimedia Commons"
+  },
+  {
    "id": "2026-11-14-new",
    "date": "2026-11-14",
    "kind": "new",
@@ -908,5 +947,5 @@
    "imgCredit": "Mr.choppers／CC BY-SA 3.0，Wikimedia Commons"
   }
  ],
- "updated": "2026-11-14T03:26:50.382Z"
+ "updated": "2026-11-15T01:53:59.046Z"
 }
