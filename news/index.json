@@ -2,6 +2,71 @@
  "v": 1,
  "items": [
   {
+   "id": "2026-11-18-lux",
+   "date": "2026-11-18",
+   "kind": "lux",
+   "title": "Valkyrie",
+   "lede": "這是一台由亞德里安·紐維構思、結合F1技術與公路合法性的限量油電超跑，也是極致空力與自然進氣V12引擎的代表作。",
+   "sections": [
+    {
+     "h": "為什麼值得認識",
+     "p": [
+      "Aston Martin Valkyrie 是由英國車廠 Aston Martin、Red Bull Racing Advanced Technologies 以及多家技術夥伴共同打造的結晶。當時擔任 Red Bull Racing 首席技術官的亞德里安·紐維直接參與了設計，目標是打造一台既能在賽道奔馳、又符合公路法規的超級跑車。",
+      "動力心臟搭載了由考斯沃斯定製的 6.5 升自然吸氣 V12 引擎，轉速紅線高達 11,100 rpm，是量產公路車史上動力最強的自然吸氣引擎。結合 Integral Powertrain Ltd 與 Rimac 共同開發的油電混合動力系統後，能輸出高達 1,176 PS 的綜效馬力，展現出驚人的性能數據。"
+     ]
+    },
+    {
+     "h": "在路上怎麼認出它",
+     "p": [
+      "Valkyrie 的外觀設計極具空氣動力學特性，底盤採用開放式設計，運用伯努利定律和文丘里效應來產生強大的地面效應。車頂進氣口、前軸上方的間隙、大型前分流器以及車頂部的排氣管設計，都讓它帶有強烈的 F1 賽車風格。其車身採用全碳纖維材質，車輪則使用輕量化鎂合金與中心鎖螺母，Spider 車型更配置了前開式雙曲面蝶翼門。"
+     ]
+    }
+   ],
+   "make": "Aston Martin",
+   "specs": [
+    [
+     "引擎與動力系統",
+     "6.5升自然進氣V12引擎搭配KERS式油電系統"
+    ],
+    [
+     "最大綜效馬力",
+     "1,176 PS (1,160 hp) @ 10,500 rpm"
+    ],
+    [
+     "峰值扭力",
+     "900 N⋅m @ 6,000 rpm"
+    ],
+    [
+     "0–100 km/h 加速",
+     "2.6 秒"
+    ],
+    [
+     "車重",
+     "1,030 kg"
+    ],
+    [
+     "生產年份",
+     "2021年11月至2024年12月"
+    ],
+    [
+     "總產量",
+     "275輛（包含150輛雙門轎跑車、85輛Spider與40輛AMR Pro）"
+    ]
+   ],
+   "sources": [
+    {
+     "name": "維基百科：Aston Martin Valkyrie",
+     "url": "https://en.wikipedia.org/wiki/Aston_Martin_Valkyrie"
+    },
+    {
+     "name": "中文維基百科",
+     "url": "https://zh.wikipedia.org/zh-tw/%E9%98%BF%E6%96%AF%E9%A1%BF%C2%B7%E9%A9%AC%E4%B8%81%E5%A5%B3%E6%AD%A6%E7%A5%9E"
+    }
+   ],
+   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/ec/Aston_Martin_Valkyrie_Verification_Prototype_001_Genf_2019_1Y7A5569.jpg/1280px-Aston_Martin_Valkyrie_Verification_Prototype_001_Genf_2019_1Y7A5569.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "imgCredit": "Alexander Migl／CC BY-SA 4.0，Wikimedia Commons"
+  },
+  {
    "id": "2026-11-15-how",
    "date": "2026-11-15",
    "kind": "how",
@@ -947,5 +1012,5 @@
    "imgCredit": "Mr.choppers／CC BY-SA 3.0，Wikimedia Commons"
   }
  ],
- "updated": "2026-11-15T01:53:59.046Z"
+ "updated": "2026-11-18T03:43:31.545Z"
 }

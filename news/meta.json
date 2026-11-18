@@ -1,6 +1,12 @@
 {
  "used": [
   {
+   "kind": "lux",
+   "k": "Aston Martin Valkyrie",
+   "t": "Valkyrie",
+   "d": "2026-11-18"
+  },
+  {
    "kind": "how",
    "k": "Supercharger",
    "t": "機械增壓：引擎怎麼大口深呼吸",
