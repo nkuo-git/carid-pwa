@@ -2,6 +2,28 @@
  "v": 1,
  "items": [
   {
+   "id": "2026-11-21-new",
+   "date": "2026-11-21",
+   "kind": "new",
+   "title": "Mercedes-Benz全新GLB與GLC electric登台",
+   "lede": "賓士全新GLB與GLC electric雙車齊發正式登台上市。",
+   "sections": [
+    {
+     "h": "",
+     "p": [
+      "賓士這禮拜在台灣帶來了全新休旅陣容，讓車迷朋友期待的全新 GLB 以及 GLC electric 正式在國內發表上市。這兩款新車的加入，讓喜愛三芒星品牌的消費者有了更多樣化的休旅選擇。",
+      "這次正式公布的售價部分，全新引進的車型分別有著不同的價格定位，其中新台幣 199 萬元與 254 萬元起。喜歡這兩款新世代休旅車的朋友，現在已經可以開始關注相關的賞車與購車資訊了。"
+     ]
+    }
+   ],
+   "sources": [
+    {
+     "name": "7Car 小七車觀點",
+     "url": "https://news.google.com/rss/articles/CBMiUkFVX3lxTE5LRnczQXJxM2VGaGRVeFFicEl4QzdHaFROc196eHpIMlpObm11Xzh5Wi1TelBjRzFHTUhlMi1PSGV6MFVUVHlHMjJva082R2hRd3c?oc=5"
+    }
+   ]
+  },
+  {
    "id": "2026-11-18-lux",
    "date": "2026-11-18",
    "kind": "lux",
@@ -1012,5 +1034,5 @@
    "imgCredit": "Mr.choppers／CC BY-SA 3.0，Wikimedia Commons"
   }
  ],
- "updated": "2026-11-18T03:43:31.545Z"
+ "updated": "2026-11-21T03:14:41.471Z"
 }
